@@ -49,11 +49,17 @@ def test_others_open_with_fake_api():
         def windows(self, everything=False):
             return self.infos
     old = winlink.CONTROL_PORT[0], dict(winlink._PID_CACHE)
+    old_exe = os.environ.get("PCC_PHOTOCRAFT_EXE")
+    os.environ["PCC_PHOTOCRAFT_EXE"] = EXE      # the fake windows are Windows ones; on Linux exe_name() is "photocraft" (CI 17.11.)
     try:
         winlink.set_control_port(None)
         assert winlink.others_open(api=Api([win(1, 100, 500)])) is False
         assert winlink.others_open(api=Api([win(1, 100, 500), win(2, 200, 900)])) is True
     finally:
+        if old_exe is None:
+            os.environ.pop("PCC_PHOTOCRAFT_EXE", None)
+        else:
+            os.environ["PCC_PHOTOCRAFT_EXE"] = old_exe
         winlink.CONTROL_PORT[0] = old[0]
         winlink._PID_CACHE.update(old[1])
 

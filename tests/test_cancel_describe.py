@@ -36,6 +36,11 @@ def main():
     for _ in range(25):                         # let the start-up refresh report (nothing runs on port 1) before the status is checked
         app.root.update()
         time.sleep(0.02)
+    for _ in range(500):                        # a refused connection takes up to 2 s on Windows: a slow CI machine still had
+        if not (app.worker and app.worker.is_alive()):      # the start-up worker running, and the click was ignored (17.11.)
+            break
+        app.root.update()
+        time.sleep(0.02)
     ev = threading.Event()
 
     def describe(clip=""):

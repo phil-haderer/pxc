@@ -22,7 +22,7 @@ Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI version: 0.45.0
 
 ---
 
-- **Six function buttons:** Text to image, Expand, Fill, Remove, Edit and Upscale / Refine. Edit has tabs: Edit canvas, Multi image edit, Sketch to image, Scribble on photo and Scribble with reference; not every model offers every tab (MiniMax has only Edit canvas and Multi image edit; see the table under Functions). With Flux 3, Fill has two tabs: Fill selection and Insert reference.
+- **Six function buttons:** Text to image, Expand, Fill, Remove, Edit and Upscale / Refine. Edit has tabs: Edit canvas, Multi image edit, Sketch to image, Scribble on photo and Scribble with reference; not every model offers every tab.
 - **Seven models:** Flux 3 Klein, Flux 2 Klein, Qwen Image 2.1, Fibo 2.0 Edit Turbo, Krea 2 Turbo, MOSS Image and MiniMax H3 Image.
 - **Your own prompts:** the Save button right of the prompt keeps a prompt under a name; use or append it later under Style prompts > Custom prompts. Use also brings back the function, model and tab it was saved with, and image tags such as `<image2>` are rewritten for the model you are on.
 - **Local:** the models run in ComfyUI on your own graphics card.
@@ -35,11 +35,9 @@ Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI version: 0.45.0
 **What you need first** (all free):
 
 - **[PhotoCraft](https://github.com/storytold/photocraft/releases)**: the image editor where you work. The plugin adds AI functions to it.
-- **[ComfyUI](https://github.com/comfyanonymous/ComfyUI#installing)**: the program that runs the AI models on your graphics card. Install it, start it once, and leave it running while you work. Recommended: [ComfyUI Easy Install](https://github.com/Tavris1/ComfyUI-Easy-Install), which already includes the custom node pack KJNodes (below).
-- **An NVIDIA graphics card** (more VRAM means faster runs; VRAM is the memory of the graphics card, you can look it up in the Task Manager under Performance ▸ GPU).
+- **[ComfyUI](https://github.com/comfyanonymous/ComfyUI#installing)**: runs the AI models; leave it running while you work. Flux 2 and Upscale (Flux 3, Fibo) also need the add-on [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) ([ComfyUI Easy Install](https://github.com/Tavris1/ComfyUI-Easy-Install) includes it).
 - **[Python](https://www.python.org/downloads/windows/) 3.11 or newer**. No Python yet? On Windows the setup offers to install it for you.
 - **About 11 to 19 GB of free disk space per model you want to use, MiniMax about 45 GB** (the models are large files; one model is enough to start).
-- **A custom node pack for Flux 2 and for Upscale with Flux 3 and Fibo:** [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) (a small add-on for ComfyUI; install it from the ComfyUI Manager or from the link). Details: [Model downloads](#model-downloads).
 
 **Windows**
 
