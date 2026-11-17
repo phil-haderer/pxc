@@ -190,12 +190,13 @@ TABS: dict[str, TabSpec] = {
         # Text to image starts with the UltraReal LoRA on: a file the start values use is required (user 30.10.)
         modes={"txt2img": ModeSpec(requires=("Moss\\lenovo_moss.safetensors",))},
         optional=("Moss\\lora_dmd2.safetensors", _TAEF2)),      # its own required 9B writer describes (6.11.)
-    # MiniMax H3 Image (PLAN 2.0b, user 10.11.): UNet int8 ConvRot, text encoder nvfp4 (user 14.11.: probe on a 4070 Ti SUPER; nvfp4 runs on Ada too), VAE; the prompt writer (Qwen 3.5 9B w4a8)
-    # starts on in Edit and Multi image edit (user 11.11.), so it is required for the whole model (a start value of a function
-    # needs its file, the model is offered only when all its functions can run); Text to image starts with it off
+    # MiniMax H3 Image (PLAN 2.0b, user 10.11.): UNet int8 ConvRot, text encoder nvfp4 (user 14.11.: probe on a 4070 Ti SUPER; nvfp4 runs on Ada too), VAE. The prompt writer (Qwen 3.5 9B w4a8)
+    # starts off in every function since the Edit blind test (user 17.11.; on in Edit from 11.11.), so it is optional: the
+    # "Enhance my Prompt with LLM" switch is greyed out while it is missing
     "minimax": TabSpec(
         required=("minimax_h3_image_pruned_int8_convrot.safetensors", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
-                  "minimax_h3_image_vae_fp16.safetensors", "qwen3.5_9b_w4a8_gptq.safetensors"),
+                  "minimax_h3_image_vae_fp16.safetensors"),
+        optional=("qwen3.5_9b_w4a8_gptq.safetensors",),
         modes={"multi_edit": ModeSpec(optional=_CUT_OWN_LLM.optional)}),
 }
 
@@ -298,6 +299,7 @@ FEATURE_USE_BY_MODEL = {
         "qwen\\qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors": "Turbo LoRA",
     },
     "moss": {"Moss\\lora_dmd2.safetensors": "Turbo LoRA"},
+    "minimax": {"qwen3.5_9b_w4a8_gptq.safetensors": _ENHANCE_DESCRIBE},     # optional since 17.11. (the writer starts off everywhere)
 }
 # files shared by several models (the "Additional models" page and the README's Remove background table)
 FEATURE_USE = {

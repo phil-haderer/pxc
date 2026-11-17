@@ -242,7 +242,7 @@ def main():
     assert models.BY_KEY["qwen"].modes["outpaint"].settings["context"] == 0.4
     assert mm["fibo"].modes["inpaint"].prompt_tip == models.FILL_TIP   # the user's wording
     assert mm["qwen"].modes["inpaint"].prompt_tip == models.FILL_TIP + " Small selections don't work well with Qwen."   # user 30.10.
-    assert models.FILL_TIP == "Draw a selection and prompt e.g. “add a red flower”. Always hide the layers of previous results before running again."   # user 3.11.
+    assert models.FILL_TIP == "Draw a selection and prompt e.g. “add a red flower”."   # user 3.11., second sentence dropped 17.11.
     assert [p[0] for p in mm["flux2"].modes["refine"].prompts] == ["Default", "Neutral", "Studio portrait"]
     assert mm["flux3"].modes["upscale"].prompts == () and mm["flux2"].modes["upscale"].prompts == ()   # Flux 3: the workflow's own prompt only
     # the prompt a refine starts with is the one the workflow sends by default

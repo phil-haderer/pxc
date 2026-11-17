@@ -57,7 +57,10 @@ def data_checks():
     sel = ROOT / "data" / "styles" / "auswahl-2026-11-10.json"
     if src.exists() and sel.exists():
         texts = {e["index"]: e["styleKeywords"] for e in json.loads(src.read_text(encoding="utf-8"))}
-        want = [(g["name"], s["name"], texts[s["index"]]) for g in json.loads(sel.read_text(encoding="utf-8"))["groups"] for s in g["styles"]]
+        sys.path.insert(0, str(ROOT / "tools"))
+        from build_styles import REWRITES       # Krea texts rewritten after a test (17.11.)
+        want = [(g["name"], s["name"], REWRITES.get(s["name"], texts[s["index"]]))
+                for g in json.loads(sel.read_text(encoding="utf-8"))["groups"] for s in g["styles"]]
         have = [(g["name"], s["name"], s["text"]) for g in groups for s in g["styles"]
                 if (g["name"], s["name"], s["text"]) not in own_styles]
         assert have == want

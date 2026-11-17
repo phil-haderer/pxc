@@ -1,5 +1,5 @@
 {
- "source": "ThetaCursed/Krea2-Style-Explorer, krea_moodboards.json, styleKeywords (MIT, see LICENSE-krea-style-explorer.txt); except the own texts of tools/styles-own.json",
+ "source": "ThetaCursed/Krea2-Style-Explorer, krea_moodboards.json, styleKeywords (MIT, see LICENSE-krea-style-explorer.txt); except the own texts of tools/styles-own.json and the rewritten ones (REWRITES in tools/build_styles.py)",
  "modes": {
   "txt2img": {
    "groups": [
@@ -287,7 +287,7 @@
       },
       {
        "name": "Anime background, golden sky",
-       "text": "cinematic anime background, golden hour lighting, nostalgic atmosphere, soft digital painting, volumetric sunset clouds, Japanese urban landscape, warm amber color palette"
+       "text": "2D anime illustration, hand-painted anime film background art, clean line work and cel shading, glowing golden-hour sky with large painted cumulus clouds, warm amber and soft teal palette, nostalgic slice-of-life mood"
       },
       {
        "name": "Manga, bold ink",

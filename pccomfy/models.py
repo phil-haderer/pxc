@@ -81,7 +81,7 @@ FLUX3_REFINE_PROMPTS = (
 # Qwen Image 2.1 Upscale and Refine (workflow qwen212KUpscale_v10): the generic prompt of the workflow is the standard setting (user 2.11.: perfect)
 QWEN_UPSCALE_DEFAULT = "Enhance this image to high resolution while preserving the original composition, lighting, and atmosphere. Image can be illustration or real photo, keep the original input style."
 FIBO_REFINE = "relight the scene to natural lighting"   # Fibo Refine's old prompt (now FLUX2_DEFAULT, user 28.10.); kept as a stock text
-FILL_TIP = "Draw a selection and prompt e.g. “add a red flower”. Always hide the layers of previous results before running again."   # wording from the user (3.11.)
+FILL_TIP = "Draw a selection and prompt e.g. “add a red flower”."   # wording from the user (3.11.; "Always hide the layers ..." dropped 17.11.)
 QWEN_SMALL = "Small selections don't work well with Qwen."   # user 30.10.: small fills came out shifted (helikopter.psd)
 REMOVE_NAME_TIP = "Name what to remove (e.g. “car”)."
 REMOVE_PLACEHOLDER = "Name what to remove"   # grey in the empty field, Remove with remove_style (user 16.11.: the longer one was cut off)
@@ -376,14 +376,15 @@ FIBO = Model(
 # works on about 4 to 20 MP. Text to image draws the area of the size row (gen_mp) in the canvas' aspect ratio; without the
 # tick "Downsize to canvas" the result opens as a new document in that size (user 10.11.), with it it becomes a layer scaled
 # down to the canvas (the official min_generation_area rule). The prompt writer (Qwen 3.5 9B with the official task prompt)
-# starts off in Text to image and ON in Edit / Multi image edit (user 11.11.: without it "remove the trees" came back unchanged;
-# the official edit template has "Enable PE" on). 4 MP is the start until step 1 of the plan has measured the times.
+# starts off everywhere: Edit / Multi image edit had it on from 11.11. ("remove the trees" came back unchanged without it), the
+# blind test of 17.11. (docs/tests/minimax-edit-ergebnis.md) put it off: 4 MP without the writer 11 of 13 good in 24 s, with it 10
+# of 13 in 77 s (user 17.11.). 4 MP is the start (8 MP with the writer 12 of 13, but 108 s).
 GEN_MP_STEPS = (4, 8, 12, 16, 20)       # the size row of MiniMax (user 10.11.)
 MINIMAX_STEPS_TIP = "MiniMax H3 Image is made for 6 steps at CFG 1."
 MINIMAX_DESCRIBE_TIP = ("MiniMax H3 Image likes a long English description of the finished picture: subject, place, light, "
                         "camera and style, in full sentences.")   # also in tips.py (h3-image-bench, user 13.11.)
 MINIMAX_T2I_TIP = MINIMAX_DESCRIBE_TIP   # the "Downsize to canvas" sentence went (too long, user 13.11.); it stays in DOWNSIZE_TIP
-MINIMAX_EDIT = dict(gen_mp=4, downsize=True, layer_mask="none", enhance=True)     # Edit / Multi image edit: 4 MP, "Downsize to canvas" and the writer on
+MINIMAX_EDIT = dict(gen_mp=4, downsize=True, layer_mask="none", enhance=False)    # Edit / Multi image edit: 4 MP, "Downsize to canvas" on, the writer off (user 17.11.)
 MINIMAX = Model(
     "minimax", "MiniMax H3 Image",
     {
@@ -398,7 +399,6 @@ MINIMAX = Model(
         "minimax_h3_image_pruned_int8_convrot.safetensors",
         "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
         "minimax_h3_image_vae_fp16.safetensors",
-        "qwen3.5_9b_w4a8_gptq.safetensors",     # the prompt writer: starts on in Edit and Multi image edit (user 11.11.)
     ),   # the model files this tab needs (details per mode: manifest.py)
     max_refs=6, tag_style="<Picture {n}>", ref_side=2048,   # references at 2048 px (probe 14.11.: 1024 put the jacket on the child too)
     # live preview without the TAE file (11.11.): an older 2D taeh3.safetensors in vae_approx is not recognised by ComfyUI 0.45,

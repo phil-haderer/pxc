@@ -27,6 +27,7 @@ for line in text.splitlines():
         body.append(line)
 headings = [re.sub(r"^#+\s*", "", l) for l in body if re.match(r"^#{1,6}\s", l)]
 anchors = {slug(h) for h in headings}
+anchors |= set(re.findall(r'<a id="([^"]+)"></a>', text))      # HTML anchors, e.g. the Examples fold (17.11.)
 
 # 1. the sections a newcomer is sent to
 for want in ("Before you start", "How it fits together", "Install on Windows", "Install on Linux", "Functions", "Help",
@@ -63,6 +64,15 @@ private = ("C:\\" + "programs", "Phil" + "ipp", "phil-" + "had" + "erer")     # 
 example = "C:\\" + "programs\\pxc"     # the README's example install folder is allowed (user 11.11.), nothing else under it
 checked = text.replace(example, "")
 assert not any(x in checked for x in private), [x for x in private if x in checked]
+
+# 6. the examples (17.11.): one fold "Examples" right after the head, written by tools/make_more_examples.py --readme between
+# its markers; every picture of it lies in readme-images/examples/ (checked by 3) and the link line points at it
+assert text.count("<!-- examples:start -->") == 1 and text.count("<!-- examples:end -->") == 1, "examples markers"
+ex = text[text.index("<!-- examples:start -->"):text.index("<!-- examples:end -->")]
+assert '<a id="examples"></a>' in ex and "<summary><h2>Examples</h2></summary>" in ex, "the Examples fold is missing"
+assert text.index("<!-- examples:start -->") < text.index("## How it fits together"), "examples belong at the top"
+assert "Photos: Magnific, Freepik, Pexels" in ex, "the photo credit line belongs under the examples"
+assert len(re.findall(r'<img src="readme-images/examples/', ex)) >= 10, "too few example pictures"
 
 print("ALL OK (readme links)")
 sys.exit(0)

@@ -694,12 +694,15 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         # "Stop all" shows up only while several runs follow one another (variants of Upscale / Refine, a comparison)
         self.b_stop_all = ttk.Button(bf, text="Stop all", style="Fit.TButton", command=self.stop_all)
         Tooltip(self.b_stop_all, "Stop this run and all the variants that are still to come.")
-        # Undo and Redo: flat icons without a button face, as small as the Save icon over the prompt (window test E, 11.11.)
-        self._icons.update({"undo": self._icon("undo", px=SMALL_ICON_PX), "redo": self._icon("redo", px=SMALL_ICON_PX)})
+        # Undo and Redo: flat icons without a button face, 90 % of the Save icon over the prompt (user 17.11.; was 100 %, window
+        # test E, 11.11.), right after Stop and close together (user 17.11.; were at the right edge since 30.10.). "Stop all"
+        # packs itself after Stop, so it lands between Stop and Undo while it is shown
+        undo_px = round(SMALL_ICON_PX * UNDO_ICON_SCALE)
+        self._icons.update({"undo": self._icon("undo", px=undo_px), "redo": self._icon("redo", px=undo_px)})
         self.b_undo = ttk.Button(bf, image=self._icons["undo"], style="Link.TButton", command=self.undo_edit)
         self.b_redo = ttk.Button(bf, image=self._icons["redo"], style="Link.TButton", command=self.redo_edit)
-        self.b_redo.pack(side="right", padx=(self._px(8), self._px(5)))     # Undo and Redo at the right edge (user 30.10.), 5 px in from it (11.11.)
-        self.b_undo.pack(side="right", padx=(self._px(8), 0))
+        self.b_undo.pack(side="left", padx=(self._px(UNDO_GAP_PX), 0))
+        self.b_redo.pack(side="left", padx=(self._px(UNDO_PAIR_GAP_PX), 0))
         Tooltip(self.b_redo, "Brings the AI edit back after an Undo.")
         Tooltip(self.b_undo, "Back to the state before the last generation.")
 

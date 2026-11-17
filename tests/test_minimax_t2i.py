@@ -67,7 +67,7 @@ def main():
     assert s["gen_mp"] == 4 and s["downsize"] is False and s["enhance"] is False and s["layer_mask"] == "none"
     assert models.GEN_MP_STEPS == (4, 8, 12, 16, 20)
     assert set(m.requires) == set(manifest.tab_required("minimax"))
-    assert "qwen3.5_9b_w4a8_gptq.safetensors" in manifest.tab_required("minimax")   # off here, but on in Edit (user 11.11.)
+    assert "qwen3.5_9b_w4a8_gptq.safetensors" not in manifest.tab_required("minimax")   # off everywhere since 17.11.: optional
     for n in m.requires:
         if n == "qwen3.5_9b_w4a8_gptq.safetensors":
             continue            # the shared prompt writer (Qwen license), not a MiniMax file

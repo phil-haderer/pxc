@@ -806,6 +806,9 @@ def sign_font() -> tuple:
 HEADER_GAP = 3           # px between the letters and the sign (5, then 4, now 3: 20 % less again; user 12.11.)
 STOP_W = 5               # the Stop button: as wide as its text, in characters (was 9 for "Cancel"; user 12.11.)
 STOP_W_WITH_ALL = 4      # ... while "Stop all" is beside it (was 6)
+UNDO_ICON_SCALE = 0.9   # Undo and Redo: 90 % of SMALL_ICON_PX (user 17.11.)
+UNDO_GAP_PX = 6          # px from Stop (or "Stop all") to Undo, before the display scaling (user 17.11.: right after Stop)
+UNDO_PAIR_GAP_PX = 3     # px between Undo and Redo (was 8; user 17.11.: closer together)
 ERR_BADGE_PX = 16        # the red error circle in the status line before the display scaling (90 % of the old 18 px badge; user 12.11.)
 CLIP_DEFAULT = "(workflow default)"
 
@@ -913,6 +916,9 @@ __all__ = [
     "HEADER_GAP",
     "sign_font",
     "STOP_W",
+    "UNDO_ICON_SCALE",
+    "UNDO_GAP_PX",
+    "UNDO_PAIR_GAP_PX",
     "STOP_W_WITH_ALL",
     "ERR_BADGE_PX",
     "GEN_MP_TIP",

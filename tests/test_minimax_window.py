@@ -67,7 +67,7 @@ def main():
         pick("minimax", mode)
         assert app._gen_wanted() and app.v_gen_mp.get() == 4 and app.v_downsize.get() is True, mode
         req = app._request()
-        assert req.mode == "edit" and req.gen_mp == 4.0 and req.new_document is False and req.enhance is True, mode
+        assert req.mode == "edit" and req.gen_mp == 4.0 and req.new_document is False and req.enhance is False, mode
         app.v_downsize.set(False)
         assert app._request().new_document is True, mode        # off = a new document in full size
     pick("minimax", "txt2img")      # and back: Text to image starts off again

@@ -36,6 +36,14 @@ def version_note(current, minimum: str = MIN_VERSION) -> str | None:
     return f"PhotoCraft {current} is older than {minimum}, the oldest version this plugin supports. Updating PhotoCraft is recommended."
 
 
+# PhotoCraft refuses document commands while the Crop tool extends or crops the canvas and waits for Enter: it answers
+# with this text although no dialog is shown, and ui.inspect says tool "Crop" (found 17.11. with PhotoCraft 0.23.1)
+MODAL_REFUSAL = "unavailable while a modal dialog is open"
+CROP_PENDING = ("PhotoCraft is still cropping or extending the canvas: press Enter to apply it (or Esc to cancel), "
+                "then press Generate again.")
+MODAL_OPEN = "Close the open dialog in PhotoCraft first, then press Generate again."
+
+
 class PhotoCraftError(RuntimeError):
     pass
 
@@ -133,7 +141,19 @@ class PhotoCraft:
         try:
             return self.call("engine.execute", {"command": command, "params": params or {}})
         except PhotoCraftError as e:
+            if MODAL_REFUSAL in str(e):
+                raise PhotoCraftError(self._modal_message()) from None
             raise PhotoCraftError(f"{command}: {e}") from None
+
+    def _modal_message(self) -> str:
+        """The clear message for a command PhotoCraft refused because it is in a modal state: CROP_PENDING while the Crop
+        tool is active (an extended or cropped canvas waits for Enter, user 17.11., choice A), else MODAL_OPEN."""
+        try:
+            res = self.call("ui.inspect")
+            tool = res.get("tool") if isinstance(res, dict) else None
+        except (PhotoCraftError, OSError):
+            tool = None
+        return CROP_PENDING if str(tool or "").lower() == "crop" else MODAL_OPEN
 
     # ---------- shared operations (desktop and headless) ----------
 

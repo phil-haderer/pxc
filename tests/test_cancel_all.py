@@ -80,8 +80,16 @@ def window_tests():
         app.root.update()
         time.sleep(0.02)
     assert not app.b_stop_all.winfo_manager()                       # not shown at rest
+    # Undo and Redo (user 17.11.): right after Stop, close together, 90 % of the small flat icons
+    stop_end = app.b_stop.winfo_x() + app.b_stop.winfo_width()
+    assert stop_end < app.b_undo.winfo_x() <= stop_end + app._px(gui.UNDO_GAP_PX) + 2, (stop_end, app.b_undo.winfo_x())
+    undo_end = app.b_undo.winfo_x() + app.b_undo.winfo_width()
+    assert undo_end < app.b_redo.winfo_x() <= undo_end + app._px(gui.UNDO_PAIR_GAP_PX) + 2, (undo_end, app.b_redo.winfo_x())
+    assert app.b_undo.pack_info()["side"] == app.b_redo.pack_info()["side"] == "left"    # no longer at the right edge
+    assert gui.UNDO_ICON_SCALE == 0.9 and gui.UNDO_PAIR_GAP_PX < 8
     app._show_stop_all(True)
     app.root.update()
+    assert app.b_stop.winfo_x() < app.b_stop_all.winfo_x() < app.b_undo.winfo_x()     # "Stop all" sits between Stop and Undo
     assert app.b_stop_all.winfo_manager() == "pack"
     assert app.b_stop_all.winfo_x() > app.b_stop.winfo_x()          # right of Stop
     assert int(str(app.b_stop.cget("width"))) == gui.STOP_W_WITH_ALL   # Stop is narrower meanwhile (user 12.11.)

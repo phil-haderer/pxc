@@ -6,8 +6,8 @@
 - the run: the picture goes in at the chosen area (canvas' aspect ratio), tick on = a layer in the canvas, off = a new document
 - the prompt gets "<Picture 1>" in front, with the writer on (in the StringReplace) and off (straight into the conditioning)
 - unused reference slots drop out of the graph, also behind the writer
-- the writer starts ON in Edit and Multi image edit (user 11.11.: without it "remove the trees" came back unchanged), so the
-  Qwen 3.5 9B file is required for the whole model; no other extra file
+- the writer starts OFF in Edit and Multi image edit (blind test 17.11.; on from 11.11.), so the Qwen 3.5 9B file is
+  optional for the whole model; no other extra file
 
     python tests/test_minimax_edit.py
 """
@@ -20,7 +20,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pccomfy import bridge, imaging, manifest, models, refslots, workflows  # noqa: E402
+from pccomfy import bridge, imaging, inventory, manifest, models, refslots, workflows  # noqa: E402
 from pccomfy.bridge import Request  # noqa: E402
 import test_reference_mode as T  # noqa: E402
 
@@ -96,15 +96,16 @@ def main():
     for k in ("edit", "multi_edit"):
         spec = m.modes[k]
         assert spec.workflow == WF.name and spec.settings["gen_mp"] == 4 and spec.settings["downsize"] is True, k
-        assert spec.settings["enhance"] is True and spec.settings["layer_mask"] == "none", k
+        assert spec.settings["enhance"] is False and spec.settings["layer_mask"] == "none", k
     assert m.modes["edit"].prompt_tip == models.EDIT_TIP and m.modes["multi_edit"].prompt_tip == models.MULTI_TIP
     assert m.modes["multi_edit"].run_as == "edit" and m.modes["txt2img"].settings["downsize"] is False
     assert set(m.workflows()) == {"minimax-h3-image-t2i.json", WF.name}
 
-    # the files: the writer starts on, so it is required for the whole model (user 11.11.); nothing else extra
-    assert WRITER in m.requires and WRITER in manifest.tab_required("minimax")
-    for k in ("edit", "multi_edit"):
-        assert manifest.mode_extra("minimax", k) == () and WRITER not in manifest.mode_optional("minimax", k), k
+    # the files: the writer starts off everywhere (user 17.11.), so it is optional for the whole model; nothing else extra
+    assert WRITER not in m.requires and WRITER not in manifest.tab_required("minimax")
+    for k in ("txt2img", "edit", "multi_edit"):
+        assert manifest.mode_extra("minimax", k) == () and WRITER in manifest.mode_optional("minimax", k), k
+        assert WRITER not in inventory.mode_files("minimax", k), k
         assert set(manifest.mode_required("minimax", k)) == set(m.requires)
     assert "birefnet.safetensors" in manifest.mode_optional("minimax", "multi_edit")
 
