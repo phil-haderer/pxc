@@ -25,6 +25,7 @@ Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI version: 0.45.0
 - **Six function buttons:** Text to image, Expand, Fill, Remove, Edit and Upscale / Refine. Edit has tabs: Edit canvas, Multi image edit, Sketch to image, Scribble on photo and Scribble with reference; not every model offers every tab.
 - **Seven models:** Flux 3 Klein, Flux 2 Klein, Qwen Image 2.1, Fibo 2.0 Edit Turbo, Krea 2 Turbo, MOSS Image and MiniMax H3 Image.
 - **Your own prompts:** the Save button right of the prompt keeps a prompt under a name; use or append it later under Style prompts > Custom prompts. Use also brings back the function, model and tab it was saved with, and image tags such as `<image2>` are rewritten for the model you are on.
+- **Tested settings:** every function and model starts with its tested settings; change them under Advanced settings if you like.
 - **Local:** the models run in ComfyUI on your own graphics card.
 
 > Unofficial community project, not affiliated with PhotoCraft, ArtCraft or Storyteller. PhotoCraft is in early alpha
@@ -44,7 +45,7 @@ Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI version: 0.45.0
 1. Click **Code ▸ Download ZIP** (green button at the top of this page) and unpack it to a folder you keep, for example `C:\programs\pxc`.
 2. Double-click **`setup-windows.bat`**. It sets everything up and puts **PxC** on your desktop.
 3. Start ComfyUI, close PhotoCraft if it is open, then double-click **PxC** on your desktop. PhotoCraft opens and the plugin window appears next to it.
-4. In the plugin window click the gear ▸ pick a model tab (for example **Qwen Image 2.1**, which needs no login) ▸ **Download all model files**, then restart ComfyUI. (You can also download the files by hand: see [Model downloads](#model-downloads).)
+4. In the plugin window click the gear ▸ pick a model tab ▸ **Download all model files**, then restart ComfyUI. (You can also download the files by hand: see [Model downloads](#model-downloads).)
 5. Pick a function and a model, type a prompt and press **Generate** (Ctrl+Enter).
 
 **Linux** (Debian/Ubuntu; other distributions: [Install on Linux](#install-on-linux))
@@ -60,14 +61,14 @@ Then do steps 3 to 5 above, starting **PxC** from your application menu.
 ## How it fits together
 
 ```
-PhotoCraft  <-->  this plugin (a small window)  <-->  ComfyUI (your graphics card)
+PhotoCraft  <-->  PxC  <-->  ComfyUI
 ```
 
 - **PhotoCraft** is the image editor where you work and where the results land as layers.
 - **ComfyUI** runs the AI models on your graphics card.
-- **This plugin** sits between them: it sends your picture or selection to ComfyUI and puts the result back as a layer.
+- **PxC** (this plugin) sits between them: it sends your picture or selection to ComfyUI and puts the result back as a layer.
 
-You need Windows 10/11 or Linux, an NVIDIA graphics card (more VRAM means faster runs), Python 3.11+ (Linux: 3.10+), ComfyUI and PhotoCraft 0.20.2 or newer (tested with PhotoCraft 0.23.1, and ComfyUI 0.45.0). MiniMax H3 Image needs a newer ComfyUI that has the nodes `MiniMaxH3ImageConditioning` and `TextGenerateV2`; it does not fit into 16 GB VRAM on its own, so ComfyUI offloads it to system RAM and you need plenty of RAM for it.
+You need Windows 10/11 or Linux, a GPU with at least 8 GB VRAM, Python 3.11+ (Linux: 3.10+), ComfyUI and PhotoCraft 0.20.2 or newer (tested with PhotoCraft 0.23.1, and ComfyUI 0.45.0).
 
 ## Install on Windows
 
@@ -75,7 +76,7 @@ You need Windows 10/11 or Linux, an NVIDIA graphics card (more VRAM means faster
 2. **Set up**: double-click **`setup-windows.bat`**. It shows its four steps as it goes: Python, a private Python environment, the packages, and the desktop shortcut **PxC**. It finds `photocraft.exe` itself and asks once if it can't. (`setup-windows.bat /check` only looks and changes nothing.)
 3. **Start**: start ComfyUI, close PhotoCraft if it is open, double-click **PxC** on your desktop. PhotoCraft opens, and a few seconds later the plugin window appears.
 
-No Python yet? The setup offers to install Python 3.13 (the official one from python.org, for your Windows user only, no admin rights) with one key press. Without winget, or if you say no, it opens the download page: install Python 3.13 there with the default options ("tcl/tk" stays ticked) and run `setup-windows.bat` again.
+No Python yet? The setup offers to install Python 3.13 with one key press. Without winget, or if you say no, it opens the download page: install Python 3.13 there with the default options ("tcl/tk" stays ticked) and run `setup-windows.bat` again.
 Then go on with [First start](#first-start).
 
 ## Install on Linux
@@ -105,17 +106,15 @@ Then go on with [First start](#first-start). Window too small or too big? Gear w
 
 ## First start
 
-1. **Get the models.** A *model* is the AI itself, one big file (or a few) that ComfyUI loads. Open the plugin's settings window (gear symbol at the top right) and pick a model tab. The button **Download all model files** loads everything that model needs; it shows the total size first (about 11 to 19 GB, MiniMax about 45 GB, so it can take a while). Good first choices:
-   - **Qwen Image 2.1** or **Fibo 2.0**: no login needed.
+1. **Get the models.** Open the plugin's settings window (gear symbol at the top right) and pick a model tab. The button **Download all model files** loads everything that model needs. Good first choices:
+   - **Qwen Image 2.1** or **Fibo 2.0**: no login at external websites needed.
    - **Flux 3 Klein**: needs a free Hugging Face account once (the button opens the page; log in and accept the licence there).
 2. **Restart ComfyUI.** It reads its model folders only when it starts, so new files appear after a restart.
-3. **Generate.** Pick a function and a model, type a prompt (a short description of what you want, in English) and press **Generate** (Ctrl+Enter). Each model starts with its tested settings; the Advanced settings below the prompt change them. The status line at the bottom tells you what is happening.
-
-Prefer to download by hand, or want to see every file and its size? Open [Model downloads](#model-downloads).
+3. **Generate.** Pick a function and a model, type a prompt and press **Generate** (Ctrl+Enter). Each model starts with its tested settings; the Advanced settings below the prompt change them. The status line at the bottom tells you what is happening.
 
 ## Model downloads
 
-Everything below is for people who want to download the files themselves; the plugin's **Download all model files** button does the same. Click a model to open its list. Put each file into the named folder inside your ComfyUI folder (for example `ComfyUI/models/diffusion_models`; a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
+Everything below is for people who want to download the files themselves; the plugin's **Download all model files** button does the same. Click a model to open its list. Put each file into the folder named below it, inside your ComfyUI folder (for example `ComfyUI/models/diffusion_models`; a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
 
 **Custom nodes.** A custom node pack is a small add-on for ComfyUI. Only two are ever mentioned: KJNodes is needed for Flux 2 and for some Upscale cases, GGUF is optional:
 - [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): its *Color Match* node is used by **Upscale with Flux 3**, by the **tiles** of **Upscale with Flux 2** (always on, no switch) and by the **tiles** option of **Upscale with Fibo**. Without it Flux 2 is locked (Upscale with Flux 2 needs it) and Upscale with Flux 3 and the Fibo tiles cannot start; the line at the bottom of the plugin names the pack.
@@ -128,23 +127,23 @@ Install a pack from the ComfyUI Manager (search for its name) or from its link, 
 <details>
 <summary><b>Flux 3 Klein</b>: about 18.2 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `flux3-image-klein-int8-convrot.safetensors` | all functions | `models/diffusion_models` | 5.8 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
-| `qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors` | Remove, Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | `models/text_encoders` | 6.7 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
-| `qwen3vl_4b_int8_convrot.safetensors` | all functions | `models/text_encoders` | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
-| `flux2-vae.safetensors` | all functions | `models/vae` | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
-| `flux-3-image-klein-outpaint.safetensors` | Expand | `models/loras/Flux 3` | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Outpaint-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Outpaint-LoRA/resolve/main/flux-3-image-klein-outpaint.safetensors) |
-| `flux-3-image-klein-restore.safetensors` | Upscale | `models/loras/Flux 3` | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Restore-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Restore-LoRA/resolve/main/flux-3-image-klein-restore.safetensors) |
-| `4x-UltraSharpV2.safetensors` | Upscale | `models/upscale_models` | 140 MB | [Hugging Face: Kim2091/UltraSharpV2](https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `flux3-image-klein-int8-convrot.safetensors`<br>`models/diffusion_models` | all functions | 5.8 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
+| `qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors`<br>`models/text_encoders` | Remove, Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | 6.7 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
+| `qwen3vl_4b_int8_convrot.safetensors`<br>`models/text_encoders` | all functions | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
+| `flux2-vae.safetensors`<br>`models/vae` | all functions | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
+| `flux-3-image-klein-outpaint.safetensors`<br>`models/loras/Flux 3` | Expand | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Outpaint-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Outpaint-LoRA/resolve/main/flux-3-image-klein-outpaint.safetensors) |
+| `flux-3-image-klein-restore.safetensors`<br>`models/loras/Flux 3` | Upscale | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Restore-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Restore-LoRA/resolve/main/flux-3-image-klein-restore.safetensors) |
+| `4x-UltraSharpV2.safetensors`<br>`models/upscale_models` | Upscale | 140 MB | [Hugging Face: Kim2091/UltraSharpV2](https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `seedvr2_3b_int8_convrot.safetensors` | SeedVR2 pre-cleaning in Upscale | `models/diffusion_models` | 3.5 GB | [Hugging Face: Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors) |
-| `seedvr2_ema_vae_fp16.safetensors` | SeedVR2 pre-cleaning in Upscale | `models/vae` | 501 MB | [Hugging Face: Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/vae/seedvr2_ema_vae_fp16.safetensors) |
-| `taef2_decoder.pth` | live preview | `models/vae_approx` | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `seedvr2_3b_int8_convrot.safetensors`<br>`models/diffusion_models` | SeedVR2 pre-cleaning in Upscale | 3.5 GB | [Hugging Face: Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors) |
+| `seedvr2_ema_vae_fp16.safetensors`<br>`models/vae` | SeedVR2 pre-cleaning in Upscale | 501 MB | [Hugging Face: Comfy-Org/SeedVR2](https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/vae/seedvr2_ema_vae_fp16.safetensors) |
+| `taef2_decoder.pth`<br>`models/vae_approx` | live preview | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
 
 **Custom node:** Upscale also needs the custom node pack [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) (Color Match). Install it from the ComfyUI Manager or the link, then restart ComfyUI.
 
@@ -153,19 +152,19 @@ Optional (the model works without them, the named feature is greyed out):
 <details>
 <summary><b>Flux 2 Klein</b>: about 18.6 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `flux-2-klein-9b_int8_convrot.safetensors` | all functions | `models/diffusion_models` | 9.4 GB | [Hugging Face: obsxrver/ComfyUI-Native-INT8_ConvRot](https://huggingface.co/obsxrver/ComfyUI-Native-INT8_ConvRot/resolve/main/diffusion_models/flux-2-klein-9b_int8_convrot.safetensors) |
-| `qwen_3_8b_fp8mixed.safetensors` | all functions | `models/text_encoders` | 8.7 GB | [Hugging Face: Comfy-Org/Flux-2-Klein-9B](https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors) |
-| `flux2-vae.safetensors` | all functions | `models/vae` | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
-| `ultra_real_v4.safetensors` | Upscale, Refine | `models/loras/Flux 2` | 166 MB | [Civitai](https://civitai.com/api/download/models/2846977) (Civitai may ask you to log in) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `flux-2-klein-9b_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 9.4 GB | [Hugging Face: obsxrver/ComfyUI-Native-INT8_ConvRot](https://huggingface.co/obsxrver/ComfyUI-Native-INT8_ConvRot/resolve/main/diffusion_models/flux-2-klein-9b_int8_convrot.safetensors) |
+| `qwen_3_8b_fp8mixed.safetensors`<br>`models/text_encoders` | all functions | 8.7 GB | [Hugging Face: Comfy-Org/Flux-2-Klein-9B](https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors) |
+| `flux2-vae.safetensors`<br>`models/vae` | all functions | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
+| `ultra_real_v4.safetensors`<br>`models/loras/Flux 2` | Upscale, Refine | 166 MB | [Civitai](https://civitai.com/api/download/models/2846977) (Civitai may ask you to log in) |
 
 Optional (the model works without them, the named feature is greyed out):
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `qwen3vl_4b_int8_convrot.safetensors` | Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | `models/text_encoders` | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
-| `taef2_decoder.pth` | live preview | `models/vae_approx` | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `qwen3vl_4b_int8_convrot.safetensors`<br>`models/text_encoders` | Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
+| `taef2_decoder.pth`<br>`models/vae_approx` | live preview | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
 
 **Custom node:** Upscale (always in tiles) also needs the custom node pack [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) (Color Match). Install it from the ComfyUI Manager or the link, then restart ComfyUI. Without it Flux 2 is locked.
 
@@ -174,37 +173,37 @@ Optional (the model works without them, the named feature is greyed out):
 <details>
 <summary><b>Qwen Image 2.1</b>: about 17.3 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `qwen_image_2.1_int8_convrot.safetensors` | all functions | `models/diffusion_models` | 7.3 GB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors) |
-| `qwen3vl_8b_int8_convrot.safetensors` | all functions | `models/text_encoders` | 9.4 GB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors) |
-| `qwen_image_2.1_vae_bf16.safetensors` | all functions | `models/vae` | 676 MB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `qwen_image_2.1_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 7.3 GB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors) |
+| `qwen3vl_8b_int8_convrot.safetensors`<br>`models/text_encoders` | all functions | 9.4 GB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors) |
+| `qwen_image_2.1_vae_bf16.safetensors`<br>`models/vae` | all functions | 676 MB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `qwen3.5_9b_w4a8_gptq.safetensors` | Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | `models/text_encoders` | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
-| `qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors` | Turbo LoRA | `models/loras/qwen` | 913 MB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors) |
-| `taeqi2_1_decoder.pth` | live preview | `models/vae_approx` | 15 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taeqi2_1_decoder.pth) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `qwen3.5_9b_w4a8_gptq.safetensors`<br>`models/text_encoders` | Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
+| `qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors`<br>`models/loras/qwen` | Turbo LoRA | 913 MB | [Hugging Face: Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors) |
+| `taeqi2_1_decoder.pth`<br>`models/vae_approx` | live preview | 15 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taeqi2_1_decoder.pth) |
 
 </details>
 
 <details>
 <summary><b>Fibo 2.0</b>: about 13.7 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `fibo2_edit_turbo_int8_convrot.safetensors` | all functions | `models/diffusion_models` | 8.4 GB | [Hugging Face: Comfy-Org/Fibo-2.0](https://huggingface.co/Comfy-Org/Fibo-2.0/resolve/main/diffusion_models/fibo2_edit_turbo_int8_convrot.safetensors) |
-| `qwen3vl_4b_int8_convrot.safetensors` | all functions | `models/text_encoders` | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
-| `flux2-vae.safetensors` | all functions | `models/vae` | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
-| `4x-UltraSharpV2.safetensors` | Upscale | `models/upscale_models` | 140 MB | [Hugging Face: Kim2091/UltraSharpV2](https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `fibo2_edit_turbo_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 8.4 GB | [Hugging Face: Comfy-Org/Fibo-2.0](https://huggingface.co/Comfy-Org/Fibo-2.0/resolve/main/diffusion_models/fibo2_edit_turbo_int8_convrot.safetensors) |
+| `qwen3vl_4b_int8_convrot.safetensors`<br>`models/text_encoders` | all functions | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
+| `flux2-vae.safetensors`<br>`models/vae` | all functions | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
+| `4x-UltraSharpV2.safetensors`<br>`models/upscale_models` | Upscale | 140 MB | [Hugging Face: Kim2091/UltraSharpV2](https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `taef2_decoder.pth` | live preview | `models/vae_approx` | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `taef2_decoder.pth`<br>`models/vae_approx` | live preview | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
 
 **Custom node:** The tiles option of Upscale also needs the custom node pack [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) (Color Match). Install it from the ComfyUI Manager or the link, then restart ComfyUI.
 
@@ -213,58 +212,58 @@ Optional (the model works without them, the named feature is greyed out):
 <details>
 <summary><b>Krea 2 Turbo</b>: about 18.6 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `krea2_turbo_int8_convrot.safetensors` | all functions | `models/diffusion_models` | 13.5 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_int8_convrot.safetensors) |
-| `qwen3vl_4b_int8_convrot.safetensors` | all functions | `models/text_encoders` | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
-| `qwen_image_vae.safetensors` | all functions | `models/vae` | 254 MB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `krea2_turbo_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 13.5 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_int8_convrot.safetensors) |
+| `qwen3vl_4b_int8_convrot.safetensors`<br>`models/text_encoders` | all functions | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
+| `qwen_image_vae.safetensors`<br>`models/vae` | all functions | 254 MB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `lighttaew2_1.safetensors` | live preview | `models/vae_approx` | 45 MB | [Hugging Face: lightx2v/Autoencoders](https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.safetensors) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `lighttaew2_1.safetensors`<br>`models/vae_approx` | live preview | 45 MB | [Hugging Face: lightx2v/Autoencoders](https://huggingface.co/lightx2v/Autoencoders/resolve/main/lighttaew2_1.safetensors) |
 
 </details>
 
 <details>
 <summary><b>MOSS Image</b>: about 13.1 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `moss_image_sft_int8_convrot.safetensors` | all functions | `models/diffusion_models` | 5.4 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_sft_int8_convrot.safetensors) |
-| `qwen3.5_9b_w4a8_gptq.safetensors` | all functions | `models/text_encoders` | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
-| `flux2-vae_small.safetensors` | all functions | `models/vae` | 250 MB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/vae/flux2-vae_small.safetensors) |
-| `lenovo_moss.safetensors` | Text to image | `models/loras/Moss` | 65 MB | [Hugging Face: Danrisi/lenovo_moss](https://huggingface.co/Danrisi/lenovo_moss/resolve/main/lenovo_moss.safetensors) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `moss_image_sft_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 5.4 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_sft_int8_convrot.safetensors) |
+| `qwen3.5_9b_w4a8_gptq.safetensors`<br>`models/text_encoders` | all functions | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
+| `flux2-vae_small.safetensors`<br>`models/vae` | all functions | 250 MB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/vae/flux2-vae_small.safetensors) |
+| `lenovo_moss.safetensors`<br>`models/loras/Moss` | Text to image | 65 MB | [Hugging Face: Danrisi/lenovo_moss](https://huggingface.co/Danrisi/lenovo_moss/resolve/main/lenovo_moss.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `lora_dmd2.safetensors` | Turbo LoRA | `models/loras/Moss` | 1.2 GB | [Hugging Face: lodestones/MOSS-Image-Base-8-steps-dmd](https://huggingface.co/lodestones/MOSS-Image-Base-8-steps-dmd/resolve/main/lora_dmd2.safetensors) |
-| `taef2_decoder.pth` | live preview | `models/vae_approx` | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `lora_dmd2.safetensors`<br>`models/loras/Moss` | Turbo LoRA | 1.2 GB | [Hugging Face: lodestones/MOSS-Image-Base-8-steps-dmd](https://huggingface.co/lodestones/MOSS-Image-Base-8-steps-dmd/resolve/main/lora_dmd2.safetensors) |
+| `taef2_decoder.pth`<br>`models/vae_approx` | live preview | 3 MB | [GitHub: madebyollin/taesd](https://raw.githubusercontent.com/madebyollin/taesd/main/taef2_decoder.pth) |
 
 </details>
 
 <details>
 <summary><b>MiniMax H3 Image</b>: about 45.2 GB needed</summary>
 
-| File | Needed for | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `minimax_h3_image_pruned_int8_convrot.safetensors` | all functions | `models/diffusion_models` | 21.0 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors) |
-| `qwen3.5_9b_w4a8_gptq.safetensors` | all functions | `models/text_encoders` | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
-| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | all functions | `models/text_encoders` | 15.7 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors) |
-| `minimax_h3_image_vae_fp16.safetensors` | all functions | `models/vae` | 1.2 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/vae/minimax_h3_image_vae_fp16.safetensors) |
+| File and its ComfyUI folder | Needed for | Size | Download |
+|---|---|---|---|
+| `minimax_h3_image_pruned_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 21.0 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors) |
+| `qwen3.5_9b_w4a8_gptq.safetensors`<br>`models/text_encoders` | all functions | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`<br>`models/text_encoders` | all functions | 15.7 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors) |
+| `minimax_h3_image_vae_fp16.safetensors`<br>`models/vae` | all functions | 1.2 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/vae/minimax_h3_image_vae_fp16.safetensors) |
 
 </details>
 
 <details>
 <summary><b>Remove background</b> (scissors button, optional)</summary>
 
-| File | Feature | Goes into ComfyUI's | Size | Download |
-|---|---|---|---|---|
-| `birefnet.safetensors` | Cut out, remove background | `models/background_removal` | 444 MB | [Hugging Face: Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors) |
-| `rmbg-2.0.safetensors` | Remove background (second model) | `models/background_removal` | 885 MB | [Hugging Face: chflame163/ComfyUI_LayerStyle](https://huggingface.co/chflame163/ComfyUI_LayerStyle/resolve/main/ComfyUI/models/BiRefNet/RMBG-2.0/model.safetensors) |
+| File and its ComfyUI folder | Feature | Size | Download |
+|---|---|---|---|
+| `birefnet.safetensors`<br>`models/background_removal` | Cut out, remove background | 444 MB | [Hugging Face: Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors) |
+| `rmbg-2.0.safetensors`<br>`models/background_removal` | Remove background (second model) | 885 MB | [Hugging Face: chflame163/ComfyUI_LayerStyle](https://huggingface.co/chflame163/ComfyUI_LayerStyle/resolve/main/ComfyUI/models/BiRefNet/RMBG-2.0/model.safetensors) |
 
 RMBG-2.0 is a community copy of the official file, which needs a Hugging Face login ([official page](https://huggingface.co/briaai/RMBG-2.0)).
 

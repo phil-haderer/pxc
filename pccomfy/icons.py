@@ -183,7 +183,8 @@ def render(kind: str, color: str, px: int) -> Image.Image:
 def from_file(path, color: str, px: int) -> Image.Image:
     """A picture file of the user (a function symbol, pccomfy/assets/functions/<key>.png) as an icon in `color`: its
     shape is taken from the alpha channel (or, without transparency, from the dark pixels) and filled with the colour."""
-    src = Image.open(path).convert("RGBA")
+    with Image.open(path) as f:                     # closed at once: Windows keeps an open file locked (CI 17.11.)
+        src = f.convert("RGBA")
     alpha = src.getchannel("A")
     if alpha.getextrema() == (255, 255):            # no transparency: dark pixels are the shape
         alpha = src.convert("L").point(lambda v: 255 - v)
