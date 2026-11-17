@@ -29,10 +29,10 @@ headings = [re.sub(r"^#+\s*", "", l) for l in body if re.match(r"^#{1,6}\s", l)]
 anchors = {slug(h) for h in headings}
 
 # 1. the sections a newcomer is sent to
-for want in ("Quick start", "How it fits together", "Install on Windows", "Install on Linux", "First start", "Functions", "Help",
+for want in ("Before you start", "How it fits together", "Install on Windows", "Install on Linux", "Functions", "Help",
              "Technical details"):
     assert want in headings, f"heading missing: {want}"
-for gone in ("Licences of the models", "Credits"):      # removed 16.11. (user: absolute minimum)
+for gone in ("Licences of the models", "Credits", "First start", "Quick start"):      # removed 16.11. (user: absolute minimum); 17.11.: one full install section per system, Quick start became Before you start
     assert gone not in headings, f"heading back: {gone}"
 
 # 2. jump links

@@ -14,9 +14,9 @@ Pick a function, type a prompt, press Generate: the result arrives as a new laye
 
 <img src="readme-images/plugin-window.png" alt="The plugin window: six functions, seven models, prompt box and Generate button" width="330">
 
-Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI version: 0.45.0 
+Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI 0.45.0
 
-[Quick start](#quick-start) · [Install on Windows](#install-on-windows) · [Install on Linux](#install-on-linux) · [First start](#first-start) · [Model downloads](#model-downloads) · [Functions](#functions) · [Help](#help) · [Technical details](#technical-details)
+[Before you start](#before-you-start) · [Install on Windows](#install-on-windows) · [Install on Linux](#install-on-linux) · [Model downloads](#model-downloads) · [Functions](#functions) · [Help](#help) · [Technical details](#technical-details)
 
 </div>
 
@@ -24,39 +24,12 @@ Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI version: 0.45.0
 
 - **Six function buttons:** Text to image, Expand, Fill, Remove, Edit and Upscale / Refine. Edit has tabs: Edit canvas, Multi image edit, Sketch to image, Scribble on photo and Scribble with reference; not every model offers every tab.
 - **Seven models:** Flux 3 Klein, Flux 2 Klein, Qwen Image 2.1, Fibo 2.0 Edit Turbo, Krea 2 Turbo, MOSS Image and MiniMax H3 Image.
-- **Your own prompts:** the Save button right of the prompt keeps a prompt under a name; use or append it later under Style prompts > Custom prompts. Use also brings back the function, model and tab it was saved with, and image tags such as `<image2>` are rewritten for the model you are on.
+- **Your own prompts:** save a prompt under a name and use it again later, with the function and model it was made for.
 - **Tested settings:** every function and model starts with its tested settings; change them under Advanced settings if you like.
 - **Local:** the models run in ComfyUI on your own graphics card.
 
 > Unofficial community project, not affiliated with PhotoCraft, ArtCraft or Storyteller. PhotoCraft is in early alpha
 > and so is this plugin.
-
-## Quick start
-
-**What you need first** (all free):
-
-- **[PhotoCraft](https://github.com/storytold/photocraft/releases)**: the image editor where you work. The plugin adds AI functions to it.
-- **[ComfyUI](https://github.com/comfyanonymous/ComfyUI#installing)**: runs the AI models; leave it running while you work. Flux 2 and Upscale (Flux 3, Fibo) also need the add-on [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) ([ComfyUI Easy Install](https://github.com/Tavris1/ComfyUI-Easy-Install) includes it).
-- **[Python](https://www.python.org/downloads/windows/) 3.11 or newer**. No Python yet? On Windows the setup offers to install it for you.
-- **About 11 to 19 GB of free disk space per model you want to use, MiniMax about 45 GB** (the models are large files; one model is enough to start).
-
-**Windows**
-
-1. Click **Code ▸ Download ZIP** (green button at the top of this page) and unpack it to a folder you keep, for example `C:\programs\pxc`.
-2. Double-click **`setup-windows.bat`**. It sets everything up and puts **PxC** on your desktop.
-3. Start ComfyUI, close PhotoCraft if it is open, then double-click **PxC** on your desktop. PhotoCraft opens and the plugin window appears next to it.
-4. In the plugin window click the gear ▸ pick a model tab ▸ **Download all model files**, then restart ComfyUI. (You can also download the files by hand: see [Model downloads](#model-downloads).)
-5. Pick a function and a model, type a prompt and press **Generate** (Ctrl+Enter).
-
-**Linux** (Debian/Ubuntu; other distributions: [Install on Linux](#install-on-linux))
-
-```bash
-sudo apt install python3 python3-tk python3-venv
-git clone <this repository> && cd <this repository>
-./setup-linux.sh
-```
-
-Then do steps 3 to 5 above, starting **PxC** from your application menu.
 
 ## How it fits together
 
@@ -68,20 +41,27 @@ PhotoCraft  <-->  PxC  <-->  ComfyUI
 - **ComfyUI** runs the AI models on your graphics card.
 - **PxC** (this plugin) sits between them: it sends your picture or selection to ComfyUI and puts the result back as a layer.
 
-You need Windows 10/11 or Linux, a GPU with at least 8 GB VRAM, Python 3.11+ (Linux: 3.10+), ComfyUI and PhotoCraft 0.20.2 or newer (tested with PhotoCraft 0.23.1, and ComfyUI 0.45.0).
+## Before you start
+
+You need (the software is free):
+
+- **Windows 10/11 or Linux** with a GPU with at least 8 GB VRAM.
+- **[PhotoCraft](https://github.com/storytold/photocraft/releases) 0.20.2 or newer**: the image editor where you work. The plugin adds AI functions to it.
+- **[ComfyUI](https://github.com/comfyanonymous/ComfyUI#installing)**: runs the AI models; leave it running while you work. Flux 2 and Upscale (Flux 3, Fibo) also need the add-on [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) ([ComfyUI Easy Install](https://github.com/Tavris1/ComfyUI-Easy-Install) includes it).
+- **[Python](https://www.python.org/downloads/windows/) 3.11 or newer** (Linux: 3.10 or newer). No Python yet? On Windows the setup offers to install it for you.
+- **About 13 to 19 GB of free disk space per model you want to use, MiniMax about 45 GB** (the models are large files; one model is enough to start).
+
+Then follow [Install on Windows](#install-on-windows) or [Install on Linux](#install-on-linux).
 
 ## Install on Windows
 
-1. **Download**: click **Code ▸ Download ZIP** at the top of this page and unpack it to a folder you keep (not Downloads). Using git is fine too, see [Technical details](#technical-details).
-2. **Set up**: double-click **`setup-windows.bat`**. It shows its four steps as it goes: Python, a private Python environment, the packages, and the desktop shortcut **PxC**. It finds `photocraft.exe` itself and asks once if it can't. (`setup-windows.bat /check` only looks and changes nothing.)
-3. **Start**: start ComfyUI, close PhotoCraft if it is open, double-click **PxC** on your desktop. PhotoCraft opens, and a few seconds later the plugin window appears.
-
-No Python yet? The setup offers to install Python 3.13 with one key press. Without winget, or if you say no, it opens the download page: install Python 3.13 there with the default options ("tcl/tk" stays ticked) and run `setup-windows.bat` again.
-Then go on with [First start](#first-start).
+1. **Download**: click **Code ▸ Download ZIP** (green button at the top of this page) and unpack it to a folder you keep, for example `C:\programs\pxc`. Prefer git? See [Technical details](#technical-details).
+2. **Set up**: double-click **`setup-windows.bat`**. It sets everything up and puts **PxC** on your desktop; it finds `photocraft.exe` itself and asks once if it can't. No Python yet? It offers to install Python 3.13 with one key press. If that is not possible, or you say no, it opens the download page: install Python 3.13 there with the default options ("tcl/tk" stays ticked) and run `setup-windows.bat` again. (`setup-windows.bat /check` only looks and changes nothing.)
+3. **Start**: start ComfyUI, close PhotoCraft if it is open, then double-click **PxC** on your desktop. PhotoCraft opens and the plugin window appears next to it.
+4. **Get a model**: in the plugin window click the gear ▸ pick a model tab ▸ **Download all model files**, then restart ComfyUI (it reads its model folders only when it starts). **Qwen Image 2.1** and **Fibo 2.0** need no login at external websites; **Flux 3 Klein** needs a free Hugging Face account once (the button opens the page; log in and accept the licence there). You can also download the files by hand: see [Model downloads](#model-downloads).
+5. **Generate**: pick a function and a model, type a prompt and press **Generate** (Ctrl+Enter). The status line at the bottom tells you what is happening.
 
 ## Install on Linux
-
-X11 and Wayland. Under X11 the window is tied to PhotoCraft as on Windows: it minimises with PhotoCraft and stays above it, but not above other programs. Under Wayland it is a normal window that stays on top. Either way it closes with PhotoCraft.
 
 1. **System packages** (Python 3.10+ with tkinter and venv):
 
@@ -98,29 +78,20 @@ X11 and Wayland. Under X11 the window is tied to PhotoCraft as on Windows: it mi
    sudo apt install libxcursor1      # Fedora: libXcursor, Arch: libxcursor
    ```
 
-2. **Get the plugin**: download the ZIP and unpack it, or `git clone <this repository>`.
-3. **Set up**: run `./setup-linux.sh` in the plugin folder. It makes a private Python environment, installs the packages and adds **PxC** to your application menu (an old PhotoCraft AI menu entry is removed once). It never installs system packages itself; if something is missing it prints the command for your distribution. (`./setup-linux.sh --check` only looks and changes nothing.)
+2. **Download**: click **Code ▸ Download ZIP** (green button at the top of this page) and unpack it, or use git (see [Technical details](#technical-details)).
+3. **Set up**: open a terminal in the plugin folder and run `./setup-linux.sh`. It makes a private Python environment, installs the packages and adds **PxC** to your application menu. It never installs system packages itself; if something is missing it prints the command for your distribution. (`./setup-linux.sh --check` only looks and changes nothing.)
 4. **Start**: start ComfyUI, close PhotoCraft if it is open, then start **PxC** from the menu (or run `./pxc.sh`). PhotoCraft is found in `PATH`, `/opt`, `~/Applications`, `~/.local/bin` or as a Flatpak. If it is somewhere else: `PHOTOCRAFT=/path/to/photocraft ./pxc.sh`.
+5. **Get a model and generate**: as in steps 4 and 5 of [Install on Windows](#install-on-windows).
 
-Then go on with [First start](#first-start). Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface scale**.
-
-## First start
-
-1. **Get the models.** Open the plugin's settings window (gear symbol at the top right) and pick a model tab. The button **Download all model files** loads everything that model needs. Good first choices:
-   - **Qwen Image 2.1** or **Fibo 2.0**: no login at external websites needed.
-   - **Flux 3 Klein**: needs a free Hugging Face account once (the button opens the page; log in and accept the licence there).
-2. **Restart ComfyUI.** It reads its model folders only when it starts, so new files appear after a restart.
-3. **Generate.** Pick a function and a model, type a prompt and press **Generate** (Ctrl+Enter). Each model starts with its tested settings; the Advanced settings below the prompt change them. The status line at the bottom tells you what is happening.
+Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface scale**.
 
 ## Model downloads
 
-Everything below is for people who want to download the files themselves; the plugin's **Download all model files** button does the same. Click a model to open its list. Put each file into the folder named below it, inside your ComfyUI folder (for example `ComfyUI/models/diffusion_models`; a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
+The plugin's **Download all model files** button does the same as this list. Put each file into the folder named below it, inside your ComfyUI folder (a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
 
-**Custom nodes.** A custom node pack is a small add-on for ComfyUI. Only two are ever mentioned: KJNodes is needed for Flux 2 and for some Upscale cases, GGUF is optional:
-- [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): its *Color Match* node is used by **Upscale with Flux 3**, by the **tiles** of **Upscale with Flux 2** (always on, no switch) and by the **tiles** option of **Upscale with Fibo**. Without it Flux 2 is locked (Upscale with Flux 2 needs it) and Upscale with Flux 3 and the Fibo tiles cannot start; the line at the bottom of the plugin names the pack.
-- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF): only if you want to use smaller GGUF model files (gear window, chain symbol). Not needed otherwise.
-
-Install a pack from the ComfyUI Manager (search for its name) or from its link, then restart ComfyUI.
+**Custom nodes** (small add-ons for ComfyUI; install them from the ComfyUI Manager or the link, then restart ComfyUI):
+- [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): needed for Flux 2 and for Upscale with Flux 3 and Fibo.
+- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF): only for smaller GGUF model files (gear window, chain symbol).
 
 <!-- model-downloads:start -->
 
@@ -278,13 +249,13 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 
 | Function | What it does |
 |---|---|
-| **Text to image** | A new picture from text only, as a new layer. MiniMax H3 Image draws 4 to 20 MP and opens the picture as a new document in that size; tick "Downsize to canvas" to get a layer in your canvas instead. With MiniMax, Edit and Multi image edit (up to 6 reference images) use the same MP buttons and tick; there the tick starts on (a layer in your canvas), off opens a new document in full size. |
+| **Text to image** | A new picture from text only, as a new layer. MiniMax draws 4 to 20 MP: a new document, or with "Downsize to canvas" a layer. |
 | **Expand image** | Extend the canvas with the Crop tool, fill the new area white; the plugin paints it. |
 | **Fill Selection** | Select an area, type what should appear there. With Flux 3 the tab Insert reference beside it puts one reference image into your rectangle selection. |
 | **Remove Selection** | Select an object, with a little margin around it, and name it in the prompt field ("car"); it is removed and the background filled in. With Flux 3, Flux 2 and Fibo you can leave the field empty: the model then names the subject itself. |
 | **Edit** › Edit canvas | Changes the whole picture from your text ("make it night"). **Style prompts** turns the picture into a style (painting, comic, film look …): it sets the whole sentence in the prompt. |
 | **Edit** › Multi image edit | Edits the picture with reference images (drop or paste images into the slots). A click on the tag on a slot puts it where your cursor is in the prompt, or at the end. |
-| **Edit** › Sketch to image | Turns a sketch on the canvas into a picture in the style you choose under **Style prompts** (photo, film look, painting, comic, 3D and more). The style's whole text stands in the prompt: replace `<WHAT IT SHOWS>`; the style you chose last comes back next time. Flux 3 needs the Flux 3 prompt upsampler for it, Qwen needs Qwen 3.5 9B w4a8 GPTQ, Flux 2 needs Qwen3-VL 4B; without it only this tab is greyed out. |
+| **Edit** › Sketch to image | Turns a sketch on the canvas into a picture in the style you choose under **Style prompts** (photo, film look, painting, comic, 3D and more). The style's whole text stands in the prompt: replace `<WHAT IT SHOWS>`; the style you chose last comes back next time. Needs the model's prompt writer file (see [Model downloads](#model-downloads)); without it only this tab is greyed out. |
 | **Edit** › Scribble on photo | Turns scribbles on a photo into real objects: scribble in bright red or green, or on a layer of its own; only that place changes. Replace `<WHAT IT SHOWS>` in the prompt with what goes there. Needs the same files as Sketch to image. |
 | **Edit** › Scribble with reference | Like Scribble on photo, but the scribbled place becomes the object of the reference picture in the slot. Replace `<WHAT IS IN THE REFERENCE>` with what it shows ("a beagle dog"). |
 | **Upscale / Refine** | Pick a factor (1.5x to 4x) in the row "Upscale factor": the whole picture is enlarged into a new document, up to 16 MP. Or pick a button in the row "Refine" (Default; with Flux 2 also Neutral and Studio portrait; with Flux 3 also Restore): the picture is cleaned up at the same size, as a new layer. A selection is ignored. |
@@ -309,7 +280,13 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 
 </details>
 
-More in the window: **variants** (several results as layers in one group), prompt history (the clock at the bottom right, "Last runs"), Style prompts, Enhance my Prompt with LLM, live preview. **Check files** (gear window ▸ Model Links) compares the model files on your disk with their checksums; a damaged file is named, never deleted. The **scissors** at the bottom right (**Remove background**) opens a small menu: **BiRefNet**, **RMBG-2.0** or **Both** (two layers, RMBG-2.0 on top). A copy of the visible picture is added as a new layer with a layer mask that hides the background; the mask stays editable (paint on it to fix an edge, or apply it in PhotoCraft). It needs the optional `birefnet.safetensors` and/or `rmbg-2.0.safetensors` (gear window ▸ Model Links ▸ Additional); RMBG-2.0 is by Bria AI, and its download symbol in the settings window uses a community mirror because the official file needs a Hugging Face login. To get it by hand: log in at [huggingface.co/briaai/RMBG-2.0](https://huggingface.co/briaai/RMBG-2.0), accept the terms, download `model.safetensors`, rename it to `rmbg-2.0.safetensors` and put it into ComfyUI's `models/background_removal` folder (restart ComfyUI). Advanced settings: **edge feather, context size, mask density (PhotoCraft 0.17+), custom LoRAs, prompt writer seed.**
+**More in the window:**
+- **Variants:** several results as layers in one group.
+- **Last runs:** the clock at the bottom right brings back earlier settings.
+- **Style prompts**, **Enhance my Prompt with LLM** and a **live preview**.
+- **Remove background:** the scissors at the bottom right offer **BiRefNet**, **RMBG-2.0** or **Both**. A copy of the picture is added as a new layer with an editable layer mask that hides the background. It needs the optional files under [Model downloads](#model-downloads) ▸ Remove background.
+- **Check files** (gear window ▸ Model Links) compares the model files on your disk with their checksums; a damaged file is named, never deleted.
+- **Advanced settings:** edge feather, context size, mask density, custom LoRAs, prompt writer seed.
 
 ## Help
 
@@ -324,7 +301,7 @@ More in the window: **variants** (several results as layers in one group), promp
 | On Linux nothing appears | Run `./pxc.sh` in a terminal; the message tells you what is missing. |
 | **Enhance my Prompt with LLM** is slow, especially with 8 GB of VRAM | Start ComfyUI with the option `--use-ck-attention` (Comfy Kitchen attention): add it at the end of the line with `main.py` in your ComfyUI start file (`.bat`), or run `python main.py --use-ck-attention`. In our tests on 8 GB the prompt writers ran 2 to 5 times faster, Qwen Image 2.1 pictures about 25 % faster, with the same quality of prompts and pictures (tested with ComfyUI 0.45). On 16 GB the prompt writers are fast without it. |
 
-**Update.** Download the new ZIP and unpack it over the old folder, or run `git pull` in the plugin folder if you used `git clone`; then run the setup script again and restart the plugin. Your settings, including "Set current settings as startup settings" (right-click on a model), stay in `data\` (Linux: `~/.config/pccomfy/`) and are not touched.
+**Update.** Download the new ZIP and unpack it over the old folder, or run `git pull` in the plugin folder if you used `git clone`; then run the setup script again and restart the plugin. Your settings stay in `data\` (Linux: `~/.config/pccomfy/`) and are not touched.
 
 **Report a problem.** Open an issue on this repository's **Issues** page and tell us:
 - what you did, what you expected and what happened (the status line at the bottom of the window is useful);
@@ -334,11 +311,11 @@ If we ask for more: the last lines of `data\exchange\runs.jsonl` (Linux: `~/.cac
 
 ## Technical details
 
-**Install with git.**
+**Install with git.** Copy the address from the green **Code** button at the top of this page, then:
 
 ```bash
-git clone <this repository>
-cd <this repository>
+git clone <address>
+cd pxc
 ```
 
 **Windows, by hand** (what `setup-windows.bat` does):
@@ -370,12 +347,11 @@ Settings and the PhotoCraft token live in `~/.config/pccomfy/`. A different Comf
 
 **PhotoCraft as a Flatpak.** It is found by itself; to name it: `PHOTOCRAFT=flatpak:ai.storyteller.photocraft ./pxc.sh`. The Flatpak sandbox sees only Pictures and Documents, so the plugin opens `~/.config/pccomfy` and `~/.cache/pccomfy` for the Flatpak run; that lets PhotoCraft write its token file there.
 
-**Custom nodes.** Flux 3 Upscale, the tiles of Flux 2 Upscale (always on) and the tiles of Fibo Upscale use the *Color Match* node of [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes). Install the pack from the ComfyUI Manager or the link, then restart ComfyUI. Without it Flux 2 is locked and Upscale with Flux 3 and the Fibo tiles cannot run (the line at the bottom of the plugin names the pack); everything else uses ComfyUI's own nodes. GGUF files (link them with the chain symbol in the gear window) need [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF).
-
 **Model files.** All files with sizes, folders and links are listed under [Model downloads](#model-downloads). The gear window lists the same files with a download button; the plugin enables a model when it finds all the files for its standard settings. To keep the memory use low, release 1 uses int8 ConvRot files for most models; the exceptions are the text encoders of MiniMax (nvfp4) and Flux 2 (fp8mixed) and the prompt writers (w4a8). Some files are gated: log in to Hugging Face and accept the licence on the model page first. Flux 3 is one of them.
 
 **Known limitations.**
 - Developed and tested on Windows 11 with an NVIDIA card. On Linux it was run on Ubuntu 24.04 (Wayland) and Linux Mint (X11); other distributions are not tested yet.
+- Linux: under X11 the window stays above PhotoCraft and minimises with it; under Wayland it is a normal window that stays on top.
 - During a run, PhotoCraft briefly opens a temporary document. Please don't switch documents or change the selection while a run is going.
 - A run consists of several PhotoCraft steps (history entries).
 - CMYK, Lab and 16-bit documents go through 8-bit RGB.
