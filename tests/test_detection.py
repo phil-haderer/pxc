@@ -1,0 +1,372 @@
+"""Model detection: manifest, inventory, resolve, tab and mode status, preflight, apply_names, comfy.inventory_raw, settings.
+
+    python tests/test_detection.py
+"""
+import json
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+os.environ["PCCOMFY_HOME"] = tempfile.mkdtemp()
+try:
+    import tomllib  # noqa: F401
+except ImportError:  # the checks below do not read toml
+    sys.modules["tomllib"] = types.SimpleNamespace(load=lambda f: {})
+sys.path.insert(0, str(ROOT))
+
+from pccomfy import comfy, config as cfgmod, inventory, manifest, models  # noqa: E402
+
+LOADERS = {cls: (kind, fld) for kind, (cls, fld, _f) in manifest.KINDS.items()}
+
+
+def workflow_files(name):
+    """{(kind, file name)} a shipped workflow loads."""
+    g = json.loads((ROOT / "workflows" / name).read_text(encoding="utf-8"))
+    out = set()
+    for n in g.values():
+        if isinstance(n, dict) and n.get("class_type") in LOADERS:
+            kind, fld = LOADERS[n["class_type"]]
+            v = (n.get("inputs") or {}).get(fld)
+            if isinstance(v, str):
+                out.add((kind, v))
+        elif isinstance(n, dict) and n.get("class_type") == "AUSBOSS_NODES_LoraLoader":
+            # AusBoss' LoRA loader keeps its LoRAs as a JSON list (the Flux 3 Restore LoRA was missed before, 30.10.)
+            for lo in json.loads((n.get("inputs") or {}).get("loras") or "[]"):
+                if lo.get("enabled", True):
+                    out.add(("lora", lo["name"]))
+    return out
+
+
+def full_lists():
+    lists = {k: [] for k in manifest.KINDS}
+    for f in manifest.FILES.values():
+        lists[f.kind].append(f.name)
+    return lists
+
+
+def test_manifest():
+    for f in manifest.FILES.values():
+        assert f.kind in manifest.KINDS, f
+        assert f.size > 0 and (f.url.startswith("https://") or f.note), f        # a direct link, or a note why there is none
+        assert not f.url or f.url.endswith(f.name.rpartition("\\")[2]) or "civitai.com/api/download" in f.url or f.url.endswith("/model.safetensors"), f   # a FILE, not a model page ("model.safetensors": saved under f.name, e.g. rmbg-2.0)
+    assert manifest.FILES["flux2-vae.safetensors"].size_text == "336 MB" and manifest.FILES["krea2_turbo_int8_convrot.safetensors"].size_text == "13.5 GB"
+    assert manifest.FILES["Moss\\lora_dmd2.safetensors"].target == "models\\loras\\Moss"
+    assert manifest.FILES["flux2-vae.safetensors"].target == "models\\vae"
+    for key, tab in manifest.TABS.items():
+        assert key in models.BY_KEY, key
+        for n in tab.required + tab.optional:
+            assert n in manifest.FILES, (key, n)
+        for mode, spec in tab.modes.items():
+            assert mode in models.BY_KEY[key].modes, (key, mode)
+            for n in spec.requires + spec.optional:
+                assert n in manifest.FILES, (key, mode, n)
+    # models.requires carries the tab's required files, in sync with the manifest
+    for m in models.MODELS:
+        assert m.key in manifest.TABS, m.key
+        assert tuple(m.requires) == manifest.tab_required(m.key), m.key
+        assert m.requires, m.key
+
+
+def test_checksums():
+    """What the downloader (PLAN 14c) checks a file against: every file with a link has its exact size; every file from
+    Hugging Face or Civitai has the SHA-256 the source publishes; since 17.11. the two TAESD decoders on GitHub too (GitHub
+    publishes no SHA-256: their blob hash matched the local copies, whose SHA-256 went into models.json)."""
+    import re
+    for f in manifest.FILES.values():
+        if not f.url:
+            continue
+        assert f.size > 0, (f.name, "no size")
+        assert re.fullmatch(r"[0-9a-f]{64}", f.sha256), (f.name, "no SHA-256")
+
+
+def test_workflows_covered():
+    """Every model file a shipped workflow loads is known to the manifest for that tab and mode (required or optional)."""
+    for m in models.MODELS:
+        for mode, mo in m.modes.items():
+            known = set(manifest.mode_required(m.key, mode)) | set(manifest.mode_optional(m.key, mode))
+            for kind, name in workflow_files(mo.workflow):
+                assert name in manifest.FILES, (m.key, mode, name, "not in the manifest")
+                assert manifest.FILES[name].kind == kind, (name, kind)
+                assert name in known, (m.key, mode, name, "loaded by the workflow but not listed for this tab/mode")
+            # and nothing the manifest calls required is unknown to the workflow
+            loaded = {n for _k, n in workflow_files(mo.workflow)}
+            # Remove with a named object (16.11.): its writer runs in the describe graph, not in the edit workflow
+            writers = set(manifest.describe_writers(m.key)) if getattr(mo, "remove_style", "") else set()
+            for name in manifest.mode_required(m.key, mode):
+                if name in writers:
+                    continue
+                assert name in loaded, (m.key, mode, name, "required but the workflow does not load it")
+
+
+def test_resolve():
+    av = ["Moss\\lora_dmd2.safetensors", "flux2-vae.safetensors", "Sub/Folder/qwen_3_8b_fp8mixed.safetensors"]
+    assert inventory.resolve("flux2-vae.safetensors", av) == "flux2-vae.safetensors"
+    assert inventory.resolve("moss/LORA_DMD2.safetensors", av) == "Moss\\lora_dmd2.safetensors"          # separator and case
+    assert inventory.resolve("qwen_3_8b_fp8mixed.safetensors", av) == "Sub/Folder/qwen_3_8b_fp8mixed.safetensors"   # sub-folder
+    assert inventory.resolve("nothing.safetensors", av) is None
+    assert inventory.resolve("a.safetensors", ["x/a.safetensors", "y/a.safetensors"]) is None            # two candidates: no guess
+    assert inventory.resolve("seedvr2_ema_vae_fp16.safetensors", ["ema_vae_fp16.safetensors"],
+                             aliases=("ema_vae_fp16.safetensors",)) == "ema_vae_fp16.safetensors"        # alias
+    assert inventory.resolve("flux2-vae.safetensors", ["my_vae.safetensors"], {"flux2-vae.safetensors": "my_vae.safetensors"}) == "my_vae.safetensors"
+    assert inventory.resolve("flux2-vae.safetensors", ["flux2-vae.safetensors"], {"flux2-vae.safetensors": "gone.safetensors"}) == "flux2-vae.safetensors"
+
+
+def test_status():
+    inv = inventory.Inventory(full_lists(), nodes=set(n for t in manifest.TABS.values() for s in t.modes.values() for n in s.nodes))
+    for m in models.MODELS:
+        assert inv.tab_status(m.key).state == "ready", m.key
+
+    # a missing optional extra (Moss speed LoRA) is only a note
+    lists = full_lists()
+    lists["lora"].remove("Moss\\lora_dmd2.safetensors")
+    st = inventory.Inventory(lists, nodes=inv.nodes).tab_status("moss")
+    assert st.state == "ready" and [f.name for f in st.optional_missing] == ["Moss\\lora_dmd2.safetensors"]
+
+    # SeedVR2 missing: Flux 3 Upscale still works (its SeedVR2 pre-cleaning starts off); only the switch needs the files
+    lists = full_lists()
+    lists["unet"].remove("seedvr2_3b_int8_convrot.safetensors")
+    i2 = inventory.Inventory(lists, nodes=inv.nodes)
+    assert i2.tab_status("flux3").state == "ready"
+    assert i2.mode_status("flux3", "upscale").state == "ready"
+    assert [f.name for f in i2.mode_status("flux3", "upscale").optional_missing] == ["seedvr2_3b_int8_convrot.safetensors"]
+    # the Restore LoRA is on at the start: without it Upscale is greyed
+    lists = full_lists()
+    lists["lora"].remove("Flux 3\\flux-3-image-klein-restore.safetensors")
+    i2 = inventory.Inventory(lists, nodes=inv.nodes)
+    st = i2.tab_status("flux3")
+    assert st.state == "missing" and list(st.detail) == ["upscale"], st      # one function lacks its files: the model is locked
+    assert i2.mode_status("flux3", "edit").state == "ready" and i2.mode_status("flux3", "upscale").state == "missing"
+    assert [f.name for f in i2.mode_status("flux3", "upscale").missing] == ["Flux 3\\flux-3-image-klein-restore.safetensors"]
+
+    # the Flux 3 diffusion model missing: the whole tab is out
+    lists = full_lists()
+    lists["unet"].remove("flux3-image-klein-int8-convrot.safetensors")
+    st = inventory.Inventory(lists, nodes=inv.nodes).tab_status("flux3")
+    assert st.state == "missing" and [f.name for f in st.missing] == ["flux3-image-klein-int8-convrot.safetensors"]
+
+    # Qwen: one Qwen3-VL 8B file serves every mode (the edit graph uses int8_convrot too since 31.10.); without it the tab is out
+    lists = full_lists()
+    lists["clip"].remove("qwen3vl_8b_int8_convrot.safetensors")
+    i3 = inventory.Inventory(lists, nodes=inv.nodes)
+    st = i3.tab_status("qwen")
+    assert st.state == "missing" and [f.name for f in st.missing] == ["qwen3vl_8b_int8_convrot.safetensors"], st
+    assert "edit" in st.detail and "txt2img" in st.detail
+
+    # every mode missing its own file = the tab is missing (Flux 2 with no Ultra-real LoRA: Upscale and Refine lack it, the model is locked)
+    lists = full_lists()
+    lists["lora"].remove("Flux 2\\ultra_real_v4.safetensors")
+    st = inventory.Inventory(lists, nodes=inv.nodes).tab_status("flux2")
+    assert st.state == "missing" and set(st.detail) == {"upscale", "refine"}, st
+
+    # Flux 3 Upscale needs no custom node pack any more (standard nodes since 2.11.): unknown node classes do not block it
+    i4 = inventory.Inventory(full_lists(), nodes={"SomethingElse"})
+    assert i4.mode_status("flux3", "upscale").state == "ready" and not inventory.preflight(i4, "flux3", "upscale")
+    # node classes not read (None): never a reason to block
+    assert inventory.Inventory(full_lists(), nodes=None).mode_status("flux3", "upscale").state == "ready"
+
+    # nothing installed: everything is missing, nothing raises
+    empty = inventory.Inventory({})
+    assert all(empty.tab_status(m.key).state == "missing" for m in models.MODELS)
+
+
+def test_rows_and_texts():
+    lists = full_lists()
+    lists["vae"].remove("qwen_image_vae.safetensors")
+    inv = inventory.Inventory(lists)
+    rows = {r["key"]: r for r in inv.rows()}
+    assert [r["key"] for r in inv.rows()] == [m.key for m in models.MODELS]
+    assert rows["krea2"]["status"].state == "missing"
+    krea = {f.name: (found, level) for f, found, level in rows["krea2"]["files"]}
+    assert krea["qwen_image_vae.safetensors"] == (None, "required")
+    assert krea["krea2_turbo_int8_convrot.safetensors"][0] == "krea2_turbo_int8_convrot.safetensors"
+    assert any(level == "optional" for _f, _fd, level in rows["moss"]["files"])
+
+    lines = inventory.preflight(inv, "krea2", "txt2img")
+    assert lines == ["missing: qwen_image_vae.safetensors -> ComfyUI\\models\\vae (download: "
+                     "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors)"], lines
+    msg = inventory.short_message(lines, "Krea 2 Turbo")
+    assert msg.startswith("Krea 2 Turbo: missing: qwen_image_vae.safetensors -> ComfyUI\\models\\vae") and "Restart ComfyUI" in msg
+    lines2 = inventory.preflight(inventory.Inventory({}), "flux3", "edit")
+    assert len(lines2) == 3 and "(download: https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/" in lines2[0]
+    assert "(+2 more, see Settings)" in inventory.short_message(lines2)
+    assert inventory.preflight(None, "flux3", "edit") == [] and inventory.preflight(inv, "", "edit") == []
+    assert inventory.preflight(inv, "unknown", "edit") == []         # a workflow of your own is never blocked
+    assert inventory.short_message([]) == ""
+    t = inventory.tooltip_text(inv.tab_status("krea2"))
+    assert t == "Missing: qwen_image_vae.safetensors. Set in settings (gear)." and inventory.tooltip_text(inventory.Status("ready")) == ""
+
+
+def test_graph_names():
+    g = {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux3-image-klein-int8-convrot.safetensors"}},
+        "2": {"class_type": "VAELoader", "inputs": {"vae_name": "FLUX2-VAE.safetensors"}},
+        "3": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "Moss\\lora_dmd2.safetensors", "model": ["1", 0]}},
+        "4": {"class_type": "CLIPLoader", "inputs": {"clip_name": "gone.safetensors"}},
+        "5": {"class_type": "SomeCustomNode", "inputs": {}},
+    }
+    lists = {"unet": ["flux3-image-klein-int8-convrot.safetensors"], "vae": ["flux2-vae.safetensors"],
+             "lora": ["Moss/lora_dmd2.safetensors"], "clip": []}
+    inv = inventory.Inventory(lists, nodes={"UNETLoader", "VAELoader", "LoraLoaderModelOnly", "CLIPLoader"})
+    files, classes = inv.check_workflow(g)
+    assert files == [("clip", "gone.safetensors")] and classes == ["SomeCustomNode"], (files, classes)
+    assert inv.apply_names(g) == 2
+    assert g["2"]["inputs"]["vae_name"] == "flux2-vae.safetensors" and g["3"]["inputs"]["lora_name"] == "Moss/lora_dmd2.safetensors"
+    assert g["1"]["inputs"]["unet_name"] == "flux3-image-klein-int8-convrot.safetensors"
+    assert g["4"]["inputs"]["clip_name"] == "gone.safetensors"          # nothing to rename it to
+    # AusBoss' LoRA loader: the names inside its JSON list are matched too (the Flux 3 Restore LoRA in another sub-folder)
+    lists = full_lists()
+    lists["lora"] = ["Klein/flux-3-image-klein-restore.safetensors"]
+    a = {"1": {"class_type": "AUSBOSS_NODES_LoraLoader",
+               "inputs": {"loras": json.dumps([{"name": "Flux 3\\flux-3-image-klein-restore.safetensors", "strength": 0.5, "enabled": True}])}}}
+    assert inventory.Inventory(lists).apply_names(a) == 1
+    assert json.loads(a["1"]["inputs"]["loras"])[0] == {"name": "Klein/flux-3-image-klein-restore.safetensors", "strength": 0.5, "enabled": True}
+    assert inv.apply_names(g) == 0
+    # the shipped workflows pass against a full install
+    full = inventory.Inventory(full_lists())
+    for m in models.MODELS:
+        for w in m.workflows():
+            graph = json.loads((ROOT / "workflows" / w).read_text(encoding="utf-8"))
+            files, _ = full.check_workflow(graph)
+            assert not files, (w, files)
+
+
+class FakeComfy(comfy.ComfyUI):
+    """A ComfyUI that answers from a dict instead of HTTP."""
+
+    def __init__(self, lists, up=True, all_nodes=True):
+        super().__init__()
+        self.lists, self.up, self.all_nodes = lists, up, all_nodes
+        self.asked = []
+
+    def _json(self, path, payload=None):
+        if not self.up:
+            raise comfy.ComfyError("No connection to ComfyUI")
+        if path == "/system_stats":
+            return {"system": {}}
+        if path == "/object_info":
+            raise AssertionError("the full /object_info (5 MB) must not be read any more")
+        if path == "/models/vae_approx":          # the live preview decoders: a plain folder list
+            return list(self.lists.get("preview", []))
+        node = path.rsplit("/", 1)[1]
+        if node not in ("UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly"):      # a node-class probe
+            if not self.all_nodes:
+                raise comfy.ComfyError("boom")
+            self.asked.append(node)
+            return {node: {"input": {}}} if node in ("UNETLoader", "AUSBOSS_NODES_Seed") else {}
+        field = {"UNETLoader": "unet_name", "CLIPLoader": "clip_name", "VAELoader": "vae_name", "LoraLoaderModelOnly": "lora_name"}[node]
+        kind = {v[0]: k for k, v in manifest.KINDS.items()}[node]
+        return {node: {"input": {"required": {field: [self.lists[kind], {}]}}}}
+
+
+def test_comfy_reading():
+    lists = full_lists()
+    c = FakeComfy(lists)
+    raw = c.inventory_raw()
+    assert raw["unet"] == lists["unet"] and raw["lora"] == lists["lora"] and "UNETLoader" in raw["nodes"] and "AUSBOSS_NODES_Seed" in raw["nodes"] and "Nope" not in raw["nodes"]
+    inv = inventory.fetch(c, {"x": "y"})
+    assert inv.tab_status("flux3").state == "missing" and "upscale" in inv.tab_status("flux3").detail   # the fake lists two node classes only
+    assert inv.mapping == {"x": "y"}
+    os.environ["PCCOMFY_SIMULATE_NO_MODELS"] = "1"      # the new-user test start: ComfyUI answers, but has no model files
+    try:
+        empty = inventory.fetch(c)
+        assert all(empty.lists[k] == [] for k in inventory.LIST_KINDS)
+        assert all(empty.tab_status(m.key).state != "ready" for m in models.MODELS)
+    finally:
+        del os.environ["PCCOMFY_SIMULATE_NO_MODELS"]
+    assert inventory.fetch(c).lists["unet"] == lists["unet"]
+    assert "Anything" in FakeComfy(lists, all_nodes=False).inventory_raw()["nodes"]      # a class that cannot be asked counts as installed: not fatal
+    asked = FakeComfy(lists)
+    asked.inventory_raw(["AUSBOSS_NODES_Seed", "B"])
+    assert asked.asked[-2:] == ["AUSBOSS_NODES_Seed", "B"] and "AUSBOSS_NODES_Seed" in asked.inventory_raw(["B"])["nodes"] and "B" not in asked.inventory_raw()["nodes"]       # the classes are asked up front, once each
+    try:
+        FakeComfy(lists, up=False).inventory_raw()
+        raise AssertionError("an unreachable server must raise, not look like an empty install")
+    except comfy.ComfyError:
+        pass
+    # the new-style combo spec ["COMBO", {"options": [...]}] reads too
+    c2 = FakeComfy(lists)
+    c2._json = lambda path, payload=None: ({"system": {}} if path == "/system_stats" else {path.rsplit("/", 1)[1]: {"input": {"required": {
+        "unet_name": ["COMBO", {"options": ["a.safetensors"]}], "clip_name": ["COMBO", {"options": ["b"]}],
+        "vae_name": ["COMBO", {"options": ["c"]}], "lora_name": ["COMBO", {"options": ["d"]}]}}}})
+    assert c2.inventory_raw()["unet"] == ["a.safetensors"]
+
+
+def test_settings():
+    assert cfgmod.model_map() == {} and cfgmod.hidden_tabs() == set()
+    cfgmod.set_model_link("flux2-vae.safetensors", "my_vae.safetensors")
+    cfgmod.set_model_link("a.safetensors", "b.safetensors")
+    assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors", "a.safetensors": "b.safetensors"}
+    cfgmod.set_model_link("a.safetensors", "")
+    assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors"}
+    cfgmod.set_tab_hidden("krea2", True)
+    cfgmod.set_tab_hidden("moss", True)
+    cfgmod.set_tab_hidden("moss", False)
+    assert cfgmod.hidden_tabs() == {"krea2"}
+    saved = json.loads(cfgmod.SETTINGS_FILE.read_text(encoding="utf-8"))
+    assert set(saved) == {"model_map", "hidden_tabs", "_version"}        # the plugin version is stamped in (7.11.)
+    cfgmod.SETTINGS_FILE.write_text("not json", encoding="utf-8")       # a broken file is an empty settings file
+    assert cfgmod.model_map() == {} and cfgmod.hidden_tabs() == set()
+    # the window state file is separate and untouched
+    assert cfgmod.STATE_FILE != cfgmod.SETTINGS_FILE
+
+
+def test_rows_sorted_by_kind():
+    """Each model lists its files by kind: diffusion models, text encoders, VAEs, LoRAs, the rest (user 30.10.)."""
+    order = list(manifest.KINDS)
+    for r in inventory.Inventory(full_lists()).rows():
+        idx = [order.index(f.kind) for f, _fd, _lv in r["files"]]
+        assert idx == sorted(idx), r["key"]
+        levels = {}
+        for f, _fd, lv in r["files"]:
+            levels.setdefault(f.kind, []).append(lv)
+        assert all(v == sorted(v, key=("required", "optional").index) for v in levels.values()), r["key"]
+
+
+def test_gguf_loader():
+    """A GGUF file linked for a model's file (the chain in the gear window): the graph gets ComfyUI-GGUF's loader (user 5.11.)."""
+    lists = full_lists()
+    lists["unet"] = lists["unet"] + ["krea2_turbo-Q3_K_M.gguf"]
+    mapping = {"krea2_turbo_int8_convrot.safetensors": "krea2_turbo-Q3_K_M.gguf"}
+    nodes = {"UNETLoader", "UnetLoaderGGUF", "VAELoader"}
+    g = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "krea2_turbo_int8_convrot.safetensors", "weight_dtype": "default"}},
+         "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux3-image-klein-int8-convrot.safetensors", "weight_dtype": "default"}}}
+    inv = inventory.Inventory(lists, nodes=nodes, mapping=mapping)
+    assert inv.has("krea2_turbo_int8_convrot.safetensors")           # the linked GGUF counts as the file
+    assert inv.apply_names(g) == 2
+    assert g["1"] == {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": "krea2_turbo-Q3_K_M.gguf"}}, g["1"]
+    assert g["2"]["class_type"] == "UNETLoader" and g["2"]["inputs"]["weight_dtype"] == "default"      # a normal file is left alone
+    assert inv.apply_names(g) == 0
+    # without the ComfyUI-GGUF pack the loader class is reported missing
+    g2 = {"1": {"class_type": "UNETLoader", "inputs": {"unet_name": "krea2_turbo_int8_convrot.safetensors"}}}
+    files, classes = inventory.Inventory(lists, nodes={"UNETLoader"}, mapping=mapping).check_workflow(g2)
+    assert not files and classes == ["UnetLoaderGGUF"], (files, classes)
+    # reading ComfyUI: the GGUF loader's own list is added to the diffusion models (no duplicates)
+    class C(FakeComfy):
+        def _json(self, path, payload=None):
+            if path.endswith("/UnetLoaderGGUF"):
+                return {"UnetLoaderGGUF": {"input": {"required": {"unet_name": [["krea2_turbo-Q3_K_M.gguf", "flux-2-klein-9b-Q4_K_M.gguf"], {}]}}}}
+            return super()._json(path, payload)
+    raw = C({**full_lists(), "unet": ["a.safetensors"]}).inventory_raw()
+    assert raw["unet"] == ["a.safetensors", "krea2_turbo-Q3_K_M.gguf", "flux-2-klein-9b-Q4_K_M.gguf"], raw["unet"]
+
+
+def main():
+    test_manifest()
+    test_checksums()
+    test_workflows_covered()
+    test_resolve()
+    test_status()
+    test_rows_and_texts()
+    test_rows_sorted_by_kind()
+    test_graph_names()
+    test_comfy_reading()
+    test_gguf_loader()
+    test_settings()
+    print("ok")
+
+
+if __name__ == "__main__":
+    main()

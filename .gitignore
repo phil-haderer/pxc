@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+data/
+
+# Tool folders (local only)
+.claude/
+
+# Continuation note for "weiter" after /clear (local only, CLAUDE.md)
+/weiter.md

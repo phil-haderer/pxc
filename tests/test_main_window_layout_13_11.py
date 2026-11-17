@@ -1,0 +1,123 @@
+"""Main window layout wishes of 13.11., measured in the real Tk window (shown for a moment; skipped when Tk cannot open one):
+the status line as wide as the lines above Advanced settings, the tip text level with its icon, the placeholder where typed
+text starts, the MiniMax size row without a label and left-aligned.
+
+    python tests/test_main_window_layout_13_11.py
+"""
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+os.environ["PCCOMFY_HOME"] = tempfile.mkdtemp(prefix="pccomfy-layout-")
+sys.path.insert(0, str(ROOT))
+
+try:
+    import tkinter
+    _r = tkinter.Tk()
+    _r.destroy()
+except Exception as e:                      # no display / no Tk
+    print(f"SKIPPED (no Tk window: {e})")
+    sys.exit(0)
+
+from pccomfy import config as cfgmod  # noqa: E402
+from pccomfy import gui, models  # noqa: E402
+
+
+def make_app():
+    gui.winlink.available = lambda: False
+    cfg = cfgmod.load()
+    cfg["comfyui"]["url"] = "http://127.0.0.1:1"
+    cfg["photocraft"]["port"] = 1
+    app = gui.App(cfg)
+    names = sorted({w for m in models.MODELS for w in m.workflows()})
+    app.cb_workflow["values"] = [gui.BUILTIN] + names
+    return app
+
+
+def left(w):
+    return w.winfo_rootx()
+
+
+def right(w):
+    return w.winfo_rootx() + w.winfo_width()
+
+
+def status_checks(app):
+    app.v_model.set("flux3")
+    app.v_mode.set("txt2img")
+    app._on_model()
+    app.v_status.set("A long message that has to wrap onto a second line because it is longer than the window is wide. " * 2)
+    app.root.update()
+    assert abs(left(app.f_status) - left(app.sep_adv)) <= 1 and abs(right(app.f_status) - right(app.sep_adv)) <= 1, \
+        (left(app.f_status), right(app.f_status), left(app.sep_adv), right(app.sep_adv))
+    # the text wraps at the right edge of that line (it used to wrap 20 px short)
+    assert int(app.lbl_status.cget("wraplength")) == app.f_status.winfo_width(), (app.lbl_status.cget("wraplength"), app.f_status.winfo_width())
+    app.v_status.set("")
+    app.root.update()
+
+
+def hint_checks(app):
+    """The tip's first line sits HINT_TEXT_DROP px (scaled) lower than the top of its icon."""
+    app.v_model.set("flux3")
+    app.v_mode.set("txt2img")
+    app._on_model()
+    app.root.update()
+    if not app.f_hint.winfo_manager():
+        print("  (no tip shown here, hint check skipped)")
+        return
+    ipad = app.lbl_hint_icon.pack_info()["pady"]
+    tpad = app.lbl_hint.pack_info()["pady"]
+    top = lambda p: int(p if isinstance(p, (int, str)) and str(p).lstrip("-").isdigit() else p[0])   # noqa: E731
+    drop = top(tpad) - top(ipad)
+    assert drop == app._px(4 + gui_theme_drop()) - app._px(4), (drop, tpad, ipad)
+    assert drop >= 1
+
+
+def gui_theme_drop():
+    from pccomfy import gui_theme
+    return gui_theme.HINT_TEXT_DROP
+
+
+def placeholder_checks(app):
+    """The placeholder label starts where typed text starts: place() counts from inside the Text's border and padding."""
+    app.v_model.set("flux3")
+    app.v_mode.set("txt2img")
+    app._on_model()
+    app.t_prompt.delete("1.0", "end")
+    app.root.update()
+    app._prompt_placeholder(focused=False)
+    app.root.update()
+    assert app._ph_on
+    info = app._ph.place_info()
+    assert int(info["x"]) == 0 and int(info["y"]) == 0, info
+    assert str(app._ph.cget("font")) == str(app.t_prompt.cget("font")), (app._ph.cget("font"), app.t_prompt.cget("font"))
+    assert app._ph.cget("fg") == gui.DISABLED
+
+
+def minimax_checks(app):
+    app.v_model.set("minimax")
+    app.v_mode.set("txt2img")
+    app._on_model()
+    app.root.update()
+    assert app.f_gen.winfo_manager(), "size row shown"
+    kids = [str(k) for k in app.f_gen.winfo_children()]
+    assert not [k for k in kids if k.rsplit(".", 1)[-1].startswith("!label")], kids      # no "Size" caption
+    first = app.rb_gen[models.GEN_MP_STEPS[0]]
+    assert abs(left(first) - left(app.f_gen)) <= 1, (left(first), left(app.f_gen))
+
+
+def main():
+    app = make_app()
+    app.root.deiconify()
+    app.root.update()
+    status_checks(app)
+    hint_checks(app)
+    placeholder_checks(app)
+    minimax_checks(app)
+    print("ALL OK (main window layout 13.11.)")
+
+
+if __name__ == "__main__":
+    main()

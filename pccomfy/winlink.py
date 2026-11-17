@@ -1,0 +1,532 @@
+"""Tie the PxC window to PhotoCraft's main window (Windows only).
+
+An *owned* window in Windows minimizes and restores together with its owner, stays above its owner only
+(not above other programs) and is destroyed with it. That is exactly "the plugin belongs to PhotoCraft".
+
+The window search is kept pure (`pick_window`) so it can be tested without Windows.
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+DEFAULT_EXE = "photocraft.exe"
+GWLP_HWNDPARENT = -8
+GW_OWNER = 4
+GWL_EXSTYLE = -20
+WS_EX_TOOLWINDOW = 0x00000080
+
+
+def available() -> bool:
+    return sys.platform == "win32"
+
+
+def exe_name() -> str:
+    """PhotoCraft's program name: photocraft.exe on Windows, photocraft elsewhere (x11link, 15.11.)."""
+    default = DEFAULT_EXE if os.name == "nt" else DEFAULT_EXE[:-4]
+    return (os.environ.get("PCC_PHOTOCRAFT_EXE") or default).lower()
+
+
+def _main_windows(infos: list[dict], exe: str) -> list[dict]:
+    """The plausible main windows of PhotoCraft's program among infos (visible, not owned, a title, no tool window)."""
+    exe = exe.lower()
+    out = []
+    for w in infos:
+        if not w.get("visible") or w.get("owner") or not w.get("title"):
+            continue
+        if w.get("exstyle", 0) & WS_EX_TOOLWINDOW:
+            continue
+        if os.path.basename((w.get("exe") or "").replace("\\", "/")).lower() == exe:
+            out.append(w)
+    return out
+
+
+def pick_window(infos: list[dict], exe: str, pid: int | None = None) -> int | None:
+    """infos: dicts with hwnd, visible, owner, title, exstyle, exe (path or name), area, pid. Largest matching window wins.
+    `pid`: the PhotoCraft that holds the control channel (portowner.py); when one of its windows is there, only its windows
+    count, so the plugin never sits on a second PhotoCraft opened by a double click (user 16.11.). Otherwise as before."""
+    cands = _main_windows(infos, exe)
+    if pid:
+        own = [w for w in cands if w.get("pid") == pid]
+        cands = own or cands
+    best, best_area = None, -1
+    for w in cands:
+        if w.get("area", 0) > best_area:
+            best, best_area = w["hwnd"], w.get("area", 0)
+    return best
+
+
+def other_photocrafts(infos: list[dict], exe: str, pid: int | None) -> int:
+    """Pure: how many PhotoCraft programs besides the one with the control channel (`pid`) have a main window. When `pid` is
+    unknown or none of the windows is its (a Flatpak shows other pids), every program beyond the first one counts."""
+    pids = {w.get("pid") for w in _main_windows(infos, exe) if w.get("pid")}
+    if pid and pid in pids:
+        return len(pids - {pid})
+    return max(0, len(pids) - 1)
+
+
+CONTROL_PORT: list = [None]           # the control port of PhotoCraft (config "photocraft.port"); set by the window at its start
+_PID_CACHE: dict = {"t": -1e9, "pid": None}
+PID_TTL = 2.0                         # s: the owner of the port is looked up at most this often (link and menu guard run often)
+
+
+def set_control_port(port) -> None:
+    CONTROL_PORT[0] = int(port) if port else None
+    _PID_CACHE["t"] = -1e9
+
+
+def control_pid() -> int | None:
+    """The pid of the PhotoCraft that holds the control channel, None when unknown (no port set, nothing listens)."""
+    import time
+    port = CONTROL_PORT[0]
+    if not port:
+        return None
+    now = time.monotonic()
+    if now - _PID_CACHE["t"] > PID_TTL:
+        from . import portowner
+        _PID_CACHE["pid"], _PID_CACHE["t"] = portowner.listener_pid(port), now
+    return _PID_CACHE["pid"]
+
+
+def _owner(infos: list[dict]) -> int | None:
+    return pick_window(infos, exe_name(), control_pid())
+
+
+def set_long_function(user32, ctypes, wintypes):
+    """user32's SetWindowLongPtrW with its types set; 32-bit Windows has no such export (the header maps it to
+    SetWindowLongW), so there the 32-bit function is taken."""
+    fn = getattr(user32, "SetWindowLongPtrW", None)
+    if fn is not None:
+        fn.argtypes, fn.restype = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p], ctypes.c_void_p
+        return fn
+    fn = user32.SetWindowLongW
+    fn.argtypes, fn.restype = [wintypes.HWND, ctypes.c_int, ctypes.c_long], ctypes.c_long
+    return fn
+
+
+class Win32Api:
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+        self.c, self.w = ctypes, wintypes
+        u = ctypes.windll.user32
+        k = ctypes.windll.kernel32
+        self.u, self.k = u, k
+        self.proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        u.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        u.GetWindow.restype = wintypes.HWND
+        u.GetParent.restype = wintypes.HWND
+        u.GetAncestor.restype = wintypes.HWND
+        u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        k.OpenProcess.restype = wintypes.HANDLE
+        k.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+        self._set_long = set_long_function(u, ctypes, wintypes)
+
+    def _exe(self, hwnd) -> str:
+        pid = self.w.DWORD()
+        self.u.GetWindowThreadProcessId(hwnd, self.c.byref(pid))
+        h = self.k.OpenProcess(0x1000, False, pid.value)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ""
+        try:
+            buf = self.c.create_unicode_buffer(1024)
+            n = self.w.DWORD(1024)
+            return buf.value if self.k.QueryFullProcessImageNameW(h, 0, buf, self.c.byref(n)) else ""
+        finally:
+            self.k.CloseHandle(h)
+
+    def windows(self, everything: bool = False) -> list[dict]:
+        out = []
+
+        def cb(hwnd, _):
+            try:
+                pid = self.w.DWORD()
+                self.u.GetWindowThreadProcessId(hwnd, self.c.byref(pid))
+                title = self.c.create_unicode_buffer(256)
+                self.u.GetWindowTextW(hwnd, title, 256)
+                r = self.w.RECT()
+                self.u.GetWindowRect(hwnd, self.c.byref(r))
+                cls = self.c.create_unicode_buffer(128)
+                self.u.GetClassNameW(hwnd, cls, 128)
+                out.append({"class": cls.value, "iconic": bool(self.u.IsIconic(hwnd)),
+                            "rect": (r.left, r.top, r.right, r.bottom), "hwnd": int(hwnd), "visible": bool(self.u.IsWindowVisible(hwnd)),
+                            "owner": int(self.u.GetWindow(hwnd, GW_OWNER) or 0), "title": title.value,
+                            "exstyle": int(self.u.GetWindowLongW(hwnd, GWL_EXSTYLE)), "exe": "", "pid": int(pid.value),
+                            "area": max(0, r.right - r.left) * max(0, r.bottom - r.top)})
+            except Exception:
+                pass
+            return True
+
+        self.u.EnumWindows(self.proto(cb), 0)
+        for w in out:   # look up the exe only for plausible candidates (all of them with `everything`)
+            if everything or (w["visible"] and not w["owner"] and w["title"]):
+                w["exe"] = self._exe(w["hwnd"])
+        return out
+
+    def toplevel(self, root) -> int:
+        """The real top-level window of a Tk root (the "TkTopLevel" wrapper around Tk's inner window), or 0 while Tk
+        has not created it yet (before the first update): the inner window must never be touched."""
+        root.update_idletasks()
+        top = self.u.GetAncestor(root.winfo_id(), 2)   # GA_ROOT
+        cls = self.c.create_unicode_buffer(64)
+        if top:
+            self.u.GetClassNameW(top, cls, 64)
+        return int(top) if top and cls.value == "TkTopLevel" else 0
+
+    def owner_of(self, hwnd: int) -> int:
+        return int(self.u.GetWindow(hwnd, GW_OWNER) or 0)
+
+    def set_owner(self, hwnd: int, owner: int) -> None:
+        self._set_long(hwnd, GWLP_HWNDPARENT, owner)
+
+    def set_caption(self, hwnd: int, bg: tuple[int, int, int], fg: tuple[int, int, int]) -> bool:
+        """Colour the title bar (Windows 11 build 22000+): dark mode, caption colour, caption text colour."""
+        d = self.c.windll.dwmapi.DwmSetWindowAttribute
+        ok = True
+        for attr, val in ((20, 1), (35, bg[0] | bg[1] << 8 | bg[2] << 16), (36, fg[0] | fg[1] << 8 | fg[2] << 16)):
+            v = self.c.c_int(val)
+            ok = (d(self.w.HWND(hwnd), attr, self.c.byref(v), 4) == 0) and ok
+        return ok
+
+    def cursor(self) -> tuple[int, int]:
+        pt = self.w.POINT()
+        self.u.GetCursorPos(self.c.byref(pt))
+        return pt.x, pt.y
+
+    def key_down(self, vk: int) -> bool:
+        return bool(self.u.GetAsyncKeyState(vk) & 0x8000)
+
+    def rect(self, hwnd: int) -> tuple[int, int, int, int]:
+        r = self.w.RECT()
+        self.u.GetWindowRect(hwnd, self.c.byref(r))
+        return r.left, r.top, r.right, r.bottom
+
+    def monitor_at(self, x: int, y: int) -> int:
+        """The monitor under a point, 0 when the point is on none (MONITOR_DEFAULTTONULL)."""
+        self.u.MonitorFromPoint.restype = self.w.HMONITOR
+        self.u.MonitorFromPoint.argtypes = [self.w.POINT, self.w.DWORD]
+        return int(self.u.MonitorFromPoint(self.w.POINT(int(x), int(y)), 0) or 0)
+
+    def show(self, hwnd: int, visible: bool) -> None:
+        """Hide / show without activating (SW_HIDE / SW_SHOWNOACTIVATE)."""
+        self.u.ShowWindow(hwnd, 4 if visible else 0)
+
+    def place_below(self, hwnd: int, above: int) -> None:
+        """Put `hwnd` directly below `above` in the z-order, without moving, resizing or activating it."""
+        self.u.SetWindowPos(hwnd, above, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)   # NOSIZE | NOMOVE | NOACTIVATE
+
+    def wrapper_of(self, widget) -> int:
+        """The real top-level window of a Tk Toplevel (GA_ROOT of its inner window), 0 when it does not exist yet."""
+        return int(self.u.GetAncestor(widget.winfo_id(), 2) or 0)
+
+
+def link(root, api=None) -> bool:
+    """Make `root` an owned window of PhotoCraft's main window and check that it took. True = tied to PhotoCraft now.
+    Idempotent (nothing is set when the owner is already right), so it can run again and again as a watchdog.
+    False: not on Windows, PhotoCraft not found, or Tk's window not created yet: try again later."""
+    if not available() and api is None:
+        return False
+    try:
+        api = api or Win32Api()
+        owner = _owner(api.windows())
+        top = api.toplevel(root)
+        if not owner or not top:
+            return False
+        if api.owner_of(top) != owner:
+            api.set_owner(top, owner)
+        return api.owner_of(top) == owner
+    except Exception:
+        return False
+
+
+def own(win, root, api=None, others=()) -> bool:
+    """Make the Toplevel `win` an owned window of the plugin window `root` and bring it up, so it always lies above the plugin
+    (and, while the plugin is tied to PhotoCraft, above PhotoCraft). Tk's `transient` does not do this for a window without
+    a title bar: the dry-run window opened under the plugin window and was never seen (user 12.11.); the tip popup's log
+    showed the same (z 242 against the plugin's 24). True = owned now; False: not Windows or a window not created yet."""
+    if not available() and api is None:
+        return False
+    try:
+        api = api or Win32Api()
+        top, hwnd = api.toplevel(root), api.wrapper_of(win)
+        if not top or not hwnd or hwnd == top:
+            return False
+        if api.owner_of(hwnd) != top:
+            api.set_owner(hwnd, top)
+        # HWND_TOP is refused while another program is in front (measured 12.11.: the window stayed at z 246); sorting our
+        # own two windows is allowed: the small window takes the plugin's place, the plugin goes right under it
+        api.place_below(hwnd, top)
+        # `others`: the other small windows already open (the queue, user 13.11.): they stay above the plugin but go under
+        # the new one, so the window opened last is in front
+        last = hwnd
+        for o in others:
+            try:
+                h = api.wrapper_of(o)
+            except Exception:
+                h = 0
+            if h and h not in (hwnd, top):
+                api.place_below(h, last)
+                last = h
+        api.place_below(top, last)
+        return api.owner_of(hwnd) == top
+    except Exception:
+        return False
+
+
+def owner_present(api=None) -> bool | None:
+    """Does PhotoCraft's main window exist? None = cannot tell (not Windows). Used to close the bridge with PhotoCraft."""
+    if not available() and api is None:
+        return None
+    try:
+        api = api or Win32Api()
+        return _owner(api.windows()) is not None
+    except Exception:
+        return None
+
+
+def others_open(api=None) -> bool | None:
+    """Is another PhotoCraft open besides the one with the control channel (a PSD opened by a double click starts one)?
+    None = cannot tell (not Windows, no X11)."""
+    if not available() and api is None:
+        return None
+    try:
+        api = api or Win32Api()
+        return other_photocrafts(api.windows(), exe_name(), control_pid()) > 0
+    except Exception:
+        return None
+
+
+def popups_over(infos: list[dict], exe: str, top: int, owner: int | None) -> int | None:
+    """infos in z-order, topmost first (EnumWindows order). Returns the popup of PhotoCraft's process (a menu, a drop-down,
+    a tooltip) that lies BELOW the bridge window `top` and overlaps it - the one the bridge window must give way to - or
+    None. When several qualify, the lowest one: the bridge window then goes below all of them."""
+    exe = exe.lower()
+    mine = None
+    found = None
+    for w in infos:
+        if w.get("hwnd") == top:
+            mine = w
+            continue
+        if mine is None or not w.get("visible"):
+            continue
+        name = os.path.basename((w.get("exe") or "").replace("\\", "/")).lower()
+        if name != exe or w["hwnd"] == owner:
+            continue
+        a, b = mine.get("rect"), w.get("rect")
+        if a and b and (b[0] >= a[2] or b[2] <= a[0] or b[1] >= a[3] or b[3] <= a[1]):
+            continue   # no overlap with the bridge window
+        found = w["hwnd"]
+    return found
+
+
+def yield_to_popups(root, api=None) -> bool:
+    """PhotoCraft's menus open above the main window, but an owned window that was active last can still cover them.
+    Called often (a few times per second): when a popup of PhotoCraft lies below the bridge window and overlaps it, the
+    bridge window is put directly below that popup. True = something was moved."""
+    if not available() and api is None:
+        return False
+    try:
+        api = api or Win32Api()
+        top = api.toplevel(root)
+        infos = api.windows(everything=True)
+        owner = _owner(infos)
+        if not top or not owner:
+            return False
+        over = popups_over(infos, exe_name(), top, owner)
+        if over is None:
+            return False
+        api.place_below(top, over)
+        return True
+    except Exception:
+        return False
+
+
+MENU_BAND = int(os.environ.get("PCC_MENU_BAND", "70"))      # px (96 dpi) from the top of PhotoCraft's window: title bar + menu bar
+MENU_DROP = int(os.environ.get("PCC_MENU_DROP", "620"))     # px (96 dpi) below the top that an open menu can reach
+
+
+def first_position(owner_rect, width: int, ui: float = 1.0) -> tuple[int, int]:
+    """Where the window goes when no position was saved yet: the top left corner inside PhotoCraft's window, just
+    under its menu bar (never over the menu bar: there a click on our title bar counted as a menu click)."""
+    L, T, R, _B = owner_rect
+    margin = round(16 * ui)
+    return min(L + margin, max(L, R - width)), T + round(MENU_BAND * ui) + margin
+
+
+def below_menu_bar(pos, width: int, owner_rect, ui: float = 1.0) -> tuple[int, int]:
+    """A saved position whose top edge lies in PhotoCraft's title/menu band (and overlaps it sideways) is moved just under it."""
+    x, y = pos
+    L, T, R, _B = owner_rect
+    band = T + round(MENU_BAND * ui)
+    if x < R and x + width > L and T - round(40 * ui) <= y < band:
+        y = band + round(16 * ui)
+    return x, y
+
+
+def owner_rect(api=None):
+    """PhotoCraft's main window rectangle (left, top, right, bottom), or None."""
+    if not available() and api is None:
+        return None
+    try:
+        api = api or Win32Api()
+        owner = _owner(api.windows())
+        return api.rect(owner) if owner else None
+    except Exception:
+        return None
+
+
+def on_screen(x: int, y: int, api=None) -> bool | None:
+    """Is the point on any monitor? None = cannot tell (not Windows)."""
+    if not available() and api is None:
+        return None
+    try:
+        api = api or Win32Api()
+        return bool(api.monitor_at(x, y))
+    except Exception:
+        return None
+
+
+def menu_step(state: dict, cursor, lbutton: bool, esc: bool, owner_rect, win_rect, ui: float = 1.0) -> dict:
+    """The "menus win" rule for a bridge window that lies over PhotoCraft's menus (PhotoCraft draws its menus inside its own
+    window, so no z-order trick can put them above ours). Pure: state {hidden, l} in, state out.
+    A click in the menu bar (the top band of PhotoCraft's window) while the bridge window overlaps the area an open menu
+    covers hides the bridge window; it comes back with the next click outside the band (a menu item, a dismissal), Escape,
+    or when the pointer leaves PhotoCraft's window."""
+    hidden, was_down = bool(state.get("hidden")), bool(state.get("l"))
+    click = lbutton and not was_down
+    x, y = cursor
+    L, T, R, B = owner_rect
+    wl, wt, wr, wb = win_rect
+    in_owner = L <= x < R and T <= y < B
+    on_us = not hidden and wl <= x < wr and wt <= y < wb     # a click on this window itself (its title bar) is no menu click
+    in_band = in_owner and not on_us and y < T + MENU_BAND * ui
+    over = not (wr <= L or wl >= R or wb <= T or wt >= T + (MENU_BAND + MENU_DROP) * ui)
+    if not hidden:
+        if click and in_band and over:
+            hidden = True
+    elif (click and not in_band) or esc or not in_owner:
+        hidden = False
+    return {"hidden": hidden, "l": lbutton}
+
+
+def guard_menus(root, state: dict, ui: float = 1.0, api=None) -> dict:
+    """Run `menu_step` against the real windows (a few times per second). Returns the new state."""
+    if not available() and api is None:
+        return state
+    try:
+        api = api or Win32Api()
+        top = api.toplevel(root)
+        owner = api.owner_of(top) if top else 0
+        if not top or not owner:
+            return state
+        new = menu_step(state, api.cursor(), api.key_down(0x01), api.key_down(0x1B), api.rect(owner), api.rect(top), ui)
+        if new["hidden"] != bool(state.get("hidden")):
+            api.show(top, not new["hidden"])
+        return new
+    except Exception:
+        return state
+
+
+def unlink(root, api=None) -> None:
+    if not available() and api is None:
+        return
+    try:
+        api = api or Win32Api()
+        top = api.toplevel(root)
+        if top:
+            api.set_owner(top, 0)
+            if hasattr(api, "show"):
+                api.show(top, True)        # it may have been hidden for a menu
+    except Exception:
+        pass
+
+
+def describe(api=None) -> str:
+    """Debug: every window of PhotoCraft's process and which one the bridge window would be tied to."""
+    api = api or Win32Api()
+    infos = api.windows(everything=True)
+    exe = exe_name()
+    mine = [w for w in infos if os.path.basename((w.get("exe") or "").replace("\\", "/")).lower() == exe]
+    pick = pick_window(infos, exe)
+    lines = [f"Windows of {exe}: {len(mine)}  (chosen: {pick})"]
+    for w in sorted(mine, key=lambda w: -w.get("area", 0)):
+        lines.append(f"{'->' if w['hwnd'] == pick else '  '} hwnd={w['hwnd']} class={w.get('class')!r} title={w['title']!r} "
+                     f"visible={w['visible']} iconic={w.get('iconic')} owner={w['owner']} exstyle={w['exstyle']:#x} "
+                     f"rect={w.get('rect')} area={w.get('area')}")
+    if not mine:
+        lines.append("None found. Is PhotoCraft running? Another program name: set PCC_PHOTOCRAFT_EXE=name.exe")
+    return "\n".join(lines)
+
+
+def caption(root, bg: tuple[int, int, int], fg: tuple[int, int, int], api=None) -> bool:
+    """Colour the bridge window's title bar like PhotoCraft's palette. Only Windows 11 shows it; elsewhere nothing happens."""
+    if not available() and api is None:
+        return False
+    try:
+        api = api or Win32Api()
+        top = api.toplevel(root)
+        return bool(top) and api.set_caption(top, bg, fg)
+    except Exception:
+        return False
+
+
+def watch(seconds: int, api=None) -> None:
+    """Debug for "the bridge window covers PhotoCraft's menus": prints every window that appears or disappears while this
+    runs (class, owner, process, rect, z-order position), so a menu that is not a window of photocraft.exe shows up."""
+    import time
+    api = api or Win32Api()
+    seen: dict[int, str] = {}
+    end = time.time() + seconds
+    print(f"Watching {seconds} s: open a PhotoCraft menu now (File, Edit, ...), keep it open a moment, close it.")
+    while time.time() < end:
+        infos = api.windows(everything=True)
+        now = {}
+        for z, w in enumerate(infos):
+            if not w["visible"] or w.get("area", 0) < 400:
+                continue
+            now[w["hwnd"]] = (f"z={z} hwnd={w['hwnd']} class={w.get('class')!r} title={w['title'][:40]!r} owner={w['owner']} "
+                              f"exstyle={w['exstyle']:#x} exe={os.path.basename((w.get('exe') or '?').replace(chr(92), '/'))} rect={w.get('rect')}")
+        for h, line in now.items():
+            if h not in seen:
+                print("+", line)
+        for h in seen:
+            if h not in now:
+                print("-", seen[h])
+        seen = now
+        time.sleep(0.15)
+
+
+def stack_text(infos: list[dict], exe: str, popup: int, plugin: int, foreground: int) -> str:
+    """Pure: one log line about where the tip popup lies in the z-order (infos topmost first, EnumWindows order) against the
+    plugin window and PhotoCraft's main window, and which window is in front (its process). For the popup that was built
+    but not seen (user 2.11., docs/plan/befunde-11-11.md section 4)."""
+    owner = pick_window(infos, exe)
+    order = [w.get("hwnd") for w in infos]
+
+    def z(h):
+        return order.index(h) if h and h in order else None
+    zp, zt, zo = z(popup), z(plugin), z(owner)
+    fg = next((w for w in infos if w.get("hwnd") == foreground), None)
+    fg_name = os.path.basename(((fg or {}).get("exe") or "?").replace("\\", "/")) if fg else "?"
+    above = None if zp is None or zo is None else zp < zo
+    return (f"z: popup={zp} plugin={zt} photocraft={zo} popup_above_photocraft={above} "
+            f"foreground={'popup' if foreground and foreground == popup else 'plugin' if foreground and foreground == plugin else fg_name}")
+
+
+def popup_stack(popup_widget, root, api=None) -> str:
+    """Debug line for the tip popup (`stack_text`) against the real windows; "" when it cannot tell (not Windows)."""
+    if not available() and api is None:
+        return ""
+    try:
+        api = api or Win32Api()
+        popup = int(api.u.GetAncestor(popup_widget.winfo_id(), 2) or 0)
+        plugin = api.toplevel(root)
+        api.u.GetForegroundWindow.restype = api.w.HWND
+        fg = int(api.u.GetForegroundWindow() or 0)
+        infos = api.windows(everything=True)
+        for w in infos:      # the foreground's process name is needed even when it is no plausible candidate
+            if w["hwnd"] == fg and not w["exe"]:
+                w["exe"] = api._exe(fg)
+        return stack_text(infos, exe_name(), popup, plugin, fg)
+    except Exception as e:
+        return f"z: unknown ({e.__class__.__name__})"

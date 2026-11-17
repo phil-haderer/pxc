@@ -1,0 +1,127 @@
+"""The install matrix (.github/workflows/install-matrix.yml) and what it needs from the setup scripts.
+
+    python tests/test_install_matrix.py
+"""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+WF = ROOT / ".github" / "workflows" / "install-matrix.yml"
+BAT = ROOT / "setup-windows.bat"
+SMOKE = ROOT / "tests" / "ci_install_smoke.py"
+
+
+def bat_checks():
+    raw = BAT.read_bytes()
+    assert b"\r\n" in raw and b"\n" not in raw.replace(b"\r\n", b""), "setup-windows.bat must keep CRLF (cmd labels)"
+    text = raw.decode("utf-8")
+    assert '"/nopause"' in text and "[/nopause]" in text
+    # every wait for a key goes through :waitkey, which /nopause skips (an automatic run would hang otherwise)
+    pauses = [ln.strip() for ln in text.splitlines() if ln.strip().lower().split("&")[0].strip() == "pause" or ln.strip().lower().endswith(" pause")]
+    assert pauses == ["if not defined NOPAUSE pause"], pauses
+    # PYTHON is tried before the py launcher
+    assert text.index('if defined PYTHON call :try "%PYTHON%"') < text.index("call :tryv")
+    # no Python: the winget offer (official python.org 3.13, per user, after Y; user 8.11.), else the download page
+    for need in ("winget install --exact --id Python.Python.3.13 --source winget --scope user", "choice /c YN", "https://docs.python.org/3/license.html",
+                 r'%LOCALAPPDATA%\Programs\Python\Python313\python.exe', "https://www.python.org/downloads/windows/", ":pyfound"):
+        assert need in text, need
+    lf = text.replace("\r\n", "\n")
+    nopy = lf[lf.index("\n:nopython\n"):lf.index("\n:pipfail\n")]
+    assert nopy.index("if defined NOPAUSE goto :pymanual") < nopy.index("choice /c YN") < nopy.index("winget install --exact")   # never unattended
+    assert 'if not defined NOPAUSE start ""' in nopy                                  # no browser in unattended runs
+    # data\python.txt: written by Python as UTF-8, never by echo (the console code page breaks umlauts; 8.11.)
+    assert "write_text(sys.executable, encoding='utf-8')" in text
+    assert "python.txt" not in "".join(ln for ln in text.splitlines() if ln.lstrip().lower().startswith("(echo"))
+    # every batch file that reads it switches to code page 65001 first
+    for name in ("check-windows.bat", "test new user.bat"):
+        p = ROOT / name
+        if not p.exists():          # "test new user.bat" is private only
+            continue
+        t = p.read_text(encoding="utf-8")
+        assert "chcp 65001" in t and t.index("chcp 65001") < t.index("set /p PY="), name
+
+
+def python_txt_reads_old_and_new():
+    import sys
+    import tempfile
+    sys.path.insert(0, str(ROOT))
+    from pccomfy import config, launcher
+    old = config.CONFIG_DIR
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            config.CONFIG_DIR = Path(d)
+            (Path(d) / "python.txt").write_text("D:\\Tools Jörg Ä\\py.exe\n", encoding="utf-8")
+            assert launcher._python_txt() == "D:\\Tools Jörg Ä\\py.exe"
+            enc = "oem" if sys.platform == "win32" else "latin-1"     # written by the old setup (echo)
+            (Path(d) / "python.txt").write_bytes("D:\\Tools Jörg Ä\\py.exe\r\n".encode("cp850" if enc == "oem" else enc))
+            got = launcher._python_txt()
+            bs_py = "\\py.exe"
+            assert got.startswith("D:\\Tools J") and got.endswith(bs_py), got
+            (Path(d) / "python.txt").unlink()
+            assert launcher._python_txt() == ""
+        finally:
+            config.CONFIG_DIR = old
+
+
+def workflow_checks():
+    text = WF.read_text(encoding="utf-8")
+    for need in ("setup-windows.bat /nopause", "./setup-linux.sh", "tests\\ci_install_smoke.py --expect-shortcut",
+                 "tests/ci_install_smoke.py --expect-shortcut", "Jörg Ä", "ubuntu-22.04", "ubuntu-24.04",
+                 "debian:12", "fedora:latest", "archlinux:latest", "branches: [main]",
+                 "windows-no-python:", "echo Y| call setup-windows.bat"):
+        assert need in text, need
+    # the hints the workflow expects are the ones setup-linux.sh prints
+    sh = (ROOT / "setup-linux.sh").read_text(encoding="utf-8")
+    for hint in ("sudo apt install python3 python3-tk python3-venv", "sudo dnf install python3 python3-tkinter", "sudo pacman -S python tk"):
+        assert hint in text and hint in sh, hint
+    # the containers install libXcursor as setup-linux.sh tells the user (drag and drop needs it; 8.11.)
+    for pkg in ("libxcursor1", "libXcursor", "libxcursor"):
+        assert pkg in text and pkg in sh, pkg
+    assert "\t" not in text, "YAML must not contain tabs"
+
+
+def requirements_checks():
+    """One package list with lower bounds only (user 8.11.): requirements.txt, read by both setup scripts; pyproject agrees."""
+    import re
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    lines = [l.split("#", 1)[0].strip() for l in req.splitlines() if l.split("#", 1)[0].strip()]
+    bounds = {}
+    for l in lines:
+        spec = l.split(";", 1)[0]
+        assert ">=" in spec and "<" not in spec and "==" not in spec, f"lower bounds only: {l}"
+        name, low = spec.split(">=")
+        bounds[name.strip()] = low.strip()
+    assert set(bounds) == {"pillow", "numpy", "websocket-client", "tkinterdnd2", "tomli"}, bounds
+    assert bounds["tkinterdnd2"] == "0.7"                      # the first with the Tk 9 build of tkdnd
+    assert 'tomli>=2; python_version < "3.11"' in req
+    bat = BAT.read_text(encoding="utf-8")
+    sh = (ROOT / "setup-linux.sh").read_text(encoding="utf-8")
+    assert '-r "%HERE%requirements.txt"' in bat and '-r "$here/requirements.txt"' in sh
+    for text in (bat, sh):                                      # no second package list that pip would use
+        assert not re.search(r"pip install[^\n]*\bpillow\b", text), "pip installs a package list besides requirements.txt"
+    py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    for name in ("pillow", "numpy", "websocket-client", "tkinterdnd2"):
+        assert f'"{name}>={bounds[name]}"' in py, name
+    import importlib.util
+    exp = ROOT / "tools" / "export_release.py"
+    if exp.exists():                                            # private repo only
+        spec = importlib.util.spec_from_file_location("export_release", exp)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert "requirements.txt" in mod.REQUIRED
+    assert 'cron: "17 4 * * 1"' in WF.read_text(encoding="utf-8")     # the weekly run
+
+
+def smoke_checks():
+    # not a test_*.py file: tests/run_all.py must not run it (it needs a display and an installed setup)
+    assert not SMOKE.name.startswith("test_")
+    text = SMOKE.read_text(encoding="utf-8")
+    assert "8188" not in text and "comfy.ComfyClient" not in text      # never talks to ComfyUI
+
+
+if __name__ == "__main__":
+    bat_checks()
+    python_txt_reads_old_and_new()
+    workflow_checks()
+    requirements_checks()
+    smoke_checks()
+    print("install matrix: ok")

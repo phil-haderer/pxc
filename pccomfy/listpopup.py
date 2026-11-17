@@ -1,0 +1,85 @@
+"""A list that opens under a button: rows that light up under the mouse, a click takes one, the mouse wheel and a thin
+scroll bar move through a long list (the clock in the header, user 30.10.; a tk.Menu can do neither).
+
+Rows are (text, command, kind) with kind "item", "action" (the first row, "Erase history": muted, a line below it) or
+"disabled" (a note). Escape, a click on a row and a click elsewhere in the window close it."""
+from __future__ import annotations
+
+import tkinter as tk
+from collections.abc import Callable
+
+from . import hostos
+from .gui_common import ACCENT, DISABLED, FG, MUTED, ON_ACCENT, PANEL, ThinScrollbar, bind_wheel, font, wheel_up
+from .popmenu import BORDER, MARGIN, MARGIN_X, PAD_X, PAD_Y, SEP_COLOR, SEP_GAP   # the look of the menus: same border, margin, rows
+
+MAX_ROWS = 10       # rows shown before the list scrolls
+
+
+class ListPopup:
+    def __init__(self, root, anchor, rows: list[tuple[str, Callable | None, str]], scale: float = 1.0, max_rows: int = MAX_ROWS, above: bool = False):
+        self.root, self.top, self.closed = root, None, False
+        px = lambda n: round(n * scale)  # noqa: E731
+        top = self.top = tk.Toplevel(root, **hostos.TOP_KW)
+        top.wm_overrideredirect(True)
+        top.configure(bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+        body = tk.Frame(top, bg=PANEL)          # the empty margin between the border and the rows
+        body.pack(fill="both", expand=True, padx=px(MARGIN_X), pady=px(MARGIN))
+        cv = tk.Canvas(body, bg=PANEL, highlightthickness=0, bd=0)
+        bar = ThinScrollbar(body, cv, px(6), PANEL, auto=True)
+        cv.pack(side="left", fill="both", expand=True)
+        inner = tk.Frame(cv, bg=PANEL)
+        cv.create_window(0, 0, window=inner, anchor="nw")
+        self.rows = []
+        for text, command, kind in rows:
+            lb = tk.Label(inner, text=text, anchor="w", bg=PANEL, fg=DISABLED if kind == "disabled" else MUTED if kind == "action" else FG,
+                          font=font(9), padx=px(PAD_X), pady=px(PAD_Y), cursor="arrow" if kind == "disabled" else "hand2")
+            lb.pack(fill="x")
+            self.rows.append(lb)
+            if kind != "disabled":
+                lb.bind("<Enter>", lambda e, w=lb: w.configure(bg=ACCENT, fg=ON_ACCENT))
+                lb.bind("<Leave>", lambda e, w=lb, k=kind: w.configure(bg=PANEL, fg=MUTED if k == "action" else FG))
+                lb.bind("<Button-1>", lambda e, c=command: self._take(c))
+            if kind == "action":
+                tk.Frame(inner, bg=SEP_COLOR, height=1).pack(fill="x", pady=px(SEP_GAP))
+        for w in (cv, inner, *self.rows):
+            bind_wheel(w, lambda e: (cv.yview_scroll(-1 if wheel_up(e) else 1, "units"), "break")[1])
+        top.update_idletasks()
+        w, h = inner.winfo_reqwidth(), inner.winfo_reqheight()
+        row_h = max(1, self.rows[0].winfo_reqheight()) if self.rows else 1
+        sep_h = 2 * px(SEP_GAP) + 1 if rows and rows[0][2] == "action" else 0
+        view_h = min(h, row_h * max_rows + sep_h)
+        cv.configure(width=w, height=view_h, scrollregion=(0, 0, w, h))
+        x, y = anchor.winfo_rootx(), anchor.winfo_rooty() + anchor.winfo_height()
+        if above:                             # the anchor is at the bottom of its window: the list opens upwards
+            y = max(0, anchor.winfo_rooty() - view_h - 2)
+        try:                                  # inside the screen: a list at the right edge opens to the left of its button
+            right = root.winfo_vrootx() + root.winfo_vrootwidth()
+            x = max(root.winfo_vrootx(), min(x, right - w - px(14)))
+        except (tk.TclError, TypeError):
+            pass
+        top.wm_geometry(f"+{x}+{y}")
+        top.bind("<Escape>", lambda e: self.close())
+        top.bind("<FocusOut>", lambda e: root.after(150, self._lost_focus))
+        top.focus_force()
+
+    def _take(self, command):
+        self.close()
+        if command:
+            command()
+
+    def _lost_focus(self):
+        if self.closed:
+            return
+        try:
+            if self.top.focus_displayof() is not None:
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        self.close()
+
+    def close(self):
+        self.closed = True
+        try:
+            self.top.destroy()
+        except Exception:  # noqa: BLE001
+            pass

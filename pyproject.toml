@@ -1,0 +1,24 @@
+[project]
+name = "pccomfy"
+version = "1.0.0"
+description = "PxC: ComfyUI generations inside PhotoCraft (generative fill, outpaint, img2img and txt2img as layers)"
+requires-python = ">=3.10"
+dependencies = ["pillow>=12.3", "numpy>=2.2", "tomli>=2; python_version < '3.11'"]     # the same lower bounds as requirements.txt
+license = "MIT OR Apache-2.0"
+
+[project.optional-dependencies]
+progress = ["websocket-client>=1.9"]
+dnd = ["tkinterdnd2>=0.7"]    # drag and drop onto the reference slots (setup-windows.bat installs it)
+
+[project.scripts]
+pccomfy = "pccomfy.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pccomfy"]
+
+[tool.setuptools.package-data]
+pccomfy = ["assets/*.png", "assets/functions/*.png"]     # button icons (undo.png; redo is the mirrored undo)

@@ -1,0 +1,1313 @@
+"""Reference images for Multi Image Edit: the slots (pure logic) and, further down, the Tk widget.
+
+The picture in PhotoCraft is image 1; the reference images are image 2, 3 ... How a model names them in the prompt comes
+from `Model.tag_style` ("<image{n}>", "image {n}", "<ref_image_{i}>": `{n}` counts from 1, `{i}` from 0), how many it takes
+from `Model.max_refs`. Everything here that does not need Tk is tested on any system (tests/test_refslots.py).
+"""
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from PIL import Image
+
+from . import clipboard, hostos
+
+REF_MP = 2.0                         # "Send reference images in original size": the limit it starts with, per image (user 4.11.)
+REF_MAX_MP = 4.0
+MAX_SIDE = 1024                      # the longest side of a reference image sent to the model (Model.ref_side); "original size" uses a megapixel limit instead
+# What shows where a reference image is transparent (a cut-out, a PNG with alpha): neutral mid grey. The ONE place to change it;
+# the model gets a flat picture, and white behind a cut-out subject disturbed it.
+DEFAULT_BACKGROUND = (128, 128, 128)
+
+BBOX_MAX_REFS = 1       # with BBOX ticked the one reference image is the object for the box (user 3.11.)
+REF_SCRIBBLE_MAX_REFS = 1   # Reference at scribble: the one picture that goes where the scribble is (user 15.11.)
+CUT_NEEDS_FILE = "Needs birefnet.safetensors (optional): get it in the gear window, Models, Additional."      # Cut out in a slot without the file (user 7.11.)
+BBOX_LABEL = "Place ref. image in selection (BBOX)"
+BBOX_CHECK_TIP = ("Draw a rectangular selection and put the reference in slot 1: it is placed exactly in your rectangle. "
+                  "Name the object in the prompt, e.g. \"wine glass\".")     # tab Insert reference under Fill (user 11.11.)
+BBOX_TIP = "Draw a rectangle selection and name the object from the reference image, e.g. “wine glass”. It lands in the box."   # under the prompt while BBOX is ticked (user 3.11.)
+
+
+# ---- rewriting the image names in the prompt when the model changes ----
+
+MAX_TAG = 9      # image numbers that count as a tag (1 = the picture ... 9); at least the most slots of any model + 1
+
+
+def spaced_tag(tag: str, before: str, after: str) -> str:
+    """`tag` as it goes into the prompt between `before` and `after` (the text left and right of where it lands): a space
+    in front unless it starts a line or follows one, and a space behind unless one (or a line break or a punctuation mark)
+    follows; at the end of the text too, so typing goes on after it (user 15.11.)."""
+    lead = "" if not before or before[-1].isspace() else " "
+    tail = "" if after and (after[0].isspace() or after[0] in ",.;:!?)") else " "
+    return lead + tag + tail
+
+
+def _tag_regex(style: str) -> "re.Pattern[str]":
+    """A pattern for the tags of one naming rule ("<image{n}>", "image {n}", "<ref_image_{i}>"); the number is group 1."""
+    parts = re.split(r"(\{n\}|\{i\})", style)
+    pat = "".join(r"(\d{1,2})" if x in ("{n}", "{i}") else re.escape(x) for x in parts)
+    if style[0].isalnum():
+        pat = r"(?<![\w<])" + pat          # "image 2" is a tag, "myimage 2" is not
+    if style[-1].isalnum() or style.rstrip().endswith("}"):
+        pat += r"(?!\d)"
+    return re.compile(pat)
+
+
+def retag(text: str, old_style: str, new_style: str) -> str:
+    """The prompt with every image name of the rule `old_style` written by the rule `new_style`. Only real tags change (the
+    exact pattern of the old rule, number 1..MAX_TAG); the numbering is converted (image 1 is the picture: "<image2>" = "image 2" =
+    "<ref_image_1>"), so going there and back gives the same text."""
+    if not text or not old_style or not new_style or old_style == new_style:
+        return text
+    old_zero = "{i}" in old_style
+
+    def conv(m):
+        number = int(m.group(1)) + (1 if old_zero else 0)          # 1 = the picture
+        if not 1 <= number <= MAX_TAG:
+            return m.group(0)
+        return new_style.format(n=number, i=number - 1)
+    return _tag_regex(old_style).sub(conv, text)
+
+
+def reference_tags(text: str) -> list[str]:
+    """The tags in `text` that name a reference image (image 2 or later) by the rule of any model: "<image2>", "image 2",
+    "<ref_image_1>", "<image_2>", "<Picture 2>" (Reference at scribble), in the order they stand."""
+    from . import models
+    found = []
+    for style in {m.tag_style for m in models.MODELS if m.tag_style}:
+        zero = "{i}" in style
+        found += [(x.start(), x.group(0)) for x in _tag_regex(style).finditer(text or "")
+                  if int(x.group(1)) + (1 if zero else 0) >= 2]
+    return [t for _pos, t in sorted(found)]
+
+
+def mentions_reference(text: str) -> bool:
+    """True when `text` names a reference image (image 2 or later) by the rule of any model (`reference_tags`)."""
+    return bool(reference_tags(text))
+
+
+class RefError(ValueError):
+    pass
+
+
+def flatten(im: Image.Image, background=DEFAULT_BACKGROUND) -> Image.Image:
+    """RGB copy; transparent areas show `background`."""
+    return clipboard.flatten(im, background)
+
+
+def prepare_image(im: Image.Image, multiple: int = 16, max_side: int = MAX_SIDE, background=DEFAULT_BACKGROUND,
+                  max_mp: float | None = None) -> Image.Image:
+    """The reference image as it is sent: flat RGB, both sides a multiple of `multiple` (Qwen Image 2.1 needs 32; any other size
+    shifts the edit). Normally at most `max_side` px on the longer side. With `max_mp` ("original size") it keeps its own size
+    and is only scaled down when it has more than `max_mp` megapixels (each image on its own, user 4.11.). Never scaled up,
+    never smaller than one `multiple`."""
+    rgb = flatten(im, background)
+    w, h = rgb.size
+    k = min(1.0, max_side / max(w, h)) if max_mp is None else min(1.0, math.sqrt(max(0.1, float(max_mp)) * 1e6 / (w * h)))
+    nw = max(multiple, round(w * k / multiple) * multiple)       # to the nearest multiple: a picture under the limit loses at most half a step
+    nh = max(multiple, round(h * k / multiple) * multiple)
+    return rgb if (nw, nh) == (w, h) else rgb.resize((nw, nh), Image.LANCZOS)
+
+
+def parse_drop_data(data: str) -> list[Path]:
+    """The paths in a drop event of tkinterdnd2: a Tcl list, names with spaces are wrapped in {braces}."""
+    out, rest = [], data.strip()
+    while rest:
+        if rest[0] == "{":
+            end = rest.find("}")
+            end = len(rest) if end < 0 else end
+            out.append(Path(rest[1:end]))
+            rest = rest[end + 1:].lstrip()
+        else:
+            m = re.match(r"\S+", rest)
+            out.append(Path(m.group(0)))
+            rest = rest[m.end():].lstrip()
+    return out
+
+
+@dataclass
+class RefImage:
+    image: Image.Image               # what is sent (a cut-out replaces it; the original stays in `original`)
+    name: str = ""                   # where it came from (file name, "clipboard")
+    original: Image.Image | None = None
+    description: str = ""            # what Qwen 3.5 9B says the picture shows (the "Describe" button)
+
+    @property
+    def cut_out(self) -> bool:
+        return self.original is not None
+
+
+@dataclass
+class RefSlots:
+    """The reference images of one window and the model's limits. More images than the model has slots are kept (so a
+    switch of the tab loses nothing) but only the first `max_refs` are sent (`active`)."""
+    max_refs: int = 0
+    tag_style: str = ""
+    items: list = field(default_factory=list)
+
+    def set_model(self, max_refs: int, tag_style: str) -> None:
+        self.max_refs, self.tag_style = int(max_refs), tag_style
+
+    @property
+    def active(self) -> list:
+        return self.items[: self.max_refs]
+
+    @property
+    def overflow(self) -> list:
+        return self.items[self.max_refs:]
+
+    @property
+    def free(self) -> int:
+        return max(0, self.max_refs - len(self.items))
+
+    def add(self, image: Image.Image, name: str = "", index: int | None = None) -> int:
+        if self.max_refs <= 0:
+            raise RefError("This model takes no reference images.")
+        if len(self.items) >= self.max_refs:
+            raise RefError(f"All {self.max_refs} reference slots are full. Remove one first.")
+        item = RefImage(image.convert("RGBA") if image.mode not in ("RGB", "RGBA") else image.copy(), name)
+        i = len(self.items) if index is None else max(0, min(index, len(self.items)))
+        self.items.insert(i, item)
+        return i
+
+    def put(self, i: int, image: Image.Image, name: str = "") -> int:
+        """A new picture in filled slot `i` (a drop onto it): its cut-out and description go, its place stays."""
+        self.items[i] = RefImage(image.convert("RGBA") if image.mode not in ("RGB", "RGBA") else image.copy(), name)
+        return i
+
+    def add_file(self, path, at: int | None = None) -> int:
+        """A picture file into the next free slot, or in place of filled slot `at`."""
+        p = Path(path)
+        if p.suffix.lower() not in clipboard.IMAGE_SUFFIXES or not p.is_file():
+            raise RefError(f"{p.name}: not a picture file.")
+        with Image.open(p) as im:
+            im.load()
+            if at is not None and 0 <= at < len(self.items):
+                return self.put(at, im, p.name)
+            return self.add(im, p.name)
+
+    def add_files(self, paths, at: int | None = None) -> tuple[int, list[str]]:
+        """Drop of several files: as many as fit. Dropped onto filled slot `at`, the first picture replaces it and the
+        others are added behind the last slot. Returns (how many were taken, messages for the ones that were not)."""
+        n, notes = 0, []
+        for p in paths:
+            try:
+                self.add_file(p, at)
+                at = None
+                n += 1
+            except (RefError, OSError) as e:
+                notes.append(str(e))
+                if isinstance(e, RefError) and "full" in str(e):
+                    break
+        return n, notes
+
+    def remove(self, i: int) -> None:
+        del self.items[i]
+
+    def move(self, i: int, j: int) -> None:
+        self.items.insert(max(0, min(j, len(self.items) - 1)), self.items.pop(i))
+
+    def clear(self) -> None:
+        self.items.clear()
+
+    def replace(self, i: int, image: Image.Image) -> None:
+        """A changed picture (cut-out); the first version is kept for `revert`."""
+        it = self.items[i]
+        if it.original is None:
+            it.original = it.image
+        it.image = image
+
+    def revert(self, i: int) -> None:
+        it = self.items[i]
+        if it.original is not None:
+            it.image, it.original = it.original, None
+
+    # ---- names in the prompt ----
+
+    def tag(self, i: int) -> str:
+        """How the model names reference image `i` (0-based) in the prompt; "" when it needs no names."""
+        if not self.tag_style:
+            return ""
+        return self.tag_style.format(n=i + 2, i=i + 1)
+
+    def picture_tag(self) -> str:
+        return self.tag_style.format(n=1, i=0) if self.tag_style else ""
+
+    def hint(self) -> str:
+        """One line for the window: which names to use ("Picture = <image1>, reference 1 = <image2>")."""
+        if not self.tag_style or not self.active:
+            return ""
+        parts = [f"picture = {self.picture_tag()}"] + [f"reference {k + 1} = {self.tag(k)}" for k in range(len(self.active))]
+        return ", ".join(parts)
+
+    # ---- the descriptions in the prompt ----
+
+    def description_lines(self) -> list[str]:
+        """One line per described image that is sent: "<image2>: a brown dog on grass"."""
+        return [f"{self.tag(k) or f'image {k + 2}'}: {it.description}" for k, it in enumerate(self.active) if it.description]
+
+    def prompt_with_descriptions(self, text: str) -> str:
+        """The typed text plus the descriptions at its end, one per line: what the prompt field holds after describing every
+        image once (see docs/prompt-aufbau.md)."""
+        lines = self.description_lines()
+        if not lines:
+            return text
+        return (text.rstrip() + "\n" if text.strip() else "") + "\n".join(lines)
+
+    def put_description(self, text: str, k: int, old: str = "") -> str:
+        """The prompt field's text with the description line of image k ("<image2>: a brown dog") written into it. The first
+        description goes at the end; a new one replaces the line of the `old` one. When that line was edited or deleted by
+        hand, the text stays as it is (the user's words win). The field is what is sent."""
+        if not 0 <= k < len(self.items) or not self.items[k].description:
+            return text
+        name = self.tag(k) or f"image {k + 2}"
+        line = f"{name}: {self.items[k].description}"
+        if old:
+            lines = text.split("\n")
+            for j, ln in enumerate(lines):
+                if ln.strip() == f"{name}: {old}":
+                    lines[j] = line
+                    return "\n".join(lines)
+            return text
+        return (text.rstrip() + "\n" if text.strip() else "") + line
+
+    # ---- what the bridge sends ----
+
+    def images(self) -> list[Image.Image]:
+        return [it.image for it in self.active]
+
+
+# ======================================================================================================================
+# Pure helpers for the widget (tested without Tk)
+# ======================================================================================================================
+
+def thumbnail_png(image: Image.Image, size: int, background=(0xe6, 0xe6, 0xe6)) -> bytes:   # the colour of gui_common.SLOT_BG (the slot box behind the thumbnail)
+    """A PNG of the picture that fits into a size x size square (kept proportional), transparency shown on `background`."""
+    import io
+    t = flatten(image, background)
+    t.thumbnail((size, size), Image.LANCZOS)
+    buf = io.BytesIO()
+    t.save(buf, "PNG")
+    return buf.getvalue()
+
+
+PREVIEW_ZOOM = 5    # the larger view is 500 % of the slot picture (user 28.10.)
+
+
+def preview_size(image_size: tuple[int, int], thumb_px: int, max_w: int, max_h: int) -> tuple[int, int]:
+    """Size of the larger view: the picture at PREVIEW_ZOOM times its size in the slot (whose longer side is `thumb_px`, or
+    less for a small picture), shrunk to fit max_w x max_h (user 28.10.: at most twice as wide as the plugin and as tall as it)."""
+    w, h = max(1, image_size[0]), max(1, image_size[1])
+    s = min(1.0, thumb_px / max(w, h)) * PREVIEW_ZOOM
+    s = min(s, max_w / w, max_h / h)
+    return max(1, round(w * s)), max(1, round(h * s))
+
+
+def preview_position(win: tuple[int, int, int, int], size: tuple[int, int], screen_left: int, screen_right: int,
+                     gap: int = 8, top: int | None = None) -> tuple[int, int]:
+    """Top left corner of the larger view: beside the plugin window (x, y, w, h), level with `top` (the slot's top edge,
+    user 29.10.; else the plugin's), moved up so it ends no lower than the plugin; on the left when it fits on the screen
+    there (the plugin usually sits at PhotoCraft's right edge), else on the right, else at the screen's left edge."""
+    x, wy, w, wh = win
+    y = wy if top is None else max(wy, min(top, wy + wh - size[1]))
+    left = x - gap - size[0]
+    if left >= screen_left:
+        return left, y
+    if x + w + gap + size[0] <= screen_right:
+        return x + w + gap, y
+    return screen_left, y
+
+
+
+# ======================================================================================================================
+# The window part (Tk): one hook in gui.py puts RefSlotsMixin in front of the window's other mixins
+# ======================================================================================================================
+
+def edtab_rows(needs: list[int], room: int) -> list[list[int]]:
+    """The tabs under Edit in rows (indices into ``needs``): as few rows as fit, the tabs shared out evenly with the larger
+    rows first (four tabs that do not fit one row: 2 + 2, three: 2 + 1), so the first row always uses the full width and no
+    text is cut (user 10.11.). A row fits when its widths add up to at most ``room``; one tab per row as the last resort."""
+    n = len(needs)
+    for r in range(1, n + 1):
+        sizes = [n // r + (1 if i < n % r else 0) for i in range(r)]
+        rows, start = [], 0
+        for s in sizes:
+            rows.append(list(range(start, start + s)))
+            start += s
+        if all(sum(needs[i] for i in row) <= room for row in rows):
+            return rows
+    return [[i] for i in range(n)]
+
+
+MULTI_MODE = "multi_edit"     # the window mode that shows the slots (it runs as a whole-image edit)
+SKETCH_MODE = "sketch"        # the window mode of the tab Sketch to image (runs as a whole-image edit; docs/sketch-plan.md)
+SCRIBBLE_MODE = "scribble"    # the window mode of the tab Scribble on photo (plan B, 10.11.: its own tab)
+SKETCH_MODES = (SKETCH_MODE, SCRIBBLE_MODE)
+TAB_MODE = {"edit": "edit", "sketch": SKETCH_MODE, "scribble": SCRIBBLE_MODE, "refscribble": SCRIBBLE_MODE, "fill": "inpaint"}     # tab -> window mode (the others: multi_edit)
+FILL_TABS = ("fill", "bbox")     # the tabs under Fill (Flux 3 only, plan B step 4): Fill selection, Insert reference
+
+
+class RefSlotsMixin:
+    """The reference slots of the window. Built the first time the window shows them (`_refs_ensure`), so the hook in gui.py
+    is only the class line: `_on_mode_ui` (called on every tab / mode change) and `_request` are wrapped here.
+    A slot takes a picture by drag and drop (tkinterdnd2, when installed), Ctrl+V (only when no text field has the focus),
+    the Paste or Add file icon of the next free slot. Each filled slot has a bar of icons: Remove, Cut out (BiRefNet in
+    ComfyUI), Describe and (with a description) Copy text."""
+
+    SLOT = 97          # px (before the display scaling): every slot is the same size, whatever the model; 90 % of the former 108 (user 6.11.)
+    ICON_PX = 16       # size of the slot icons (vector line icons, icons.py) before the display scaling (85 % of the former 19; user 12.11.): the ONE place to change it
+    TAG_PX = 15        # height of the tag strip at the foot of a filled slot (before the display scaling)
+    PER_ROW = 3        # slots per row
+    BAR_ICONS = 5      # the most icons one bar holds (the slot is as tall as that needs)
+
+    # ---- wrapped window methods ----
+    def _on_mode_ui(self):
+        super()._on_mode_ui()
+        self._refs_update()
+
+    def generate(self):
+        slots = getattr(self, "refslots", None)
+        if self._ref_scribble():
+            # Reference at scribble (user 15.11.): the object typed in, a picture in the slot; else no run, say what to do
+            from . import models as _models
+            if _models.REF_MARK in self.t_prompt.get("1.0", "end"):
+                self._status(_models.REF_MARK_LEFT, error=True)
+                return
+            if slots is None or not slots.active:
+                self._status(_models.NO_REF_SCRIBBLE, error=True)
+                return
+        elif self._refs_wanted() and (slots is None or not slots.active):
+            # without a reference image Multi Image Edit is a plain Edit: no run, say what to do (user 3.11.)
+            self._status("Multi Image Edit needs at least one reference image: drop, paste or add one in a slot.", error=True)
+            return
+        super().generate()
+
+    def _request(self):
+        req = super()._request()
+        req.refs = self._refs_for(req.mode)     # the descriptions are already in the prompt field (Describe writes them there)
+        m = self._refs_model()
+        if m is not None:
+            req.ref_side = m.ref_side
+        req.ref_native = bool(self.v_ref_native.get())
+        try:
+            req.ref_mp = min(REF_MAX_MP, max(1.0, float(self.v_ref_mp.get())))
+        except Exception:
+            req.ref_mp = REF_MP
+        req.bbox = self._bbox_on() and req.mode == "edit"
+        if req.bbox:
+            req.layer_mask = "soft"     # Flux 3's start value for this mode is "none" and the row is hidden: BBOX needs the margin mask
+        return req
+
+    def _bbox_on(self) -> bool:
+        """BBOX (Flux 3 Multi Image Edit) is shown and ticked."""
+        v = getattr(self, "v_bbox", None)
+        m = self._refs_model()
+        return bool(v is not None and v.get() and m is not None and m.bbox and self._refs_wanted()
+                    and self.v_mode.get() == MULTI_MODE)
+
+    # ---- state ----
+    def _refs_model(self):
+        m = self._model() if hasattr(self, "_model") else None
+        return m if (m is not None and m.max_refs > 0) else None
+
+    def _ref_scribble(self) -> bool:
+        """The tab Scribble on photo with the chip Reference at scribble: one reference slot (user 15.11.)."""
+        from . import models as _models
+        v = getattr(self, "v_sketch", None)
+        return (_models.offers_ref_scribble(self._refs_model()) and self.v_mode.get() == SCRIBBLE_MODE and v is not None
+                and v.get() == _models.REF_SCRIBBLE_LABEL)
+
+    def _refs_wanted(self) -> bool:
+        return self._refs_model() is not None and (self.v_mode.get() == MULTI_MODE or self._ref_scribble())
+
+    def _refs_for(self, run_mode: str) -> list:
+        from .bridge import REF_MODES
+        slots = getattr(self, "refslots", None)
+        if slots is None or run_mode not in REF_MODES or not self._refs_wanted():
+            return []
+        return slots.images()
+
+    # ---- build ----
+    def _refs_ensure(self):
+        if getattr(self, "f_refs", None) is not None:
+            return
+        import tkinter as tk
+        from tkinter import ttk
+        from .gui_common import ACCENT, BG, FG, MUTED, Tooltip
+        self.refslots = RefSlots()
+        self._ref_photos: list = []
+        self._ref_busy: set[int] = set()
+        self._ref_job = None
+        self.f_refs = ttk.Frame(self.f_body)      # inside the body frame (gui.py _build): it is packed before f_neg, which lives there
+        head = ttk.Frame(self.f_refs)
+        head.pack(fill="x")
+        # no drop-down any more (user 7.11.): the tabs "Multi image edit" and "Insert reference" under the prompt show the slots
+        self.lbl_refs = ttk.Label(head, text="Reference images", style="Muted.TLabel")
+        self.lbl_refs.pack(side="left")
+        self.v_refs_open = tk.BooleanVar(value=True)       # always open
+        self.f_refbody = ttk.Frame(self.f_refs)      # everything under the head line: what the drop-down hides
+        head2 = self.f_refhead2 = ttk.Frame(self.f_refbody)       # the BBOX tick (Flux 3), at the left: a line of its own, the head line has no room for it; packed only with the tick (user 7.11.: no empty line without it)
+        # "Send reference images in original size": each image keeps its size up to a limit instead of the model's usual one (user 4.11.)
+        # the row sits in the Advanced settings now (user 12.11.), under "Original size", not under the slots; shown by _refs_update
+        self.f_refsize = ttk.Frame(self.f_post)
+        self.cb_refsize = ttk.Checkbutton(self.f_refsize, text="Send ref. images in original size, up to", variable=self.v_ref_native,
+                                       style="Muted.TCheckbutton")
+        self.cb_refsize.pack(side="left")
+        self.w_refpx = self._spin(self.f_refsize, self.v_ref_mp, 1, REF_MAX_MP, 0.5, 5)
+        self.w_refpx.pack(side="left", padx=6)
+        self.lbl_refpx = ttk.Label(self.f_refsize, text="MP", style="Muted.TLabel")
+        self.lbl_refpx.pack(side="left")
+        for w in (self.cb_refsize, self.w_refpx, self.lbl_refpx):
+            Tooltip(w, "Off: the reference images are scaled down to the model's usual size (1024 px on the longer side, "
+                       "Flux 3 1536 px). On: each one keeps its own size and is only scaled down when it has more than this many "
+                       "megapixels. Never scaled up. Larger images take more VRAM and time.")
+        self.v_ref_native.trace_add("write", lambda *a: self._refs_size_changed())
+        self._refs_size_changed()
+        self.f_refgrid = ttk.Frame(self.f_refbody)
+        self.f_refgrid.pack(fill="x", pady=(4, 0))
+        self.lbl_refnames = ttk.Label(self.f_refbody, text="", style="Muted.TLabel", wraplength=self._px(333 - 24), justify="left")
+        self.lbl_refnames.pack(fill="x", pady=(4, 0))
+        # spot XY: the last description (Describe, or a click on a described picture), white, with a copy icon on its right;
+        # only packed while it shows one
+        self.f_refxy = ttk.Frame(self.f_refbody)
+        self.b_refcopy = tk.Label(self.f_refxy, image=self._refs_icon("copy", FG), bg=BG, bd=0, cursor="hand2")
+        self.b_refcopy.pack(side="right", anchor="n", padx=(self._keep(6), 0))
+        self.b_refcopy.bind("<Button-1>", lambda e: self._refs_copy_shown())
+        self.b_refcopy.bind("<Enter>", lambda e: self.b_refcopy.configure(image=self._refs_icon("copy", ACCENT)), add="+")
+        self.b_refcopy.bind("<Leave>", lambda e: self.b_refcopy.configure(image=self._refs_icon("copy", FG)), add="+")
+        Tooltip(self.b_refcopy, "Copy text: puts this description on the clipboard.")
+        self.lbl_refdesc = ttk.Label(self.f_refxy, text="", wraplength=self._px(333 - 24 - self.ICON_PX - 6), justify="left")
+        self.lbl_refdesc.pack(side="left", fill="x", expand=True)
+        self._ref_shown = None          # the slot item whose description spot XY shows
+        self.lbl_refmsg = ttk.Label(self.f_refbody, text="", style="Hint.TLabel", wraplength=self._px(333 - 24), justify="left")   # only packed while it has text
+        # BBOX next to "Prompt" (user 30.10.): the selection is the box <obj_1>; while it is ticked its tip is the one under the
+        # prompt (user 3.11.: no tip under the slots)
+        self.v_bbox = tk.BooleanVar(value=False)       # off at every start, like the other start values
+        self.cb_bbox = ttk.Checkbutton(head2, text=BBOX_LABEL, variable=self.v_bbox, command=self._refs_bbox_changed)
+        Tooltip(self.cb_bbox, BBOX_CHECK_TIP)
+        self._refs_dnd = self._refs_setup_dnd()
+        self._show_refs_body()
+        try:
+            self.root.bind("<Control-v>", self._refs_ctrl_v, add="+")
+            self.root.bind("<Control-V>", self._refs_ctrl_v, add="+")
+        except tk.TclError:
+            pass
+
+    def _refs_size_changed(self):
+        """The switch changed: the px box is only usable while it is on."""
+        try:
+            self.w_refpx.configure(state="normal" if self.v_ref_native.get() else "disabled")
+        except Exception:
+            pass
+
+    def _refs_max(self, m) -> int:
+        """How many reference images the model takes now: Flux 3 with BBOX ticked takes one, Reference at scribble one (the
+        sketch workflows have one slot), else its usual number."""
+        if self._ref_scribble():
+            return REF_SCRIBBLE_MAX_REFS
+        v = getattr(self, "v_bbox", None)
+        return BBOX_MAX_REFS if (m.bbox and v is not None and v.get()) else m.max_refs
+
+    def _refs_bbox_changed(self):
+        """BBOX ticked or not: the tip under the prompt changes with it, and the number of slots (the extra images stay)."""
+        self._update_prompt_hint()
+        m = self._refs_model()
+        rs = getattr(self, "refslots", None)
+        if m is not None and rs is not None and rs.max_refs != self._refs_max(m) and self._refs_wanted():
+            rs.set_model(self._refs_max(m), m.tag_style)
+            self._refs_redraw()
+
+    def _refs_setup_dnd(self) -> bool:
+        """Drag and drop needs the optional package tkinterdnd2; without it everything else still works."""
+        try:
+            from tkinterdnd2 import DND_FILES, TkinterDnD
+            TkinterDnD._require(self.root)
+            self.f_refs.drop_target_register(DND_FILES)
+            self.f_refs.dnd_bind("<<Drop>>", self._refs_on_drop)
+            return True
+        except Exception:
+            return False
+
+    # ---- show / hide / redraw ----
+    def _refs_retag(self):
+        """The model changed: the image names typed in the prompt get the new model's naming rule."""
+        m = self._refs_model()
+        if m is None or getattr(self, "_booting", False):
+            return
+        old = getattr(self, "_tag_style_seen", None)
+        self._tag_style_seen = m.tag_style
+        if not old or old == m.tag_style:
+            return
+        t = getattr(self, "t_prompt", None)
+        if t is None or str(t.cget("state")) == "disabled":
+            return
+        cur = t.get("1.0", "end").rstrip("\n")
+        new = retag(cur, old, m.tag_style)
+        if new != cur:
+            t.delete("1.0", "end")
+            t.insert("1.0", new)
+
+    # ---- the tabs of the Edit function (user 7.11.) ----
+    def _edtab_needs(self, keys):
+        """The width each tab needs with its text in bold (a chosen tab is bold) plus its gap, and the room of a row; None
+        when Tk cannot measure (the stubbed Tk of the tests)."""
+        try:
+            import tkinter.font as tkfont
+            from . import spacing
+            from .gui_common import MIN_W, font
+            self.root.update_idletasks()
+            plain, bold = tkfont.Font(root=self.root, font=font(9)), tkfont.Font(root=self.root, font=font(9, bold=True))
+            gap = 2 * spacing.scale(2)
+            needs = []
+            for k in keys:
+                rb, label = self.rb_edtabs[k], dict(self.EDIT_TABS)[k]
+                needs.append(int(rb.winfo_reqwidth()) - plain.measure(label) + bold.measure(label) + gap)
+            win = max(int(self.root.winfo_width()), self._px(MIN_W))
+            room = win - 2 * spacing.scale(10) - 2 * int(float(str(self.root.cget("highlightthickness")))) - 2
+            if room <= 0 or not all(n > gap for n in needs):
+                return None
+            return needs, room
+        except Exception:
+            return None
+
+    # 2 + 2 (plan B, 10.11.): Edit canvas · Multi image edit / Sketch to image · Scribble on photo; under Fill (Flux 3 only,
+    # plan B step 4, 11.11.): Fill selection · Insert reference. The same tab row serves both functions.
+    EDIT_TABS = (("edit", "Edit canvas"), ("multi", "Multi image edit"), ("fill", "Fill selection"), ("bbox", "Insert reference"),
+                 ("sketch", "Sketch to image"), ("scribble", "Scribble on photo"),
+                 ("refscribble", "Scribble with reference"))
+    # Scribble on photo and Scribble with reference were two chips of the tab Scribble on photo until the window test
+    # of 15.11. (user: own tabs after Sketch to image); both are the window mode "scribble", v_sketch tells them apart
+    SCRIBBLE_TABS = {"scribble": "Scribble on photo", "refscribble": "Scribble with reference"}
+
+    def _edtabs_ensure(self):
+        """The tabs (since 10.11. in the look of the small switches): Edit canvas (the plain whole-picture edit), Multi image edit (the
+        reference slots) and, for Flux 3 only, Insert reference (BBOX). Behind them the window modes stay `edit` and `multi_edit`
+        (BBOX = multi_edit with the tick), so workflows, saved pages and the bridge are as before."""
+        if getattr(self, "f_edtabs", None) is not None:
+            return
+        import tkinter as tk
+        from tkinter import ttk
+        from .gui_common import Tooltip
+        from . import models as _models
+        self._refs_ensure()                  # makes v_bbox and the slot frame
+        self.v_edtab = tk.StringVar(value="edit")
+        self.f_edtabs = ttk.Frame(self.f_body)
+        # one frame per row, so each row shares out its own width (made before the tabs: a later sibling would cover them)
+        self.f_edtab_rows = [ttk.Frame(self.f_edtabs) for _ in self.EDIT_TABS]
+        self.rb_edtabs, self.tt_edtabs = {}, {}
+        tips = {"edit": _models.FUNCTION_TIPS["edit"], "multi": _models.FUNCTION_TIPS["multi_edit"], "bbox": BBOX_CHECK_TIP,
+                "fill": _models.FUNCTION_TIPS["inpaint"],
+                "sketch": _models.FUNCTION_TIPS["sketch"], "scribble": _models.SCRIBBLE_PROMPTS[0][2],
+                "refscribble": _models.SCRIBBLE_PROMPTS[1][2]}
+        self._edtab_tips = tips
+        for key, label in self.EDIT_TABS:
+            # the look of the small switches (filled grey, the chosen one blue), the Sketch templates below take the chip look:
+            # swapped on the user's word (10.11.), so the tabs read as one block and the templates as choices inside it
+            rb = ttk.Radiobutton(self.f_edtabs, text=label, value=key, variable=self.v_edtab, style="Small.Toolbutton",
+                                 command=self._edtab_clicked)
+            self.rb_edtabs[key] = rb
+            self.tt_edtabs[key] = Tooltip(rb, tips[key])
+        # Scribble on photo: its chips in one row under the tabs, Text at scribble and Reference at scribble (user 15.11.)
+        self.v_sketch = tk.StringVar(value=_models.SCRIBBLE_PROMPTS[0][0])
+        self.f_sketch = ttk.Frame(self.f_body)
+        self.rb_sketch = {}
+        for label, _text, tip in _models.SCRIBBLE_PROMPTS:
+            rb = ttk.Radiobutton(self.f_sketch, text=label, value=label, variable=self.v_sketch, style="Chip.Toolbutton",
+                                 command=lambda: self._sketch_pick(self.v_sketch.get()))
+            rb.pack(side="left", padx=(2 if not self.rb_sketch else 4, 0))     # 2: the left edge of the tabs and chips above
+            Tooltip(rb, tip)
+            self.rb_sketch[label] = rb
+
+    def _edtab_clicked(self):
+        """A tab was clicked: it sets the window mode (and the BBOX tick) and the window follows like after a function click."""
+        tab = self.v_edtab.get()
+        self._written_for = ""
+        mode = TAB_MODE.get(tab, MULTI_MODE)
+        if self.v_mode.get() != mode:          # Edit canvas <-> the reference tabs <-> Sketch: a new function page (it starts BBOX off)
+            self.v_mode.set(mode)
+            self._on_mode()
+        if tab in ("scribble", "refscribble"):
+            from . import models as _models
+            want = {"scribble": _models.TEXT_SCRIBBLE_LABEL, "refscribble": _models.REF_SCRIBBLE_LABEL}[tab]
+            if self.v_sketch.get() != want:      # the other scribble tab: its text (as the chip did before, 15.11.)
+                self._sketch_pick(want)
+        self.v_bbox.set(tab == "bbox")          # Multi image edit <-> Insert reference: only the tick changes, like the old checkbox
+        self._refs_bbox_changed()
+        self.v_fn.set(self._fn_key())           # Insert reference lights Fill, Multi image edit lights Edit
+        self._edtabs_update()
+
+    def _edtabs_update(self):
+        from . import models as _models
+        mode, m = self.v_mode.get(), self._refs_model()
+        bbox = bool(m is not None and m.bbox)
+        fill_group = bbox and (mode == "inpaint" or (mode == MULTI_MODE and bool(getattr(self, "v_bbox", None) and self.v_bbox.get())))
+        show = m is not None and (fill_group or (mode in ("edit", MULTI_MODE) + SKETCH_MODES
+                                                 and any(k in m.modes for k in (MULTI_MODE,) + SKETCH_MODES)))
+        if not show and getattr(self, "f_edtabs", None) is None:
+            return
+        self._edtabs_ensure()
+        if not show:
+            self.f_edtabs.pack_forget()
+            self.f_sketch.pack_forget()
+            return
+        tab = ({v: k for k, v in TAB_MODE.items() if k != "refscribble"}.get(mode)
+               or ("bbox" if (bbox and self.v_bbox.get()) else "multi"))
+        if mode == SCRIBBLE_MODE and self._ref_scribble():
+            tab = "refscribble"
+        if mode == MULTI_MODE and self.v_bbox.get() and not bbox:
+            self.v_bbox.set(False)          # a model without BBOX: the tick does not travel along
+        self.v_edtab.set(tab)
+        if fill_group:
+            shown = [k for k in FILL_TABS if k != "fill" or "inpaint" in m.modes]
+        else:
+            shown = [k for k, _l in self.EDIT_TABS if k not in FILL_TABS and (k != "multi" or MULTI_MODE in m.modes)
+                     and (k not in ("sketch", "scribble", "refscribble") or TAB_MODE[k] in m.modes)
+                     and (k != "refscribble" or _models.offers_ref_scribble(m))]
+        # as few rows as the texts allow, every row the full width, no text cut (user 10.11.): each tab as wide as its bold
+        # text needs, the room left over shared out; without a measure (tests) four tabs go into two rows of two
+        meas = self._edtab_needs(shown)
+        needs = meas[0] if meas else [0] * len(shown)
+        # all tabs the same width (window test 11.11.): each as wide as the widest; the long "Scribble on photo with
+        # reference" (15.11.) is left out of that, it takes a row of its own when it does not fit beside the others
+        wide = max((n for k, n in zip(shown, needs) if k != "refscribble"), default=0)
+        needs = [n if k == "refscribble" else wide for k, n in zip(shown, needs)]
+        # plan B (10.11.): always 2 + 2, the edit tabs in the first row, Sketch to image and Scribble on photo in the second;
+        # a row that does not fit is split again
+        rows = []
+        sk = ("sketch", "scribble", "refscribble")
+        for group in ([k for k in shown if k not in sk], [k for k in shown if k in sk]):
+            if group and meas:
+                idx = [shown.index(k) for k in group]
+                rows += [[group[i] for i in r] for r in edtab_rows([needs[i] for i in idx], meas[1])]
+            elif group:
+                rows.append(group)
+        self._edtab_layout = rows
+        need = dict(zip(shown, needs))
+        # all tabs the same width (window test 11.11.): the columns of a row are equal (uniform), each as wide as the widest tab
+        # needs, so rows of the same count line up
+        same = len({len(row) for row in rows}) == 1
+        for r, frame in enumerate(self.f_edtab_rows):
+            keys = rows[r] if r < len(rows) else []
+            for c in range(len(self.EDIT_TABS)):
+                used = c < len(keys)
+                frame.columnconfigure(c, weight=1 if used else 0, minsize=need[keys[c]] if used else 0,
+                                      uniform="edtab" if same and used else "")
+            frame.pack_forget()
+        for r in range(len(rows)):
+            self.f_edtab_rows[r].pack(fill="x")
+        for k, _l in self.EDIT_TABS:
+            if k in shown:
+                r = next(i for i, row in enumerate(rows) if k in row)
+                self.rb_edtabs[k].grid(in_=self.f_edtab_rows[r], row=0, column=rows[r].index(k), sticky="ew", padx=2, pady=2)
+            else:
+                self.rb_edtabs[k].grid_remove()
+        for k in ("sketch", "scribble", "refscribble"):
+            self._sketch_tab_state(m, k)
+        anchor = self.f_refs if self.f_refs.winfo_manager() else self.f_neg
+        self.f_edtabs.pack(fill="x", padx=10, pady=(6, 0), before=anchor)
+        self.f_sketch.pack_forget()      # the two scribble chips are tabs now (user 15.11.): no chip row
+
+    def _sketch_tab_state(self, m, tab: str = "sketch"):
+        """The tabs Sketch to image and Scribble on photo are greyed out when a file of their own is missing (their writer:
+        the upsampler, 6.7 GB and gated, or Flux 2's qwen3vl 4B): only the tab, not the model (user 9.11.); its tooltip
+        names the file."""
+        from . import models as _models
+        mode = TAB_MODE[tab]
+        rb, tt = self.rb_edtabs[tab], self.tt_edtabs[tab]
+        inv = getattr(self, "inv", None)
+        st = inv.mode_status(m.key, mode) if (inv is not None and mode in m.modes) else None
+        if st is not None and st.state == "missing":
+            need = [getattr(f, "name", f) for f in st.missing] + list(st.nodes)
+            rb.configure(state="disabled")
+            tt.text = self._edtab_tips[tab] + "\n\nNeeds " + ", ".join(need) + ": download it in the settings (gear)."
+        else:
+            rb.configure(state="normal")
+            tt.text = self._edtab_tips[tab]
+
+    def _sketch_pick(self, label: str, insert: bool = True):
+        """A Sketch template was clicked: its whole text goes into the prompt field (one undo step), editable (user 10.11.);
+        the tip under the prompt follows (Scribble on photo has its own). Reference at scribble names the reference the way
+        the model does and shows its one slot (user 15.11.)."""
+        from . import models as _models
+        if getattr(self, "v_sketch", None) is None:
+            self._edtabs_ensure()
+        if insert:
+            self._written_for = ""          # a template: the upsampler runs again
+        self.v_sketch.set(label)
+        m = self._refs_model()
+        texts = {lb: (_models.ref_scribble_text(m.tag_style if m else "") if lb == _models.REF_SCRIBBLE_LABEL else text)
+                 for lb, text, _t in _models.SCRIBBLE_PROMPTS}
+        if insert and label in texts:
+            t = self.t_prompt
+            if str(t.cget("state")) != "disabled":
+                t.edit_separator()
+                t.delete("1.0", "end")
+                t.insert("1.0", texts[label])
+                t.edit_separator()
+            self._refs_update()             # the slot comes or goes with the chip
+        self._update_prompt_hint()
+
+    def _written_active(self) -> bool:
+        """Sketch with a prompt the upsampler wrote, loaded from the history (user 10.11., way A): it runs as it is, not
+        expanded again, until a template, another tab, function or model is clicked."""
+        return (bool(getattr(self, "_written_for", "")) and self.v_mode.get() in SKETCH_MODES
+                and self.v_model.get() == self._written_for)
+
+    def _sketch_scribble(self) -> bool:
+        """True in the tab Scribble on photo (the bridge then finds the scribble and changes only its place)."""
+        return self.v_mode.get() == SCRIBBLE_MODE
+
+    def _refs_update(self):
+        self._refs_retag()
+        self._edtabs_update()
+        want = self._refs_wanted()
+        if not want and getattr(self, "f_refs", None) is None:
+            return
+        self._refs_ensure()
+        if not want:
+            self.f_refs.pack_forget()
+            self.f_refsize.pack_forget()
+            self.cb_bbox.pack_forget()
+            self.f_refhead2.pack_forget()
+            return
+        m = self._refs_model()
+        self.cb_bbox.pack_forget()          # the tick is the tab "Insert reference" now (BBOX) (user 7.11.); the variable stays
+        self.f_refhead2.pack_forget()
+        self._refs_bbox_changed()
+        self.refslots.set_model(self._refs_max(m), m.tag_style)
+        self.f_refs.pack(fill="x", padx=10, pady=(6, 0), before=self.f_neg)
+        self.f_refsize.pack(fill="x", pady=(2, 0))
+        self._refs_redraw()
+
+    def _show_refs_body(self):
+        """The slots are always shown while the tab is open (no drop-down any more, user 7.11.): the head line says how many."""
+        self.f_refbody.pack(fill="x")
+
+    def _refs_redraw(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from .gui_common import ACCENT, FG, MUTED, PANEL, SLOT_BG, SLOT_DISABLED, SLOT_FG, SLOT_MUTED, Tooltip, font
+        for w in (self.f_refgrid.winfo_children() or []):
+            w.destroy()
+        self._refs_preview_close()   # the slots change: an open larger view may show a picture that is gone
+        self._ref_photos = []
+        self._ref_boxes = {}
+        rs = self.refslots
+        s = self._px(self.SLOT)
+        per_row = self.PER_ROW
+        for c in range(per_row):
+            self.f_refgrid.columnconfigure(c, minsize=s + self._px(3))
+        n_used = len(rs.active)
+        self.lbl_refs.configure(text=f"Reference images (max. {rs.max_refs})")      # only the maximum, not n/n (user 3.11.)
+        self._show_refs_body()
+        for k in range(self._refs_visible()):
+            cell = ttk.Frame(self.f_refgrid)
+            cell.grid(row=k // per_row, column=k % per_row, sticky="n", padx=(0, self._keep(3)), pady=(0, self._keep(2)))
+            box = tk.Frame(cell, width=s, height=self._px(max(self.SLOT, self.BAR_ICONS * (self._icon_px() + 3) + 2)), bg=SLOT_BG, highlightthickness=0, bd=0)      # one grey area, no inner frame (user 12.11.)
+            box.pack_propagate(False)
+            box.pack()
+            self._ref_boxes[k] = box        # the larger view opens level with it
+            if k < len(rs.items):
+                it = rs.items[k]
+                photo = tk.PhotoImage(data=_b64(thumbnail_png(it.image, s - 4 - self._px(self._bar_px()))))
+                self._ref_photos.append(photo)
+                lbl = tk.Label(box, image=photo, bg=SLOT_BG, bd=0)
+                lbl.pack(expand=True, side="left", pady=(0, self._px(self.TAG_PX)))      # room for the tag at the foot of the slot
+                lbl.configure(cursor="hand2")
+                # drag the picture into the prompt field: its tag lands where you let go (the eye shows it larger)
+                lbl.bind("<ButtonPress-1>", lambda e, k=k: self._refs_drag_start(e, k))
+                lbl.bind("<B1-Motion>", self._refs_drag_move)
+                lbl.bind("<ButtonRelease-1>", self._refs_drag_drop)
+                if self._refs_dnd:      # a drop onto a filled slot replaces its picture (the rest of the frame adds)
+                    self._refs_slot_drop(box, k)
+                    self._refs_slot_drop(lbl, k)
+                Tooltip(lbl, f"{it.name or 'clipboard'}" + ("  (cut out)" if it.cut_out else "") + (f"\n{it.description}" if it.description else ""))
+                tag = rs.tag(k)
+                # the tag sits ON the slot, at its foot, on the slot's grey (user 12.11.)
+                lt = tk.Label(box, text=tag or f"image {k + 2}", bg=SLOT_BG, fg=SLOT_FG, font=font(9), anchor="center", bd=0, padx=0, pady=0)
+                lt.place(x=0, rely=1.0, anchor="sw", width=s - self._px(self._bar_px()), height=self._px(self.TAG_PX))
+                if tag:         # a click on it puts it where the cursor is in the prompt field, else at the end (user 15.11.)
+                    lt.configure(cursor="hand2")
+                    lt.bind("<Button-1>", lambda e, k=k: self._refs_insert_tag(k, self._refs_click_index()))
+                    Tooltip(lt, "Click to put it where your cursor is in the prompt (or at the end), or drag the picture into the prompt.")
+                busy = k in self._ref_busy
+                bar = [("eye", "Preview", "Shows this picture larger beside the plugin.",
+                        lambda k=k: self._refs_preview(k), False),
+                       ("remove", "Remove", "Takes this image out of the slots.", lambda k=k: self._refs_remove(k), False),
+                       ("cut", "Undo cut" if it.cut_out else "Cut out",
+                        "Back to the original picture." if it.cut_out else "Removes the background (BiRefNet in ComfyUI).", lambda k=k: self._refs_cut(k), True,
+                        "" if (it.cut_out or self._cut_file_ok()) else CUT_NEEDS_FILE),
+                       ("describe", "Describe", "The text model of this model writes a short description of this picture (about 5 s).", lambda k=k: self._refs_describe(k), True)]
+                if it.description:
+                    bar.append(("copy", "Copy text", "Puts the description on the clipboard.", lambda k=k: self._refs_copy_text(k), False))
+                self._refs_bar(box, bar, busy)
+            else:
+                # the one empty slot takes the pictures: paste and add file sit in its bar; the bar comes first, so the
+                # hint is centred in the space left of it, at the bottom of the slot
+                self._refs_bar(box, [("paste", "Paste", "Takes the picture from the clipboard (Ctrl+V does the same when no text field has the focus).", self._refs_paste, False),
+                                     ("file", "Add file", "Picks a picture file. Or drop files onto a slot.", self._refs_add_file, False)], False)
+                # centred in the whole slot (the icons sit at the top, the hint at the bottom)
+                tk.Label(box, text="Drop a picture\nor Ctrl+V", fg=SLOT_MUTED, bg=SLOT_BG, bd=0, justify="center"
+                         ).place(relx=0.5, rely=1.0, anchor="s", y=-self._px(4))
+        self._refs_xy()                 # the description in spot XY follows its slot (new tag, removed picture)
+        over = len(rs.overflow)
+        pic = rs.picture_tag()          # the picture in PhotoCraft has a tag too (user 29.10.: keep saying so)
+        self.lbl_refnames.configure(text=("Dragging an image into the prompt box inserts its tag." +
+                                          (f" Your picture in PhotoCraft is {pic}." if pic else "") if rs.active else
+                                          "Add a picture, then name it in your text."))
+        if over:
+            self._refs_say(f"The last {over} image(s) are kept but not sent.")
+        elif not self._refs_dnd and not getattr(self, "_ref_dnd_told", False):
+            self._ref_dnd_told = True
+            self._refs_say("Drag and drop needs the package tkinterdnd2: run setup-windows.bat again. Ctrl+V, Paste and Add file work without it.")
+        try:
+            self._on_content_size()
+        except Exception:
+            pass
+
+    def _refs_visible(self) -> int:
+        """How many slots are shown: the filled ones and exactly one empty slot ("Drop a picture or Ctrl+V") while the model
+        takes more; no empty placeholders (the 333 px window grows a row at a time)."""
+        rs = self.refslots
+        return min(rs.max_refs, len(rs.items) + 1)
+
+    def _icon_px(self) -> int:
+        return self.ICON_PX
+
+    def _bar_px(self) -> int:
+        """Width of the icon bar inside a slot (before the display scaling)."""
+        return self._icon_px() + 6
+
+    def _refs_icon(self, kind: str, color: str):
+        cache = self.__dict__.setdefault("_ref_icon_cache", {})
+        if (kind, color) not in cache:
+            from . import icons
+            cache[(kind, color)] = icons.photo(self.root, kind, color, self._px(self.ICON_PX))   # drawn at the real pixel size
+        return cache[(kind, color)]
+
+    def _refs_bar(self, box, buttons, busy: bool):
+        """The narrow icon bar at the right edge inside a slot: one icon per action, the old word as its tooltip; under the
+        mouse an icon turns orange. `buttons`: (icon, word, explanation, command, waits) - an action that waits is greyed
+        out while a job runs."""
+        import tkinter as tk
+        from .gui_common import ACCENT, SLOT_BG, SLOT_DISABLED, SLOT_FG, Tooltip
+        bar = tk.Frame(box, width=self._px(self._bar_px()), bg=SLOT_BG, bd=0)
+        bar.pack(side="right", fill="y")
+        for kind, word, tip, cmd, waits, *more in buttons:
+            missing = more[0] if more else ""          # a file the action needs is not there: greyed out, the tooltip says which (user 7.11.)
+            off = (busy and waits) or bool(missing)
+            lb = tk.Label(bar, image=self._refs_icon(kind, SLOT_DISABLED if off else SLOT_FG), bg=SLOT_BG, bd=0, cursor="" if off else "hand2")
+            lb.pack(pady=self._keep(1))
+            if not off:
+                lb.bind("<Button-1>", lambda e, c=cmd: c())
+                lb.bind("<Enter>", lambda e, l=lb, k=kind: l.configure(image=self._refs_icon(k, ACCENT)), add="+")
+                lb.bind("<Leave>", lambda e, l=lb, k=kind: l.configure(image=self._refs_icon(k, SLOT_FG)), add="+")
+            Tooltip(lb, f"{word}: {missing or tip}")
+
+    # ---- dragging a slot picture into the prompt field ----
+    DRAG_PX = 5        # the mouse moves this far (before the display scaling) before a press on a picture becomes a drag
+
+    def _refs_drag_start(self, event, k: int):
+        self._ref_drag = {"k": k, "x": event.x_root, "y": event.y_root, "on": False}
+
+    def _refs_prompt_at(self, x_root: int, y_root: int):
+        """The text index of the prompt field under the screen point, or None when the point is not over the (usable) field."""
+        import tkinter as tk
+        t = getattr(self, "t_prompt", None)
+        if t is None or str(t.cget("state")) == "disabled":
+            return None
+        try:
+            if self.root.winfo_containing(x_root, y_root) is not t:
+                return None
+            return t.index(f"@{x_root - t.winfo_rootx()},{y_root - t.winfo_rooty()}")
+        except (tk.TclError, TypeError, ValueError):
+            return None
+
+    def _refs_drag_move(self, event):
+        """While dragging, the text cursor of the prompt field follows the mouse: it shows where the tag will go."""
+        d = getattr(self, "_ref_drag", None)
+        if d is None:
+            return
+        if not d["on"]:
+            if max(abs(event.x_root - d["x"]), abs(event.y_root - d["y"])) < self._px(self.DRAG_PX):
+                return
+            d["on"] = True
+            try:
+                event.widget.configure(cursor="plus")
+            except Exception:
+                pass
+        idx = self._refs_prompt_at(event.x_root, event.y_root)
+        if idx is not None:
+            t = self.t_prompt
+            t.focus_set()
+            t.mark_set("insert", idx)
+
+    def _refs_drag_drop(self, event):
+        """Let go: over the prompt field the slot's tag goes in there (a space in front when needed); a plain click shows
+        the picture's description in spot XY, when it has one (the eye opens the larger view)."""
+        d, self._ref_drag = getattr(self, "_ref_drag", None), None
+        if d is None:
+            return
+        if not d["on"]:
+            rs = self.refslots
+            if 0 <= d["k"] < len(rs.items) and rs.items[d["k"]].description:
+                self._refs_xy(rs.items[d["k"]])
+            return
+        try:
+            event.widget.configure(cursor="hand2")
+        except Exception:
+            pass
+        idx = self._refs_prompt_at(event.x_root, event.y_root)
+        if idx is not None:
+            self._refs_insert_tag(d["k"], idx)
+
+    def _refs_click_index(self) -> str:
+        """Where a click on a slot's tag writes it: at the cursor while the prompt field has the keyboard (a click on the tag
+        does not take it away), else at the end (user 15.11.)."""
+        t = getattr(self, "t_prompt", None)
+        try:
+            if t is not None and t.focus_get() is t:
+                return t.index("insert")
+        except Exception:
+            pass
+        return "end-1c"
+
+    def _refs_insert_tag(self, k: int, idx: str = "end-1c"):
+        """Writes the tag of slot k into the prompt field at idx (default: the end), as its own undo step."""
+        rs = self.refslots
+        tag = rs.tag(k) if 0 <= k < len(rs.items) else ""
+        t = getattr(self, "t_prompt", None)
+        if not tag or t is None or str(t.cget("state")) == "disabled":
+            return
+        text = spaced_tag(tag, t.get("1.0", idx), t.get(idx, "end-1c"))
+        try:
+            t.edit_separator()
+        except Exception:
+            pass
+        t.insert(idx, text)
+        try:
+            t.edit_separator()
+            t.mark_set("insert", f"{idx}+{len(text)}c")
+            t.see("insert")
+            t.focus_set()
+        except Exception:
+            pass
+
+    def _refs_preview(self, k: int):
+        """The eye in a slot's bar: a larger view (500 %, at most twice as wide as the plugin and as
+        tall as it) in a borderless window beside the plugin, level with the slot. The X, Esc, a click on the picture or a
+        click elsewhere closes it; the eye again too."""
+        import tkinter as tk
+        from .gui_common import ACCENT, FG, PANEL
+        was = getattr(self, "_ref_preview", None)
+        self._refs_preview_close()
+        if was is not None and was[0] == k:
+            return
+        rs = self.refslots
+        if k >= len(rs.items):
+            return
+        it = rs.items[k]
+        root = self.root
+        root.update_idletasks()
+        win = (root.winfo_rootx(), root.winfo_rooty(), root.winfo_width(), root.winfo_height())
+        thumb = self._px(self.SLOT) - 4 - self._px(self._bar_px())
+        w, h = preview_size(it.image.size, thumb, 2 * win[2], win[3])
+        vx = root.winfo_vrootx()
+        try:
+            top = int(self._ref_boxes[k].winfo_rooty())
+        except (AttributeError, KeyError, TypeError, ValueError, tk.TclError):
+            top = None
+        x, y = preview_position(win, (w, h), vx, vx + root.winfo_vrootwidth(), top=top)
+        top = tk.Toplevel(root, **hostos.TOP_KW)
+        top.wm_overrideredirect(True)
+        top.configure(bg=PANEL, highlightthickness=1, highlightbackground="#5c5c5c")
+        top.wm_geometry(f"+{x}+{y}")
+        im = flatten(it.image, (0x28, 0x28, 0x28)).resize((w, h), Image.LANCZOS)
+        import io
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        photo = tk.PhotoImage(data=_b64(buf.getvalue()))
+        pic = tk.Label(top, image=photo, bg=PANEL, bd=0)
+        pic.image = photo
+        pic.pack()
+        close = tk.Label(top, image=self._refs_icon("remove", FG), bg=PANEL, bd=0, cursor="hand2")
+        close.place(relx=1.0, x=-self._px(4), y=self._px(4), anchor="ne")
+        close.bind("<Enter>", lambda e: close.configure(image=self._refs_icon("remove", ACCENT)))
+        close.bind("<Leave>", lambda e: close.configure(image=self._refs_icon("remove", FG)))
+        for wd in (close, pic):
+            wd.bind("<Button-1>", lambda e: self._refs_preview_close())
+        top.bind("<Escape>", lambda e: self._refs_preview_close())
+        top.bind("<FocusOut>", lambda e: root.after(150, self._refs_preview_lost_focus))
+        self._ref_preview = (k, top)
+        top.focus_force()
+
+    def _refs_preview_lost_focus(self):
+        """A click elsewhere closes the larger view, except a click on the eye of the same slot (that one toggles it)."""
+        p = getattr(self, "_ref_preview", None)
+        if p is None:
+            return
+        try:
+            if p[1].focus_displayof() is not None:
+                return
+        except Exception:
+            pass
+        self._refs_preview_close()
+
+    def _refs_preview_close(self):
+        p = getattr(self, "_ref_preview", None)
+        self._ref_preview = None
+        if p is not None:
+            try:
+                p[1].destroy()
+            except Exception:
+                pass
+
+    def _refs_copy_text(self, k: int):
+        items = self.refslots.items
+        if 0 <= k < len(items) and items[k].description:
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(items[k].description)
+                self._refs_say("Description copied.")
+            except Exception:
+                self._refs_say("The clipboard is not available.")
+
+    def _refs_xy(self, item=False):
+        """Spot XY shows `item`'s description ("<image2>: ..."), white, with the copy icon; no argument: the one shown, again
+        (after a redraw its tag may differ); it goes when its picture or its description is gone."""
+        if item is not False:
+            self._ref_shown = item
+        it = self._ref_shown
+        rs = self.refslots
+        if it is None or it not in rs.items or not it.description:
+            self._ref_shown = None
+            self.lbl_refdesc.configure(text="")
+            self.f_refxy.pack_forget()
+            return
+        k = rs.items.index(it)
+        self.lbl_refdesc.configure(text=f"{rs.tag(k) or f'image {k + 2}'}: {it.description}")
+        if self.lbl_refmsg.winfo_manager() == "pack":       # a message is showing: XY goes above it
+            self.f_refxy.pack(fill="x", pady=(4, 0), before=self.lbl_refmsg)
+        else:
+            self.f_refxy.pack(fill="x", pady=(4, 0))
+
+    def _refs_copy_shown(self):
+        it = self._ref_shown
+        if it is not None and it in self.refslots.items:
+            self._refs_copy_text(self.refslots.items.index(it))
+
+    def _refs_say(self, text: str):
+        self.lbl_refmsg.configure(text=text)
+        if text:
+            self.lbl_refmsg.pack(fill="x")
+        else:
+            self.lbl_refmsg.pack_forget()           # no empty line between the slots and the negative prompt
+
+    # ---- adding ----
+    def _refs_add_image(self, image, name: str = ""):
+        try:
+            self.refslots.add(image, name)
+            self._refs_say("")
+        except RefError as e:
+            self._refs_say(str(e))
+        self._refs_redraw()
+
+    def _refs_paste(self):
+        im = clipboard.read_image()
+        if im is None:
+            self._refs_say("The clipboard holds no picture." if clipboard.available() else clipboard.UNAVAILABLE_TEXT)
+            return
+        self._refs_add_image(im, "clipboard")
+
+    def _clipboard_has_text(self) -> bool:
+        """Text on the clipboard (a text field pastes it itself); anything unclear counts as text, so a field keeps Ctrl+V."""
+        import tkinter as tk
+        try:
+            return bool(self.root.clipboard_get())
+        except tk.TclError:
+            return False
+        except Exception:
+            return True
+
+    def _refs_ctrl_v(self, event=None):
+        """Ctrl+V adds a picture. A text field (prompt, spin boxes ...) keeps the shortcut while the clipboard holds text;
+        with only a picture on it, the picture goes into the slots, also when the cursor is in the prompt."""
+        try:
+            cls = str(self.root.focus_get().winfo_class())
+        except Exception:
+            cls = ""
+        if not self._refs_wanted() or (cls in ("Text", "Entry", "TEntry", "TCombobox", "TSpinbox", "Spinbox")
+                                       and self._clipboard_has_text()):
+            return None
+        im = clipboard.read_image()
+        if im is None:
+            return None
+        self._refs_add_image(im, "clipboard")
+        return "break"
+
+    def _refs_add_file(self):
+        from tkinter import filedialog
+        paths = self._dialog(filedialog.askopenfilenames, title="Reference images", filetypes=[("Pictures", " ".join("*" + e for e in clipboard.IMAGE_SUFFIXES)), ("All files", "*.*")])
+        self._refs_add_paths(self.root.tk.splitlist(paths) if isinstance(paths, str) else paths)
+
+    def _refs_slot_drop(self, widget, k: int):
+        try:
+            from tkinterdnd2 import DND_FILES
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>", lambda e, k=k: self._refs_on_drop(e, k))
+        except Exception:
+            pass
+
+    def _refs_on_drop(self, event, at: int | None = None):
+        """Files dropped onto the slots: added, or (onto filled slot `at`) the first one replaces that picture."""
+        try:
+            paths = [Path(p) for p in self.root.tk.splitlist(event.data)]
+        except Exception:
+            paths = parse_drop_data(str(getattr(event, "data", "")))
+        self._refs_add_paths(paths, at)
+        return getattr(event, "action", "copy")
+
+    def _refs_add_paths(self, paths, at: int | None = None):
+        if at is not None:
+            self._ref_busy.discard(at)
+        n, notes = self.refslots.add_files(paths, at)
+        self._refs_say(notes[0] if notes else "")
+        self._refs_redraw()
+
+    # ---- one slot ----
+    def _refs_remove(self, k: int):
+        if k < len(self.refslots.items):
+            self.refslots.remove(k)
+        self._ref_busy.clear()
+        self._refs_say("")
+        self._refs_redraw()
+
+    def _cut_file_ok(self) -> bool:
+        """False only when ComfyUI was read and birefnet.safetensors is not listed (not read yet: the click tries)."""
+        ok = getattr(self, "_cutout_ok", None)
+        return True if ok is None else bool(ok("birefnet"))
+
+    def _refs_cut(self, k: int):
+        it = self.refslots.items[k]
+        if it.cut_out:
+            self.refslots.revert(k)
+            self._refs_redraw()
+            return
+        if not self._cut_file_ok():       # no job for ComfyUI that it must reject: a calm note instead of "Cut out failed: ..." (user 7.11.)
+            self._refs_say(CUT_NEEDS_FILE)
+            return
+        import threading
+        self._ref_busy.add(k)
+        box: dict = {}
+        src = it
+
+        def work():
+            try:
+                box["image"] = self.bridge.remove_background(src.image)
+            except Exception as e:   # ComfyUI not running, BiRefNet missing ...
+                box["error"] = str(e)
+
+        threading.Thread(target=work, daemon=True).start()
+        self._refs_say("Cutting out the background …")
+        self._refs_redraw()
+
+        def check():
+            if "image" not in box and "error" not in box:
+                self.root.after(200, check)
+                return
+            self._ref_busy.discard(k)
+            if "error" in box:
+                self._refs_say("Cut out failed: " + box["error"])
+            elif src in self.refslots.items:
+                self.refslots.replace(self.refslots.items.index(src), box["image"])
+                self._refs_say("")
+            self._refs_redraw()
+        self.root.after(200, check)
+
+    def _refs_describe(self, k: int):
+        """Qwen 3.5 9B describes the picture in the slot (ComfyUI, describe-image.json); the text is shown and written into
+        the prompt field as its own line ("<image2>: ..."), where it can be edited or deleted. A slot that already has a
+        description and was not the last one described keeps it (shown again, no new run); Describe twice in a row on the
+        same slot writes a new one (a random seed)."""
+        import random
+        import threading
+        from .comfy import Cancelled
+        src = self.refslots.items[k]
+        if k in self._ref_busy:
+            return
+        from . import manifest
+        # the text model of the chosen model, like the LLM button (user 30.10.); Qwen 3.5 9B int8 ConvRot only as the fallback
+        clip = self._llm_file() if getattr(self, "inv", None) is not None else ""
+        if getattr(self, "inv", None) is not None and not clip:
+            self._refs_say(f"Describe needs {manifest.DESCRIBE_FALLBACK}: download it in the settings (gear).")
+            return
+        if src.description and src is not getattr(self, "_ref_last_described", None):
+            self._ref_last_described = src
+            self._refs_show_description(k)
+            return
+        seed = random.randint(1, 2**31 - 1) if src.description else None     # the first one: the likeliest words
+        self._ref_busy.add(k)
+        self.b_stop.configure(state="normal")          # Cancel stops the text model too (user 2.11.)
+        box: dict = {}
+
+        def work():
+            try:
+                box["text"] = self.bridge.describe_image(src.image, seed=seed, clip=clip)
+            except Cancelled:
+                box["error"] = "Cancelled."
+            except Exception as e:   # ComfyUI not running, no text model ...
+                box["error"] = str(e)
+
+        threading.Thread(target=work, daemon=True).start()
+        self._refs_say("Describing the picture \u2026")
+        self._refs_redraw()
+
+        def check():
+            if "text" not in box and "error" not in box:
+                self.root.after(200, check)
+                return
+            self._ref_busy.discard(k)
+            if not self._ref_busy and not getattr(self, "_describing", False) and not (self.worker and self.worker.is_alive()):
+                self.b_stop.configure(state="disabled")
+            if "error" in box:
+                self._refs_say(box["error"] if box["error"] == "Cancelled." else "Describe failed: " + box["error"])
+            else:
+                old, src.description = src.description, box["text"]
+                self._ref_last_described = src
+                i = self.refslots.items.index(src) if src in self.refslots.items else 0
+                self._refs_say("")
+                self._refs_xy(src)
+                t = getattr(self, "t_prompt", None)
+                if t is not None and src in self.refslots.items and str(t.cget("state")) != "disabled":
+                    cur = t.get("1.0", "end").rstrip("\n")
+                    new = self.refslots.put_description(cur, i, old)
+                    if new != cur:
+                        t.delete("1.0", "end")
+                        t.insert("1.0", new)
+                    elif old:      # the old line was changed by hand: the prompt stays, the new text is under the image
+                        self._refs_say("You changed the description line in the prompt, so it was kept. The new text is shown above (copy icon).")
+            self._refs_redraw()
+        self.root.after(200, check)
+
+    def _refs_show_description(self, k: int):
+        """Shows the description of slot k again and puts its line back into the prompt field when it is not there."""
+        rs = self.refslots
+        if not 0 <= k < len(rs.items) or not rs.items[k].description:
+            return
+        self._refs_xy(rs.items[k])
+        t = getattr(self, "t_prompt", None)
+        if t is None or str(t.cget("state")) == "disabled":
+            return
+        cur = t.get("1.0", "end").rstrip("\n")
+        line = f"{rs.tag(k) or f'image {k + 2}'}: {rs.items[k].description}"
+        if line not in [ln.strip() for ln in cur.split("\n")]:
+            t.delete("1.0", "end")
+            t.insert("1.0", rs.put_description(cur, k))
+
+
+def _b64(data: bytes) -> str:
+    import base64
+    return base64.b64encode(data).decode("ascii")

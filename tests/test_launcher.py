@@ -1,0 +1,308 @@
+"""Desktop shortcut (user 28.10., option B): "PxC" starts PhotoCraft with the control channel like the starter
+.bat, then the PxC window, without a console window. The shortcut itself is made in a temporary folder here, never
+on the desktop.
+
+    python tests/test_launcher.py
+"""
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from pccomfy import launcher  # noqa: E402
+
+EXE = r"C:\apps\photocraft-0.17.0-windows-x64-portable\photocraft.exe"
+
+
+def cfg(tmp):
+    return {"photocraft": {"host": "127.0.0.1", "port": 7878, "token_file": str(tmp / "photocraft.token"),
+                           "exchange_dir": str(tmp / "exchange")}}
+
+
+def args_checks():
+    tmp = Path(tempfile.mkdtemp())
+    args = launcher.photocraft_args(EXE, cfg(tmp))
+    assert args == [EXE, "--control", "7878", "--control-token-file", str(tmp / "photocraft.token"),
+                    "--automation-read-root", str(tmp / "exchange"), "--automation-write-root", str(tmp / "exchange")]
+    # the same flags as the starter .bat (that file is only in the private working repo, not in a release)
+    bat_file = ROOT / "test new user.bat"
+    if bat_file.exists():
+        bat = bat_file.read_text(encoding="utf-8", errors="replace")
+        for flag in args[1::2]:
+            assert flag in bat, flag
+
+
+def tilde_checks():
+    """Linux (found in the VM 4.11.): the exchange folder is "~/.cache/pccomfy/exchange"; PhotoCraft gets the real path, and no
+    folder named "~" appears in the working directory."""
+    home = Path(tempfile.mkdtemp())
+    old = os.environ.get("HOME"), os.environ.get("USERPROFILE")
+    os.environ["HOME"] = os.environ["USERPROFILE"] = str(home)
+    try:
+        c = {"photocraft": {"host": "127.0.0.1", "port": 7878, "token_file": "~/.config/pccomfy/photocraft.token",
+                            "exchange_dir": "~/.cache/pccomfy/exchange"}}
+        args = launcher.photocraft_args(EXE, c)
+        want = str(home / ".cache" / "pccomfy" / "exchange")
+        assert args[args.index("--automation-read-root") + 1] == want and args[args.index("--automation-write-root") + 1] == want
+        assert args[args.index("--control-token-file") + 1] == str(home / ".config" / "pccomfy" / "photocraft.token")
+        assert not any(a.startswith("~") for a in args)                          # inside a path "~" is fine: FDK-DE~1 on Windows
+        exe = home / "photocraft"
+        exe.write_bytes(b"")
+        launcher.start_photocraft(str(exe), c, is_open=lambda: True)             # running already: nothing is made
+        launcher.start_photocraft(str(exe), c, is_open=iter([False, True]).__next__, popen=lambda *a, **k: None, sleep=lambda s: None)
+        assert (home / ".cache" / "pccomfy" / "exchange").is_dir() and not (ROOT / "~").exists()
+    finally:
+        for k, v in zip(("HOME", "USERPROFILE"), old):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def start_checks():
+    tmp = Path(tempfile.mkdtemp())
+    exe = tmp / "photocraft.exe"
+    exe.write_bytes(b"")
+    c = cfg(tmp)
+    started = []
+    # running with the control channel already: nothing is started
+    assert launcher.start_photocraft(str(exe), c, is_open=lambda: True, popen=lambda *a, **k: started.append(a)) is False
+    assert started == []
+    # not running: started once, then the port opens
+    state = {"open": False, "polls": 0}
+
+    def is_open():
+        state["polls"] += 1
+        return state["open"]
+
+    def popen(args, **kw):
+        started.append(args)
+        state["open"] = True
+    assert launcher.start_photocraft(str(exe), c, is_open=is_open, popen=popen, sleep=lambda s: None) is True
+    assert started == [launcher.photocraft_args(str(exe), c)] and (tmp / "exchange").is_dir()
+    # the port never opens: a clear message
+    try:
+        launcher.start_photocraft(str(exe), c, is_open=lambda: False, popen=lambda *a, **k: None, sleep=lambda s: None, wait_s=0.05)
+        raise AssertionError("no error")
+    except launcher.LaunchError as e:
+        assert "7878" in str(e)
+    # no PhotoCraft at that path
+    try:
+        launcher.start_photocraft(str(tmp / "missing.exe"), c, is_open=lambda: False)
+        raise AssertionError("no error")
+    except launcher.LaunchError as e:
+        assert "not found" in str(e)
+
+
+def shortcut_checks():
+    spec = launcher.shortcut_spec(EXE)
+    assert spec["name"] == "PxC" and spec["icon"] == EXE + ",0"
+    assert str(launcher.SCRIPT) in spec["args"] and f'--photocraft "{EXE}"' in spec["args"] and launcher.SCRIPT.exists()
+    if sys.platform != "win32":
+        return
+    assert spec["target"].lower().endswith("pythonw.exe")             # no console window
+    folder = tempfile.mkdtemp()
+    lnk = launcher.create_shortcut(EXE, folder=folder)
+    assert lnk == Path(folder) / "PxC.lnk" and lnk.exists()
+    # the shortcut of older versions is removed (exactly that file), other files stay
+    assert launcher.LEGACY_SHORTCUT == "PhotoCraft AI.lnk"
+    folder2 = tempfile.mkdtemp()
+    (Path(folder2) / launcher.LEGACY_SHORTCUT).write_text("old", encoding="utf-8")
+    (Path(folder2) / "Other.lnk").write_text("keep", encoding="utf-8")
+    launcher.create_shortcut(EXE, folder=folder2)
+    assert (Path(folder2) / "PxC.lnk").exists() and not (Path(folder2) / launcher.LEGACY_SHORTCUT).exists()
+    assert (Path(folder2) / "Other.lnk").exists()
+    ps = (f"[Console]::OutputEncoding = [Text.Encoding]::UTF8; $s = (New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}'); "
+          "$s.TargetPath; $s.Arguments; $s.IconLocation; $s.WorkingDirectory")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, encoding="utf-8",
+                         timeout=60).stdout
+    target, args, icon, workdir = out.strip().splitlines()
+    assert target.lower() == spec["target"].lower() and args == spec["args"], (target, args)
+    assert re.sub(r",\s*0$", "", icon).lower() == EXE.lower() and workdir.lower() == str(launcher.ROOT).lower()
+
+
+def cli_checks():
+    from pccomfy import __main__ as cli
+    called = []
+    old = launcher.main_shortcut
+    launcher.main_shortcut = lambda exe, name: called.append((exe, name)) or 0
+    try:
+        assert cli.main(["shortcut", "--photocraft", EXE]) == 0
+    finally:
+        launcher.main_shortcut = old
+    assert called == [(EXE, "PxC")]
+
+
+def find_checks():
+    tmp = Path(tempfile.mkdtemp())
+    assert launcher.find_photocraft([tmp]) is None
+    for name in ("photocraft-0.16.0-windows-x64-portable", "photocraft-0.17.0-windows-x64-portable", "photocraft-comfyui-bridge"):
+        (tmp / name).mkdir()
+    for name in ("photocraft-0.16.0-windows-x64-portable", "photocraft-0.17.0-windows-x64-portable"):
+        (tmp / name / launcher.exe_name()).write_bytes(b"")
+        (tmp / name / launcher.exe_name()).chmod(0o755)
+    (tmp / "photocraft-0.99.0-nothing-here").mkdir()          # no exe inside: ignored
+    assert launcher.find_photocraft([tmp / "missing", tmp]) == str(tmp / "photocraft-0.17.0-windows-x64-portable" / launcher.exe_name())
+    # no --photocraft: found, then used (the .lnk itself is not made here)
+    made = []
+    old = launcher.create_shortcut, launcher.find_photocraft, launcher.ask_photocraft
+    launcher.find_photocraft = lambda: EXE
+    launcher.create_shortcut = lambda exe, name=launcher.NAME, folder=None: made.append(exe) or Path("x.lnk")
+    try:
+        if sys.platform == "win32":
+            assert launcher.main_shortcut(None) in (0, 1) and (made == [EXE] or not Path(EXE).exists())
+        launcher.find_photocraft, launcher.ask_photocraft = (lambda: None), (lambda: None)
+        assert launcher.main_shortcut(None) == 1               # nothing found, nothing chosen: a message, no crash
+    finally:
+        launcher.create_shortcut, launcher.find_photocraft, launcher.ask_photocraft = old
+
+
+def linux_find_checks():
+    """The Linux search runs on every system (os.access finds a file executable on Windows)."""
+    tmp = Path(tempfile.mkdtemp())
+    assert launcher._find_photocraft_linux([tmp]) is None
+    for name in ("photocraft-0.18.0-linux-x64", "photocraft-0.19.0-linux-x64"):
+        (tmp / name).mkdir()
+        (tmp / name / "photocraft").write_bytes(b"")
+        (tmp / name / "photocraft").chmod(0o755)
+    (tmp / "photocraft-0.99.0-not-executable").mkdir()
+    (tmp / "photocraft-0.99.0-not-executable" / "photocraft").write_bytes(b"")
+    (tmp / "photocraft-0.99.0-not-executable" / "photocraft").chmod(0o644)
+    (tmp / "photocraft-comfyui-bridge").mkdir()                  # this plugin's own folder: no binary inside
+    found = launcher._find_photocraft_linux([tmp / "missing", tmp])
+    assert found in (str(tmp / "photocraft-0.19.0-linux-x64" / "photocraft"),
+                     str(tmp / "photocraft-0.99.0-not-executable" / "photocraft")), found
+    if sys.platform != "win32":                                   # Windows treats every file as executable
+        assert found == str(tmp / "photocraft-0.19.0-linux-x64" / "photocraft")
+    # without roots (what main_shortcut and launch use) $PHOTOCRAFT and PATH count: find_photocraft must not skip them on Linux
+    fake = tmp / "my-photocraft"
+    fake.write_bytes(b"")
+    old_env = os.environ.get("PHOTOCRAFT")
+    os.environ["PHOTOCRAFT"] = str(fake)
+    try:
+        assert launcher._find_photocraft_linux() == str(fake)
+        if sys.platform != "win32":
+            assert launcher.find_photocraft() == str(fake)
+    finally:
+        if old_env is None:
+            del os.environ["PHOTOCRAFT"]
+        else:
+            os.environ["PHOTOCRAFT"] = old_env
+    tmp2 = Path(tempfile.mkdtemp())
+    app =tmp2 / "PhotoCraft-0.20.0-x86_64.AppImage"
+    app.write_bytes(b"")
+    app.chmod(0o755)
+    assert launcher._find_photocraft_linux([tmp2]) == str(app)
+    # the binary itself as a plain file (e.g. ~/.local/bin/photocraft, not in PATH on Arch; install matrix 8.11.)
+    tmp3 = Path(tempfile.mkdtemp())
+    plain = tmp3 / "photocraft"
+    plain.write_bytes(b"")
+    plain.chmod(0o755)
+    assert launcher._find_photocraft_linux([tmp3]) == str(plain)
+    (tmp3 / "photocraft.txt").write_bytes(b"")                    # another file with the name in it is not PhotoCraft
+    assert launcher._find_photocraft_linux([tmp3]) == str(plain)
+    assert launcher._find_photocraft_linux([tmp3, tmp2]) == str(app)   # a copy with a version in its name wins
+    if sys.platform != "win32":
+        plain.chmod(0o644)
+        assert launcher._find_photocraft_linux([tmp3]) is None    # not executable: not PhotoCraft
+
+
+def flatpak_checks():
+    """PhotoCraft as a Flatpak (tester report 5.11.): `flatpak:<id>` becomes `flatpak run --filesystem=... <id> --control ...`;
+    the sandbox sees only Pictures/Documents, so the token and exchange folders are opened for the run."""
+    tmp = Path(tempfile.mkdtemp())
+    c = cfg(tmp)
+    exe = "flatpak:ai.storyteller.photocraft"
+    args = launcher.photocraft_args(exe, c)
+    assert args[:5] == ["flatpak", "run", f"--filesystem={tmp}", f"--filesystem={tmp / 'exchange'}", "ai.storyteller.photocraft"], args
+    assert args[5:] == launcher.photocraft_args("/x/photocraft", c)[1:]               # the rest is the same as for a binary
+    assert launcher.photocraft_args("/x/photocraft", c)[0] == "/x/photocraft"       # a binary is unchanged
+    started = []
+    state = {"open": False}
+    assert launcher.start_photocraft(exe, c, is_open=lambda: state["open"], sleep=lambda s: None,
+                                     popen=lambda a, **k: (started.append(a), state.update(open=True))) is True
+    assert started == [args] and (tmp / "exchange").is_dir()
+    # detection: `flatpak info` ok -> flatpak:<id>; not installed, failing or no flatpak -> None
+    class Done:
+        def __init__(self, rc): self.returncode = rc
+    assert launcher._find_flatpak(run=lambda *a, **k: Done(0), which=lambda n: "/usr/bin/flatpak") == (
+        None if launcher.IS_WINDOWS else exe)
+    assert launcher._find_flatpak(run=lambda *a, **k: Done(1), which=lambda n: "/usr/bin/flatpak") is None
+    assert launcher._find_flatpak(run=lambda *a, **k: Done(0), which=lambda n: None) is None
+    def boom(*a, **k): raise OSError("x")
+    assert launcher._find_flatpak(run=boom, which=lambda n: "/usr/bin/flatpak") is None
+    assert launcher.is_flatpak(exe) and not launcher.is_flatpak("/x/flatpak") and not launcher.is_flatpak("")
+    # a shortcut for it is accepted (nothing to look up on disk)
+    folder = tempfile.mkdtemp()
+    assert launcher.create_desktop_entry(exe, folder=folder).read_text(encoding="utf-8").count("flatpak:ai.storyteller.photocraft") == 1
+
+
+def desktop_checks():
+    # quoting: spaces stay in one argument; " ` $ \ are escaped and backslashes doubled; % is doubled
+    assert launcher._desktop_arg("/a b/c") == '"/a b/c"'
+    assert launcher._desktop_arg('x"y') == '"x\\\\"y"'
+    assert launcher._desktop_arg("50%") == '"50%%"'
+    assert launcher._desktop_arg("a$b") == '"a\\\\$b"'
+    text = launcher.desktop_entry("/opt/photo craft/photocraft", python="/home/u/my app/.venv/bin/python")
+    lines = dict(l.split("=", 1) for l in text.splitlines() if "=" in l)
+    assert text.startswith("[Desktop Entry]\n") and text.endswith("\n")
+    assert lines["Type"] == "Application" and lines["Name"] == "PxC" and lines["Terminal"] == "false"
+    assert lines["StartupWMClass"] == "pccomfy" and lines["Path"] == str(launcher.ROOT)
+    assert lines["Exec"].startswith('"/home/u/my app/.venv/bin/python" ') and lines["Exec"].endswith(' "/opt/photo craft/photocraft"')
+    assert '"--photocraft"' in lines["Exec"]
+    folder = tempfile.mkdtemp()
+    path = launcher.create_desktop_entry("/x/photocraft", folder=folder)
+    assert path == Path(folder) / "pxc.desktop" and "Exec=" in path.read_text(encoding="utf-8")
+    # the menu entry of older versions is removed (exactly that file), other files stay
+    assert launcher.LEGACY_DESKTOP == "photocraft-ai.desktop"
+    folder = tempfile.mkdtemp()
+    (Path(folder) / launcher.LEGACY_DESKTOP).write_text("old", encoding="utf-8")
+    (Path(folder) / "other.desktop").write_text("keep", encoding="utf-8")
+    path = launcher.create_desktop_entry("/x/photocraft", folder=folder)
+    assert path.exists() and not (Path(folder) / launcher.LEGACY_DESKTOP).exists()
+    assert (Path(folder) / "other.desktop").read_text(encoding="utf-8") == "keep"
+
+
+def launch_checks():
+    tmp = Path(tempfile.mkdtemp())
+    c = cfg(tmp)
+    # no path at all: a clear message instead of starting "" (Path("") exists: it is the current folder)
+    try:
+        launcher.start_photocraft("", c, is_open=lambda: False)
+        raise AssertionError("no error")
+    except launcher.LaunchError as e:
+        assert "--photocraft" in str(e)
+    # Linux starts PhotoCraft in its own session; Windows gets exactly the arguments it always got
+    exe = tmp / launcher.exe_name()
+    exe.write_bytes(b"")
+    seen = []
+    state = {"open": False}
+    launcher.start_photocraft(str(exe), c, is_open=lambda: state["open"],
+                              popen=lambda args, **kw: (seen.append(kw), state.update(open=True)), sleep=lambda s: None)
+    expected = {"cwd": str(launcher.ROOT), "close_fds": True}
+    if sys.platform != "win32":
+        expected["start_new_session"] = True
+    assert seen == [expected], seen
+
+
+def main():
+    args_checks()
+    tilde_checks()
+    find_checks()
+    linux_find_checks()
+    flatpak_checks()
+    desktop_checks()
+    launch_checks()
+    start_checks()
+    shortcut_checks()
+    cli_checks()
+    print("ALL OK (launcher)")
+
+
+if __name__ == "__main__":
+    main()

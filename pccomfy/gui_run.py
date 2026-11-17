@@ -1,0 +1,703 @@
+"""A run: build the request, generate, undo/redo, stop, poll, progress and status line. (moved out of gui.py unchanged; see PLAN.md, phase 0)."""
+from __future__ import annotations
+
+from .gui_common import *  # noqa: F401,F403
+from .gui_common import __all__ as _ALL  # noqa: F401
+from . import icons
+from . import workflows
+from . import history as runhistory
+from .listpopup import ListPopup
+
+
+class RunMixin:
+    def _status(self, msg: str, error: bool = False):
+        """The status line. An error gets a red "!" badge and red text, it never opens a dialog."""
+        self._status_error = bool(error and msg)
+        self.lbl_status.configure(style="Error.TLabel" if error else "TLabel")
+        self.v_status.set(msg)          # shows or hides the line (_show_status_line, a trace on v_status)
+
+    def _dismiss_error(self, event=None):
+        """A left click on the status line (its text or the red "!") clears it: an error always (user 12.11.), any other
+        message too, except while a run or a batch works, whose progress text would come right back (user 13.11.).
+        Right-click Copy (gui_theme._copy_menu) is a separate binding and still works."""
+        if getattr(self, "_status_error", False):
+            self._status("")
+            return
+        worker = getattr(self, "worker", None)
+        busy_batch = getattr(self, "_batch_busy", None)
+        if (getattr(self, "_running", False) or (worker is not None and worker.is_alive())
+                or (busy_batch is not None and busy_batch())):
+            return
+        self._status("")
+
+    def _fit_status_wrap(self, _e=None):
+        """A long message wraps at the right edge of the status line (the width of the separator lines above), less the red "!" and
+        its gap while an error shows it: the wrap width was a fixed 20 px short (user 13.11.)."""
+        try:
+            w = int(self.f_status.winfo_width())
+            if w > 1:
+                if self.lbl_err.winfo_manager():
+                    w -= int(self.lbl_err.winfo_reqwidth()) + self._px(8)
+                if int(self.lbl_status.cget("wraplength")) != w:
+                    self.lbl_status.configure(wraplength=max(1, w))
+        except (tk.TclError, ValueError, AttributeError):
+            pass
+
+    def _show_status_line(self):
+        """The status line between the progress bar and the footer is shown only while it has text (user 8.11.): empty, it
+        shrinks to 1 px without its gap, so the footer sits right under the bar; the window is one line higher during a message."""
+        if not hasattr(self, "f_status"):
+            return
+        text = bool(str(self.v_status.get()).strip())
+        packed = bool(self.lbl_status.winfo_manager())
+        if text:
+            if getattr(self, "_status_error", False):
+                self.lbl_err.pack(side="left", anchor="n", padx=(0, 8), before=self.lbl_status if packed else None)
+            else:
+                self.lbl_err.pack_forget()
+            if not packed:
+                self.lbl_status.pack(side="left", fill="x", expand=True)
+            self._fit_status_wrap()
+        else:
+            self._status_error = False          # the error is over: a later plain text (a direct set) gets no red "!"
+            self.lbl_err.pack_forget()
+            self.lbl_status.pack_forget()
+            self.f_status.configure(height=1)       # a frame keeps its last size when its last child goes (Tk)
+        if self.f_status.winfo_manager():       # (the window follows by itself: <Configure> -> _on_content_size)
+            self.f_status.pack_configure(pady=(4, 0) if text else 0)
+
+    # ---------- generation ----------
+
+    def _writer_runs(self) -> bool:
+        """Does the run's text model write the prompt? Sketch and Scribble: always (not Fibo, not with a prompt loaded back from
+        the history); elsewhere "Enhance my Prompt with LLM" decides."""
+        m = self._model()
+        spec = m.modes.get(self.v_mode.get()) if m else None
+        if self.v_mode.get() in ("sketch", "scribble"):
+            return bool(spec is not None and spec.settings.get("enhance", True)) and self._has_text_model() and not self._written_active()
+        return bool(self.v_enhance.get()) and self._llm_row_wanted()
+
+    def _writer_seed_value(self) -> int:
+        """The Prompt writer seed in the box; an empty or broken box counts as the start value."""
+        try:
+            return int(self.v_writer_seed.get())
+        except (tk.TclError, ValueError):
+            return WRITER_SEED_DEFAULT
+
+    def _writer_seed_wanted(self) -> bool:
+        """The Prompt writer seed row is shown while a prompt writer that samples runs (user 17.11.): Fibo's writer takes the
+        likeliest words, a seed would change nothing."""
+        if not self._writer_runs():
+            return False
+        wf = self.v_workflow.get()
+        try:
+            return any(workflows.writer_samples(load_template(w)) for w in resolve(self.workflows_dir / wf))
+        except (OSError, ValueError, KeyError):
+            return False
+
+    def _update_writer_seed(self):
+        """Show or hide the Prompt writer seed row (Advanced settings)."""
+        if not hasattr(self, "f_wseed"):
+            return
+        if self._writer_seed_wanted():
+            self.f_wseed.grid()
+        else:
+            self.f_wseed.grid_remove()
+
+    def _request(self) -> Request:
+        wf = self.v_workflow.get()
+        wf_path = None if wf == BUILTIN else str(self.workflows_dir / wf)
+        p = GenParams(prompt=self.t_prompt.get("1.0", "end").strip(), negative=self.t_neg.get("1.0", "end").strip(),
+                      checkpoint=self.v_ckpt.get().strip(), steps=int(self.v_steps.get()), cfg=float(self.v_cfg.get()),
+                      sampler=self.v_sampler.get(), scheduler=self.v_scheduler.get(), seed=int(self.v_seed.get()),
+                      denoise=1.0 if self.v_mode.get() == "txt2img" else float(self.v_denoise.get()))
+        p.clip = "" if self.v_clip.get() in ("", CLIP_DEFAULT) else self.v_clip.get().strip()
+        p.writer_seed = self._writer_seed_value()
+        m = self._model()
+        spec = m.modes.get(self.v_mode.get()) if m else None
+        target = p.prompt if (self.v_mode.get() == "remove" and spec is not None and spec.remove_text) else ""
+        style = spec.remove_style if (self.v_mode.get() == "remove" and spec is not None and spec.remove_text) else ""
+        req = Request(mode=self._run_mode(), params=p, remove_target=target, remove_style=style,
+                      remove_writer=self._llm_file() if style else "", workflow=wf_path, base_res=int(self.v_res.get()),
+                       native=(bool(self.v_native.get()) or self.v_mode.get() == "outpaint") and self._native_wanted(), native_mp=self._native_mp(),
+                       gen_mp=float(self.v_gen_mp.get()) if self._gen_wanted() else 0.0,
+                       new_document=self._gen_wanted() and not bool(self.v_downsize.get()),
+                       full_size=self.v_mode.get() in SCALE_MODES,
+                       context=min(1.0, max(0.0, round(float(self.v_context.get()) * 20) / 20)),   # the slider's range and steps (an old saved 2.0 too)
+                       mask_grow=int(self.v_grow.get()), mask_blur=int(self.v_blur.get()),
+                       overlap=int(self.v_overlap.get()), variants=int(self.v_variants.get()),
+                       enhance=self._writer_runs(),
+                       turbo=bool(self.v_turbo.get()), scale=self._scale(),
+                       lora_strength=(round(float(self.v_lora_str.get()), 2) if self._has_lora_switch() else None),
+                       stage_on=bool(self.v_stage.get()) or not self._stage_label(), stages_off=self._stages_off(), stage_strengths=self._stage_strengths(), sampler_override=self._sampler_override(), doc_tag=self._doc_tag(), loras=[tuple(x) for x in self._loras()], detail=round(float(self.v_detail.get()), 2) if self.v_mode.get() in SCALE_MODES else 1.0,
+                       layer_mask=layer_mask_key(self.v_lmask.get()),
+                       feather_pct=round(float(self.v_feather.get()) * 2) / 2,
+                       mask_density=min(100, max(0, int(self.v_density.get()))),
+                       seam_fixed=self._seam_mode() == "on" and self._run_mode() in ("inpaint", "remove", "outpaint"),
+                       preview=bool(self.v_live.get()), preview_method=m.preview if m else "taesd")
+        req.scribble = self.v_mode.get() == "scribble"      # its own tab since plan B (10.11.)
+        req.fill_box = bool(spec is not None and spec.fill_box and req.mode == "inpaint")    # Flux 3 Fill: the box <obj_1> (plan B step 4)
+        return req
+
+    def _doc_tag(self) -> str:
+        """Model and options for the name of an upscaled document: "Flux3Klein x1.5 SeedVR2 Restore0.8"."""
+        m = self._model()
+        parts = [re.sub(r'[\\/:*?"<>|]+', "", m.label) if m else "AI"]
+        if self.v_mode.get() == "upscale":
+            parts.append(f"x{self._scale():g}")
+        for var, st in zip(self.stage_vars, self._stages()):
+            if var.get():
+                parts.append(st["label"].split()[0])
+        if self._has_lora_switch() and self.v_turbo.get():
+            try:
+                parts.append(f"{self._lora_label().split()[0]}{float(self.v_lora_str.get()):.2g}")
+            except (tk.TclError, ValueError):
+                pass
+        try:
+            if self._run_mode() in SCALE_MODES and float(self.v_detail.get()) < 0.995:
+                parts.append(f"mix{round(float(self.v_detail.get()) * 100)}")
+        except (tk.TclError, ValueError):
+            pass
+        return " ".join(parts)
+
+    def _layer_prefix(self) -> str:
+        """The name the result layers start with (presets are hidden): "Qwen Image 2.1 Fill", then " #<running number>"."""
+        m = self._model()
+        name, short = (m.label if m else "AI"), SHORT_MODES.get(self.v_mode.get(), self.v_mode.get())
+        return name if short in name.split() else f"{name} {short}"      # "Fibo 2.0 Edit Turbo" + Edit stays "Fibo 2.0 Edit Turbo"
+
+    def _stages_off(self) -> list[str]:
+        """Node ids of the second and third switchable stage when their checkboxes are off (the first one is stage_on)."""
+        st = self._stages()
+        return [s["id"] for s, var in zip(st[1:], self.stage_vars[1:]) if not var.get()]
+
+    def _show_variants(self):
+        """The accent-coloured piece on the right of Generate says how many pictures a run makes: "×3 ▾", also "×1 ▾" (user 30.10.)."""
+        try:
+            n = int(self.v_variants.get())
+        except (TypeError, ValueError, tk.TclError):
+            n = 1
+        self.w_variants.configure(text=f"×{n} ▾")
+
+    def _variants_menu(self):
+        """A click on the piece beside Generate: the choice 1 to 8, opening under it."""
+        b = self.w_variants
+        self.m_variants.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def generate(self):
+        if self.worker and self.worker.is_alive():
+            return
+        if self._blocked_by_batch():        # Generate stays locked while a batch is on (decision 12.11.)
+            return
+        if self._needs_description() and not self.t_prompt.get("1.0", "end").strip():
+            # an empty prompt fills the margin with unrelated things (A/B test 29.10.): no run, say what to do
+            m = self._model()
+            self._status(f"{m.label if m else 'This model'} needs a description of the surroundings: "
+                         "click Describe or type one.", error=True)
+            return
+        if self.v_mode.get() == "sketch" and not self.t_prompt.get("1.0", "end").strip():
+            self._status(models.NO_STYLE, error=True)       # Sketch to image without a style or text: no run (plan B, 10.11.)
+            return
+        try:
+            req = self._request()
+        except (tk.TclError, ValueError) as e:
+            self._status(f"Invalid value: {e}", error=True)
+            return
+        req.preset = self._layer_prefix()
+        if req.preset:   # running number per model and function, kept between sessions
+            runs = dict(self.state.get("runs", {}))
+            req.run_no = int(runs.get(req.preset, 0)) + 1
+            runs[req.preset] = req.run_no
+            req.group_name = f"{SHORT_MODES.get(self.v_mode.get(), self.v_mode.get())} {req.run_no}"   # "Fill Selection 3"
+            self.state["runs"] = runs
+        self._save_state(req)
+        self._history_begin(req)
+        if getattr(self, "_fprev_on", False):   # the run ends the feather preview first (Bridge._run): the button follows
+            if getattr(self, "_fprev_after", None):
+                self.root.after_cancel(self._fprev_after)
+                self._fprev_after = None
+            self._fprev_on, self._fprev_dirty = False, None
+            self.b_fprev.configure(text="Show feather")
+        self._running = True
+        self._other_pc = self._other_photocraft()       # a second PhotoCraft open: the hint after the run (gui.py, 16.11.)
+        self._run_label = self._model_label()           # the bar names the model of this run, not one picked meanwhile (window test E)
+        self.b_go.configure(state="disabled")
+        self.w_variants.configure(state="disabled")     # part of Generate: grey with it while a run is on
+        self.b_undo.configure(state="disabled")
+        self.b_redo.configure(state="disabled")
+        self.b_stop.configure(state="normal")
+        self.bridge.reset_cancel_all()
+        self._reset_progress()
+
+        def progress(f, msg, phase="", phase_fraction=-1.0, elapsed=0.0):
+            self.events.put(("progress", (f, msg, phase, phase_fraction, elapsed)))
+        self.bridge.on_preview = lambda im: self.events.put(("preview", im))
+
+        runs = sweep_requests(req, parse_list(self.v_cmp_res.get(), int), parse_list(self.v_cmp_ctx.get(), float))
+        if len(runs) > 1:
+            if req.params.seed is None or req.params.seed < 0:
+                req.params.seed = random.randint(0, 10**8 - 1)   # one seed for the whole series: only the value differs
+
+        # runs that follow one another (variants of Upscale / Refine, a comparison): "Stop all" is offered besides "Stop"
+        if len(runs) > 1 or (req.mode in SCALE_MODES and int(req.variants) > 1):
+            self._show_stop_all(True)
+
+        def work():
+            try:
+                total = docs = 0
+                res = None
+                t_start = time.monotonic()
+                for k, rq in enumerate(runs):
+                    if self.bridge.cancel_all_requested():
+                        raise Cancelled()
+                    if len(runs) > 1:
+                        self.events.put(("progress", (0.0, f"Comparison {k + 1}/{len(runs)}: {rq.label}", "prepare", -1.0, 0.0)))
+                    try:
+                        res = self.bridge.run(rq, progress)
+                    except Cancelled:
+                        if len(runs) == 1 or self.bridge.cancel_all_requested():
+                            raise
+                        continue          # "Stop" ends this comparison run only
+                    total += len(res["layers"])
+                    docs += int(res.get("documents") or 0)      # Upscale: new documents, no layers
+                if res is None:
+                    raise Cancelled()
+                self.events.put(("vgl", res.get("vgl", "")))
+                self.events.put(("seed", res.get("seed")))
+                self.events.put(("lastrun", {"mode": "remove" if req.remove else req.mode, "seed": res.get("seed"),
+                                             "doc": self._active_doc_name()}))      # Save image names the file after it (gui.py)
+                seam = res.get("seam")     # the seam correction's A/B: the tone jump of #1 in levels, before → after
+                seam_text = f" · seam {seam[0]:.0f} → {seam[1]:.0f}" if seam else ""
+                # how Scribble on photo found the scribble is no longer in the line (user 10.11.: it made the line too long, cut off)
+                self.events.put(("done", f"Done · seed {res['seed']} · {made_text(total, docs)}{seam_text} · {duration_text(time.monotonic() - t_start)}"))
+            except Cancelled:
+                self.events.put(("done", "Cancelled."))
+            except (BridgeError, ComfyError, PhotoCraftError, ValueError, OSError) as e:
+                self.events.put(("done", f"Error: {e}"))
+            except Exception as e:  # unexpected – show it instead of dying silently
+                self.events.put(("done", f"Unexpected error: {type(e).__name__}: {e}"))
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+        self._ahead_start()         # "N jobs of others ahead" while the job waits at ComfyUI (gui_batch.py)
+
+    def undo_edit(self):
+        self._history_step(self.bridge.undo_last)
+
+    def redo_edit(self):
+        self._history_step(self.bridge.redo_last)
+
+    def _history_step(self, fn):
+        if (self.worker and self.worker.is_alive()) or self._blocked_by_batch():
+            return
+        self.b_undo.configure(state="disabled")
+        self.b_redo.configure(state="disabled")
+
+        def work():
+            try:
+                self.events.put(("note", fn()))
+            except (BridgeError, PhotoCraftError) as e:
+                self.events.put(("note-error", f"Error: {e}"))
+            except Exception as e:
+                self.events.put(("note-error", f"Unexpected error: {type(e).__name__}: {e}"))
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    # ---------- the last runs (the clock in the header, history.py) ----------
+
+    def _history_begin(self, req):
+        """Generate was clicked: keep every setting of the window for the history; written once the run is done."""
+        try:
+            settings = self._collect()
+        except (tk.TclError, ValueError, TypeError):
+            self._hist_run = None
+            return
+        m = self._model()
+        title = req.group_name or SHORT_MODES.get(self.v_mode.get(), self.v_mode.get())
+        self._hist_run = runhistory.entry(title, m.label if m else "", settings,
+                                          llm=settings.get("prompt", "") if self._written_active() else "")   # loads back without the upsampler
+
+    def _history_end(self, ok: bool):
+        """The run is over: a finished one goes in front of the last runs; a cancelled or failed one is left out."""
+        e, self._hist_run = getattr(self, "_hist_run", None), None
+        if ok and e:
+            runhistory.add(cfgmod.HISTORY_FILE, e)
+
+    def _history_rows(self) -> list[tuple[str, object, str]]:
+        """The rows of the list: "Erase history" first, then the last 20 runs, newest first (listpopup.py kinds)."""
+        runs = runhistory.load(cfgmod.HISTORY_FILE)
+        rows = [("Erase history", self.erase_history, "action" if runs else "disabled")]
+        rows += [(runhistory.label(e), lambda e=e: self.load_history(e), "item") for e in runs]
+        if not runs:
+            rows.append(("No runs yet.", None, "disabled"))
+        return rows
+
+    def _history_menu(self):
+        """A click on the clock: the list under the button; with the mouse wheel and a scroll bar when it is long. A second
+        click on the clock closes it."""
+        old, self._history_popup = self._history_popup, None
+        if old is not None and not old.closed:
+            old.close()
+            return
+        self._history_popup = ListPopup(self.root, self.b_history, self._history_rows(), scale=getattr(self, "ui", 1.0), above=True)
+
+    def erase_history(self):
+        runhistory.clear(cfgmod.HISTORY_FILE)
+        self._status("History erased.")
+
+    def load_history(self, e: dict):
+        """A run from the clock's menu back into the window: every setting, a new seed, the text model's prompt with Enhance
+        off when there was one (user 30.10.). Nothing starts; Ctrl+Z in the prompt field brings the old text back."""
+        s = runhistory.settings_to_load(e)
+        prompt, negative = str(s.pop("prompt", "")), str(s.pop("negative", ""))
+        notes = self._apply_settings(s)
+        if str(self.t_prompt.cget("state")) == "disabled":      # Remove object: the field is empty, the text is kept aside
+            self._prompt_kept = prompt
+        else:
+            self.t_prompt.edit_separator()
+            self.t_prompt.delete("1.0", "end")
+            self.t_prompt.insert("1.0", prompt)
+            self.t_prompt.edit_separator()
+        self.t_neg.delete("1.0", "end")
+        self.t_neg.insert("1.0", negative)
+        # Sketch: the prompt the upsampler wrote runs as it is, not expanded a second time (user 10.11., way A)
+        self._written_for = self.v_model.get() if (e.get("llm") and self.v_mode.get() in ("sketch", "scribble")) else ""
+        self._update_prompt_hint()
+        name = e.get("title") or "the run"
+        if notes:
+            self._status(f"Loaded “{name}”, but: {', '.join(notes)}.", error=True)
+        else:
+            self._status(f"Loaded “{name}” with a new seed. Click Generate to run it.")
+
+    # ---------- feather preview ----------
+
+    def toggle_feather_preview(self, show: bool | None = None):
+        """Show feather / Hide feather: the bridge shows the soft edge as Quick Mask in PhotoCraft and brings the user's
+        selection back afterwards. Runs in the worker like undo (PhotoCraft is busy for a moment)."""
+        show = (not getattr(self, "_fprev_on", False)) if show is None else show
+        if self._blocked_by_batch():
+            return
+        if self.worker and self.worker.is_alive():
+            if getattr(self, "_fprev_on", False):
+                self._fprev_dirty = show   # a shown preview is busy: done once the worker is free (see _feather_done)
+            return
+        try:
+            req = self._request()
+        except (tk.TclError, ValueError) as e:
+            self._status(f"Invalid value: {e}", error=True)
+            return
+        self._fprev_dirty = None
+        self.b_fprev.configure(state="disabled")
+
+        def work():
+            try:
+                msg = self.bridge.show_feather(req) if show else self.bridge.hide_feather()
+                self.events.put(("feather", (self.bridge.feather_shown, msg, False)))
+            except (BridgeError, PhotoCraftError) as e:
+                self.events.put(("feather", (self.bridge.feather_shown, f"Error: {e}", True)))
+            except Exception as e:
+                self.events.put(("feather", (self.bridge.feather_shown, f"Unexpected error: {type(e).__name__}: {e}", True)))
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def _refresh_feather_preview(self):
+        """A setting changed while the preview is shown: show it anew, once the slider has stopped for a moment."""
+        if not getattr(self, "_fprev_on", False):
+            return
+        if getattr(self, "_fprev_after", None):
+            self.root.after_cancel(self._fprev_after)
+        self._fprev_after = self.root.after(400, lambda: (setattr(self, "_fprev_after", None),
+                                                          self.toggle_feather_preview(show=True)))
+
+    def _feather_done(self, shown: bool, msg: str, error: bool):
+        self._fprev_on = shown
+        self.b_fprev.configure(text="Hide feather" if shown else "Show feather", state="normal")
+        if msg:
+            self._status(msg, error=error)
+        pending, self._fprev_dirty = getattr(self, "_fprev_dirty", None), None
+        if pending is not None and shown:    # the slider moved (show anew) or Hide was clicked while it was busy
+            self.toggle_feather_preview(show=pending)
+
+    def _set_last_seed(self, seed):
+        """The seed of the run that just finished: the icon beside the seed field can put it back (user 1.11.)."""
+        try:
+            self._last_seed = int(seed)
+        except (TypeError, ValueError):
+            return
+        self.b_last_seed.configure(state="normal")
+
+    def use_last_seed(self):
+        """The icon beside the seed field: the next run uses the seed of the last one (same settings, same picture)."""
+        if getattr(self, "_last_seed", None) is not None:
+            self.v_seed.set(self._last_seed)
+
+    def _cutout_ok(self, key: str) -> bool:
+        """False only when ComfyUI was read and the model's file is not there; not read yet (or not reachable): the click tries."""
+        inv = getattr(self, "inv", None)
+        return inv is None or inv.has(workflows.cutout_model(key)[2])
+
+    def _cutout_available(self) -> bool:
+        """At least one cut-out model can run (the scissors is greyed out only when none can)."""
+        return any(self._cutout_ok(m[0]) for m in workflows.CUTOUT_MODELS)
+
+    def _cutout_rows(self) -> list[tuple[str, object, str]]:
+        """The menu of the scissors (user 6.11.): BiRefNet, RMBG-2.0, Both; an entry whose file is missing is greyed out."""
+        rows = []
+        for key, label, _file, _wf in workflows.CUTOUT_MODELS:
+            ok = self._cutout_ok(key)
+            rows.append((label if ok else f"{label} (file missing)", (lambda k=key: self.cut_background((k,))) if ok else None,
+                         "item" if ok else "disabled"))
+        both = all(self._cutout_ok(k) for k in workflows.CUTOUT_BOTH)
+        rows.append((CUTOUT_BOTH_LABEL if both else f"{CUTOUT_BOTH_LABEL} (file missing)",
+                     (lambda: self.cut_background(workflows.CUTOUT_BOTH)) if both else None, "item" if both else "disabled"))
+        return rows
+
+    def _cutout_menu(self):
+        """A click on the scissors opens the list of models above it (every time, user 6.11.); a second click closes it."""
+        if (self.worker and self.worker.is_alive()) or self._blocked_by_batch():
+            return
+        old, self._cut_popup = getattr(self, "_cut_popup", None), None
+        if old is not None and not old.closed:
+            old.close()
+            return
+        if not self._cutout_available():
+            self._status(CUTOUT_MISSING, error=True)
+            return
+        self._cut_popup = ListPopup(self.root, self.b_cut, self._cutout_rows(), scale=getattr(self, "ui", 1.0), above=True)
+
+    def cut_background(self, models: tuple = ("birefnet",)):
+        """The scissors in the footer (user 5.11.; the model menu 6.11.): a copy of the visible picture with a layer mask that hides
+        its background (17.11.), as a new layer on top (Bridge.remove_background_layer, ComfyUI's BiRefNet and/or RMBG-2.0; Both: two layers, RMBG-2.0 above). Runs like a
+        generation: progress bar, Cancel, Undo afterwards."""
+        if (self.worker and self.worker.is_alive()) or self._blocked_by_batch():
+            return
+        models = tuple(models)
+        missing = [workflows.cutout_model(k)[2] for k in models if not self._cutout_ok(k)]
+        if missing:
+            self._status(f"{', '.join(missing)} is missing (optional file): download it in the gear window, Models, Additional.", error=True)
+            return
+        self._running = True
+        self.b_go.configure(state="disabled")
+        self.w_variants.configure(state="disabled")
+        self.b_undo.configure(state="disabled")
+        self.b_redo.configure(state="disabled")
+        self.b_stop.configure(state="normal")
+        self.bridge.reset_cancel_all()
+        self._reset_progress()
+
+        def progress(f, msg, phase="", phase_fraction=-1.0, elapsed=0.0):
+            if phase == "image":        # BiRefNet is no image model run: say what happens (user 5.11.), not "<model> is generating"
+                phase, msg = "stage", "Removing background"
+            self.events.put(("progress", (f, msg, phase, phase_fraction, elapsed)))
+
+        def work():
+            t_start = time.monotonic()
+            try:
+                self.bridge.remove_background_layer(progress, models)
+                what = "new layer on top" if len(models) == 1 else f"{len(models)} new layers on top"
+                self.events.put(("done", f"Done · background removed, {what} · {duration_text(time.monotonic() - t_start)}"))
+            except Cancelled:
+                self.events.put(("done", "Cancelled."))
+            except (BridgeError, ComfyError, PhotoCraftError, ValueError, OSError) as e:
+                self.events.put(("done", f"Error: {e}"))
+            except Exception as e:
+                self.events.put(("done", f"Unexpected error: {type(e).__name__}: {e}"))
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def _update_cut_button(self):
+        """The scissors is greyed out while no model file is there; its tooltip then names the files."""
+        b = getattr(self, "b_cut", None)
+        if b is None:
+            return
+        ok = self._cutout_available()
+        b.configure(state="normal" if ok else "disabled")
+        self.tt_cut.text = CUTOUT_TIP if ok else CUTOUT_TIP + "\n\n" + CUTOUT_MISSING
+
+    def stop(self):
+        """Stop: the run, or the text model while it describes a picture (the LLM and Describe buttons, the slots' Describe)."""
+        if (self.worker and self.worker.is_alive()) or getattr(self, "_describing", False) or getattr(self, "_ref_busy", None):
+            self.bridge.cancel()
+            self._status("Cancelling…")
+
+    def _show_stop_all(self, on: bool):
+        """"Stop all" beside "Stop": Stop gets a little narrower while it is shown, so the row (with Undo and Redo) still fits the window."""
+        self.b_stop.configure(width=STOP_W_WITH_ALL if on else STOP_W)
+        if on:
+            self.b_stop_all.pack(side="left", fill="y", padx=(6, 0), after=self.b_stop)
+        else:
+            self.b_stop_all.pack_forget()
+
+    def stop_all(self):
+        """Stop all: the run that is on and every variant / comparison run still to come."""
+        if self.worker and self.worker.is_alive():
+            self.bridge.cancel_all()
+            self._status("Cancelling…")
+
+    def _poll(self):
+        frame = None                # the newest live preview frame of this round (older ones are skipped)
+        try:
+            while True:
+                kind, data = self.events.get_nowait()
+                if kind == "preview":
+                    frame = data
+                elif kind == "progress":
+                    f, msg, phase, pf, elapsed = data
+                    self._set_progress(f, msg, phase, pf, elapsed)
+                    # the bar's label names the step, the line below it says nothing then (no second copy of the same words)
+                    if msg and msg.startswith(("Comparison", "Object still")):
+                        self._status(msg)
+                    else:
+                        self._status("")
+                elif kind in ("note", "note-error"):
+                    self._status(data, error=(kind == "note-error"))
+                    self.b_undo.configure(state="normal")
+                    self.b_redo.configure(state="normal")
+                    self._batch_sync()          # a batch that started meanwhile keeps Undo and Redo grey
+                elif kind == "done":
+                    frame = None
+                    self._hide_preview()            # the result is in PhotoCraft now (user 29.10., option A)
+                    ok = not data.startswith(("Error", "Cancel", "Unexpected"))
+                    self._reset_progress(done=ok, text=data if ok else "")      # the success line sits above the bar, nothing below it
+                    self._status("" if ok else data, error=data.startswith(("Error", "Unexpected")))
+                    if ok and getattr(self, "_other_pc", False):
+                        self._status(self.OTHER_PC_HINT, error=True)
+                    self._running = False
+                    self.b_go.configure(state="normal")
+                    self.w_variants.configure(state="normal")
+                    self.b_undo.configure(state="normal")
+                    self.b_redo.configure(state="normal")
+                    self.b_stop.configure(state="disabled")
+                    self._show_stop_all(False)
+                    self._history_end(ok)
+                    self._ahead_stop()
+                    self._batch_sync()          # a batch that waited for this run keeps Generate grey
+                elif kind == "seed":
+                    self._set_last_seed(data)
+                elif kind == "lastrun":
+                    self._last_result = data
+                elif kind == "vgl":
+                    self._last_vgl = str(data or "")      # not shown in the window; the copy button next to the LLM checkbox takes it
+                    self.b_copy.configure(state="normal" if self._last_vgl.strip() else "disabled")
+                    if getattr(self, "_hist_run", None):
+                        self._hist_run["llm"] = self._last_vgl.strip()
+                elif kind == "refresh":
+                    self._apply_refresh(data)
+                elif kind == "pc-alive":
+                    self._photocraft_alive(data)
+                elif kind == "alive":
+                    self._comfy_alive(*data)
+                elif kind == "comfyroot":
+                    self._comfy_root_done(data)
+                elif kind == "comfyaddr":
+                    self._comfy_address_done(data)
+                elif kind == "download":
+                    self._download_event(data)
+                elif kind == "filecheck":
+                    self._check_event(data)
+                elif kind == "feather":
+                    self._feather_done(*data)
+                elif kind.startswith(("queue-", "batch-", "gen-")):
+                    self._batch_event(kind, data)       # the batch queue and the hint at the bar (gui_batch.py)
+        except queue.Empty:
+            pass
+        if frame is not None:
+            self._show_preview(frame)
+        self.root.after(100, self._poll)
+
+    def _show_preview(self, im):
+        """A live preview frame: as wide as the window and at most PREVIEW_MAX_H high (a tall picture stays narrower), above
+        the status line. The area appears with the first frame and the window grows with it; minimised, nothing is shown."""
+        if getattr(self, "_minimized", False):
+            return
+        try:
+            w = max(int(self.root.winfo_width()), self._px(MIN_W)) - self._px(20)
+        except (tk.TclError, TypeError, ValueError):
+            w = self._px(MIN_W - 20)
+        from PIL import ImageOps
+        try:
+            screen_h = int(self.root.winfo_screenheight())
+        except (tk.TclError, TypeError, ValueError):
+            screen_h = 1080
+        shown = ImageOps.contain(im, (w, max(1, min(self._px(PREVIEW_MAX_H), round(screen_h * 0.245)))))
+        self._preview_photo = icons.photo(self.root, None, "", 0, image=shown)     # Tk drops an image Python no longer holds
+        self.lbl_preview.configure(image=self._preview_photo)
+        if not self.f_preview.winfo_manager():
+            self.f_preview.pack(fill="x", padx=10, pady=(6, 0), before=self.f_status)
+            self._fit_height()
+
+    def _hide_preview(self):
+        if self.f_preview.winfo_manager():
+            self.f_preview.pack_forget()
+            self.lbl_preview.configure(image="")
+            self._preview_photo = None
+            self._fit_height()
+
+    def _reset_progress(self, done: bool = False, text: str = ""):
+        self._bar_value = 1.0 if done else 0.0
+        self.pb.configure(value=self._bar_value)
+        full = (text or "Done") if done else ""
+        word, rest = (full[:4], full[4:]) if full.startswith("Done") else (full, "")      # only the word "Done" is green
+        self.v_pl.set(word)
+        self._set_rest(rest)
+        self._pl_style("Done.TLabel" if done else "Muted.TLabel")
+        self._show_pl_line()
+
+    def _show_pl_line(self):
+        """The line above the bar takes room only while it says something (the step, or "Done"): no empty line before the
+        first run."""
+        top = getattr(self, "f_pl_top", None)
+        if top is None:
+            return
+        shown = bool(top.winfo_manager())
+        if self.v_pl.get() and not shown:
+            top.pack(fill="x", before=self.pb)
+        elif not self.v_pl.get() and shown:
+            top.pack_forget()
+
+    def _set_rest(self, text: str):
+        v = getattr(self, "v_pl_rest", None)
+        if v is not None and v.get() != text:
+            v.set(text)
+
+    def _model_label(self) -> str:
+        try:
+            m = self._model()
+        except Exception:
+            m = None
+        return m.label if m is not None else ""
+
+    def _generating_word(self) -> str:
+        """The words before the step while the image model works: "<model> is generating" (user 4.11.), with the model the run
+        started with: a model chosen during the run must not rename it (window test E, 11.11.)."""
+        label = getattr(self, "_run_label", None)
+        if label is None or not getattr(self, "_running", False):
+            label = self._model_label()
+        return f"{label} is generating" if label else "Generating"
+
+    def _set_progress(self, fraction: float, msg: str | None, phase: str, phase_fraction: float, elapsed: float | None):
+        """Move the single bar and name the step. Idempotent and only forward: Tk is touched only when the value or the
+        text really changed (stop()/mode switches on the bar made it blink), and the bar never jumps back when a
+        phase has no real progress (-1)."""
+        secs = f"{elapsed:.0f} s" if elapsed is not None else ""
+        if phase == "prompt":
+            text = f"Expanding Prompt · {secs}"
+        elif phase == "image":
+            step = (msg or "").split("…")[0].strip()
+            text = f"{self._generating_word()} · " + (step if phase_fraction >= 0 and step else secs)
+        elif phase == "stage":
+            text = f"{msg} · {secs}" if secs else (msg or "Working")
+        elif phase == "place":
+            text = "Placing the result"
+        else:
+            text = "Preparing"
+        self._pl_args = (fraction, msg, phase, phase_fraction, elapsed)     # the hint below can change on its own (gui_batch.py)
+        hint = getattr(self, "_progress_hint", None)
+        text += hint() if hint else ""      # " · Batch 3 of 12 · ~4 min", " · 2 jobs of others ahead"
+        if self.v_pl.get() != text:
+            self.v_pl.set(text)
+            self._show_pl_line()
+        self._set_rest("")
+        self._pl_style("Muted.TLabel")
+        if fraction is not None and fraction > self._bar_value:
+            self._bar_value = round(fraction, 3)
+            self.pb.configure(value=self._bar_value)

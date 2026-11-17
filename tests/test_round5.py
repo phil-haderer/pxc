@@ -1,0 +1,442 @@
+"""Window round 5: what is hidden where (Expand, Edit, LoRA box), Mix source reset, sampler / scheduler, layer names.
+
+    python tests/test_round5.py
+"""
+import json
+import shutil
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_gui_presets as t  # noqa: E402  (installs the Tk stub and a temporary PCCOMFY_HOME)
+
+gui, cfgmod = t.gui, t.cfgmod
+from pccomfy import models, workflows  # noqa: E402
+
+
+def rec(widget, name):
+    """Record the calls of a geometry method of a stub widget."""
+    calls = []
+    setattr(widget, name, lambda *a, **k: calls.append((name, k)))
+    return calls
+
+
+def main():
+    # Denoise is not shown (user 28.10.): no label, its box is never placed; the value still goes into the request
+    texts, gridded = [], []
+
+    class RecLabel(t.Widget):
+        def __init__(self, master=None, **k):
+            super().__init__(master, **k)
+            texts.append(k.get("text"))
+
+    class RecSpin(t.Widget):
+        def grid(self, *a, **k):
+            gridded.append(self)
+
+    plain = (t.ttk.Label, t.ttk.Spinbox)
+    t.ttk.Label, t.ttk.Spinbox = RecLabel, RecSpin
+    probe = gui.App(cfgmod.load())
+    t.ttk.Label, t.ttk.Spinbox = plain
+    assert "Denoise" not in texts and "Steps" in texts and probe.w_denoise not in gridded and probe.w_steps in gridded
+    probe.v_mode.set("img2img")
+    probe.v_denoise.set(0.55)
+    assert probe._request().params.denoise == 0.55
+    del probe
+
+    app = gui.App(cfgmod.load())
+    wfdir = Path(app.workflows_dir)
+    wfdir.mkdir(parents=True, exist_ok=True)
+    names = sorted({w for m in models.MODELS for w in m.workflows()})
+    for f in names:
+        shutil.copy(t.ROOT / "workflows" / f, wfdir / f)
+    app.cb_workflow["values"] = [gui.BUILTIN] + names
+
+    def pick(key, mode):
+        app.v_model.set(key)
+        app.v_mode.set(mode)
+        app._on_model()
+
+    # Layer mask: hidden for Text to image, Edit Canvas (every model) and Expand image; shown for Fill
+    lm = rec(app.f_lm, "pack_forget")
+    for key in ("qwen", "flux2", "flux3", "fibo"):
+        lm.clear()
+        pick(key, "edit")
+        assert lm, (key, "layer mask must be hidden in Edit Canvas")
+    for key in ("qwen", "flux2", "flux3", "moss", "fibo", "krea2"):
+        lm.clear()
+        pick(key, "outpaint")
+        assert lm, (key, "layer mask must be hidden in Expand image")
+    lm.clear()
+    pick("qwen", "inpaint")
+    assert not lm, "layer mask stays in Generative fill"
+    lm.clear()
+    pick("fibo", "refine")           # Fibo Refine runs as a whole-image edit
+    assert lm
+
+    # Expand image: LLM enhancement and the prompt writer are gone ("Sharpen result" removed everywhere, user 17.11.)
+    app.f_enh.winfo_manager = lambda: "pack"       # the stub reports no geometry manager: say it is shown
+    enh = rec(app.f_enh, "pack_forget")
+    pick("fibo", "outpaint")
+    assert enh
+    assert not hasattr(app._request(), "sharpen") and app._request().enhance is False
+    # no LLM row either where the prompt is fixed or ready-made: Remove, Refine, Upscale (user 30.10.)
+    # ... and where the workflow has no text model (Edit, Fill, Multi Image Edit of Flux / Qwen): hidden, not greyed out
+    for key, mode in (("fibo", "remove"), ("fibo", "refine"), ("flux2", "refine"), ("flux3", "upscale"), ("qwen", "remove"),
+                      ("flux3", "edit"), ("flux2", "multi_edit"), ("qwen", "inpaint"), ("qwen", "edit")):
+        enh.clear()
+        pick(key, mode)
+        app.v_enhance.set(True)
+        assert enh and app._request().enhance is False, (key, mode)
+    pick("fibo", "outpaint")
+    app._save_state(app._request())
+    assert "sharpen" not in json.loads((Path(t.TMP) / "state.json").read_text(encoding="utf-8"))   # not saved any more (17.11.)
+    pick("fibo", "edit")
+    # Expand sends no prompt enhancement even when the checkbox is on
+    app.v_enhance.set(True)
+    app.v_mode.set("outpaint")
+    app._on_mode()
+    assert app.v_workflow.get() == "fibo2-edit.json" and app._request().enhance is False
+    app.v_enhance.set(False)
+    # Match colours is gone completely (user 5.11.): no slider, no value, no request field
+    assert not hasattr(app, "_match_widgets") and not hasattr(app, "v_match") and not hasattr(app._request(), "match")
+
+    # The LoRA box: shown where the workflow has a LoRA of its own, hidden (not greyed out) where not
+    shown, hidden = rec(app.cb_turbo, "grid"), rec(app.cb_turbo, "grid_remove")
+    pick("qwen", "edit")
+    assert shown and not hidden
+    shown.clear(); hidden.clear()
+    pick("fibo", "edit")
+    assert hidden and not shown
+    pick("qwen", "edit")
+    pick("fibo", "txt2img")
+
+    # Mix source image/new image goes back to 100 % when a function is chosen
+    pick("flux2", "refine")
+    app.v_detail.set(0.4)
+    pick("flux2", "upscale")
+    assert app.v_detail.get() == 1.0
+    app.v_detail.set(0.4)
+    app.v_mode.set("refine")
+    app._on_mode()
+    assert app.v_detail.get() == 1.0
+
+    # Layer names: the model's "Edit" is not doubled
+    pick("fibo", "edit")
+    assert app._layer_prefix() == "Fibo 2.0 Edit Turbo"
+    pick("flux3", "edit")
+    assert app._layer_prefix() == "Flux 3 Klein Edit"
+    pick("flux3", "remove")
+    assert app._layer_prefix() == "Flux 3 Klein Edit Remove Selection"
+    pick("qwen", "remove")
+    assert app._layer_prefix() == "Qwen Image 2.1 Remove Selection" and dict(gui.MODE_LABELS)["remove"] == "Remove Selection"
+
+    # Sampler / scheduler: usable (readonly) where the workflow has them, a change is sent as an override
+    pick("qwen", "edit")
+    assert app.cb_sampler["state"] == "readonly" and app.cb_sched["state"] == "readonly", (app.cb_sampler["state"], app.cb_sched["state"])
+    assert "sampler" not in app._request().sampler_override
+    app.v_sampler.set("dpmpp_2m")
+    app.v_scheduler.set("karras")
+    assert app._request().sampler_override == {"sampler": "dpmpp_2m", "scheduler": "karras"}
+    pick("flux2", "edit")                                   # SamplerCustomAdvanced: the sampler only
+    assert app.cb_sampler["state"] == "readonly" and app.cb_sched["state"] == "readonly"      # Flux 2: its scheduler is in the list too
+
+    # the workflow side: KSampler and KSamplerSelect
+    tpl = workflows.load_template(t.ROOT / "workflows" / "qwen-image-21-edit.json")
+    g = workflows.set_sampler(tpl, sampler="dpmpp_2m", scheduler="karras", steps=12)
+    ks = g["10"]["inputs"]
+    assert (ks["sampler_name"], ks["scheduler"], ks["steps"]) == ("dpmpp_2m", "karras", 12)
+    assert tpl["10"]["inputs"]["sampler_name"] == "euler"   # the template itself is untouched
+    f2 = workflows.load_template(t.ROOT / "workflows" / "flux2-klein-edit.json")
+    assert workflows.sampler_values(f2)["sampler"] == "euler"
+    assert workflows.set_sampler(f2, sampler="dpmpp_2m", scheduler="karras")["198"]["inputs"]["sampler_name"] == "dpmpp_2m"
+
+    # Krea 2 Turbo: Text to image (prompt enhancer switchable); Expand (mask workflow) is parked since 29.10.; no LoRA box
+    from pccomfy import bridge
+    assert [k for k, rb in models.BY_KEY["krea2"].modes.items()] == ["txt2img"]
+    k2 = workflows.load_template(t.ROOT / "workflows" / "krea2-turbo-t2i.json")
+    ki = workflows.load_template(t.ROOT / "workflows" / "krea2-turbo-inpaint.json")
+    for g in (k2, ki):
+        assert all(str(v[0]) in g for n in g.values() for v in n["inputs"].values() if isinstance(v, list))
+    assert workflows.writer_name(k2) == "Qwen 3 VL 4B" and not workflows.lora_switches(k2) and bridge.mask_is_used(ki) and not bridge.mask_is_used(k2)
+    on, out = workflows.apply_template(k2, workflows.GenParams(prompt="a fox", seed=3, width=1024, height=768, batch=2), None, None)
+    assert on[out]["class_type"] == "PreviewImage" and next(n for n in on.values() if n["class_type"] == "TextGenerate")["inputs"]["prompt"] == "a fox"
+    assert next(n for n in on.values() if n["class_type"] == "EmptyLatentImage")["inputs"]["width"] == 1024
+    off, _ = workflows.apply_template(workflows.bypass_prompt_writer(k2, "a fox"), workflows.GenParams(prompt="a fox", seed=3, width=1024, height=768), None, None)
+    assert not any(n["class_type"] == "TextGenerate" for n in off.values())
+    assert next(n for n in off.values() if n["class_type"] == "CLIPTextEncode")["inputs"]["text"] == "a fox"
+    pick("krea2", "txt2img")
+    assert app.v_workflow.get() == "krea2-turbo-t2i.json" and app.v_res.get() == 1024 and app.v_enhance.get() is False
+    # the names: Fill Selection, no Bionic anywhere, one Fibo workflow with the LLM checkbox
+    assert dict(gui.MODE_LABELS)["inpaint"] == "Fill Selection" and gui.SHORT_MODES["inpaint"] == "Fill Selection"
+    assert sorted(p.name for p in (t.ROOT / "workflows").glob("fibo2*")) == ["fibo2-edit.json", "fibo2-t2i.json", "fibo2-upscale.json"]
+    assert not any("bionic" in p.read_text(encoding="utf-8").lower() for p in (t.ROOT / "workflows").glob("*.json"))
+    # the LoRA / stage box sits under the LLM row (or the negative prompt when that row is hidden), a light line above Advanced
+    packs = rec(app.f_opts, "pack")
+    app.f_opts.winfo_manager = lambda: ""
+    app._update_options_box(True, [])
+    assert packs and packs[0][1].get("after") is app._below_prompt() and app._below_prompt() in (app.f_enh, app.f_neg), packs
+    assert app.sep_adv is not None
+
+    # Restore LoRA (a standard LoRA loader since 2.11.): the name is matched against the server's list; a missing file is an error, never a silent skip
+    f3 = workflows.load_template(t.ROOT / "workflows" / "flux3-klein-upscale.json")
+    g3, miss = workflows.fix_lora_names(f3, ["Flux 3\\flux-3-image-klein-restore.safetensors"])
+    assert not miss and g3["9"]["inputs"]["lora_name"] == "Flux 3\\flux-3-image-klein-restore.safetensors"
+    g3, miss = workflows.fix_lora_names(f3, ["Flux 3/Flux-3-Image-Klein-Restore.safetensors"])      # other separator / case: the listed name is used
+    assert not miss and g3["9"]["inputs"]["lora_name"] == "Flux 3/Flux-3-Image-Klein-Restore.safetensors"
+    _, miss = workflows.fix_lora_names(f3, ["Flux 2\\ultra_real_v4.safetensors"])
+    assert miss == ["Flux 3\\flux-3-image-klein-restore.safetensors"]
+    off, miss = workflows.fix_lora_names(workflows.bypass_lora(f3), [])                          # switched off: nothing to find
+    assert not miss
+    # a LoRA linked in the settings window under another file name: the run uses the linked file instead of stopping
+    # with "ComfyUI does not list this LoRA file" (the settings window called the model ready; review 10.11.)
+    import types
+    from pccomfy import bridge, config
+    restore = "Flux 3\\flux-3-image-klein-restore.safetensors"
+    listed = ["mine\\my_restore.safetensors", "Flux 2\\ultra_real_v4.safetensors"]
+    fake = types.SimpleNamespace(comfy=types.SimpleNamespace(loras=lambda: listed))
+    try:
+        bridge.Bridge._real_lora_names(fake, f3)
+        raise AssertionError("an unlinked, unlisted LoRA must stop the run")
+    except bridge.BridgeError as e:
+        assert restore in str(e)
+    config.set_model_link(restore, "mine\\my_restore.safetensors")
+    try:
+        assert bridge.Bridge._real_lora_names(fake, f3)["9"]["inputs"]["lora_name"] == "mine\\my_restore.safetensors"
+    finally:
+        config.set_model_link(restore, None)
+    assert bridge.Bridge._real_lora_names(types.SimpleNamespace(comfy=types.SimpleNamespace(loras=lambda: ["flux 3/FLUX-3-IMAGE-KLEIN-RESTORE.safetensors"])), f3)["9"]["inputs"]["lora_name"] == "flux 3/FLUX-3-IMAGE-KLEIN-RESTORE.safetensors"   # case and separator, as before
+    # Remove Selection: the text box is usable on every model that has the function
+    for key in ("qwen", "flux2", "flux3", "fibo"):
+        assert models.BY_KEY[key].modes["remove"].remove_text, key
+    assert [k for k, _ in gui.MODE_LABELS][:6] == ["txt2img", "outpaint", "inpaint", "remove", "edit", "multi_edit"]
+
+    # Flux 3: 15 steps in the edit and text to image workflows, 8 in Upscale (user 2.11.; the SeedVR2 pre-stage keeps its one step); Upscale shows "x 1.5"; a line above "Prompt"
+    for wf, steps in (("flux3-klein-edit.json", 15), ("flux3-klein-t2i.json", 15), ("flux3-klein-upscale.json", 8)):
+        assert workflows.sampler_values(workflows.load_template(t.ROOT / "workflows" / wf))["steps"] == steps, wf
+    assert app.sep_prompt is not None and gui.scale_text(1.5) == "x 1.5" and gui.scale_text("2.0") == "x 2"
+    assert app.sep_status["style"] == app.sep_prompt["style"] == "Sep.TFrame" and app.sep_status["height"] == 1   # the same light line above the progress line
+
+    # defaults: Flux 3 upscale starts without SeedVR2 and with the Restore LoRA at 50 %; Qwen text to image: no Turbo, enhancer off (user 30.10.)
+    assert models.BY_KEY["flux3"].modes["upscale"].settings["stage_on"] is False
+    assert workflows.stage_info(workflows.load_template(t.ROOT / "workflows" / "flux3-klein-upscale.json"))[0]["default_on"] is False
+    pick("qwen", "txt2img")
+    assert app.v_turbo.get() is False and app.v_enhance.get() is False
+
+    # Flux 2 text to image with the Flux 3 prompt upsampler (the checkbox switches it off)
+    from pccomfy import bridge as _b
+    f2 = workflows.load_template(t.ROOT / "workflows" / "flux2-klein-t2i.json")
+    assert not _b.mask_is_used(f2) and not _b.has_tag(f2, "image") and workflows.writer_name(f2) == "Qwen3-VL 4B"
+    on, out = workflows.apply_template(f2, workflows.GenParams(prompt="a fox", seed=3, width=1024, height=768, batch=2), None, None)
+    assert next(n for n in on.values() if n["class_type"] == "TextGenerate")["inputs"]["prompt"] == "a fox"
+    lat = next(n for n in on.values() if n["class_type"] == "EmptyFlux2LatentImage")["inputs"]
+    sch = next(n for n in on.values() if n["class_type"] == "Flux2Scheduler")["inputs"]
+    assert (lat["width"], lat["height"], lat["batch_size"]) == (1024, 768, 2) and (sch["width"], sch["height"]) == (1024, 768)
+    off, _ = workflows.apply_template(workflows.bypass_prompt_writer(f2, "a fox"), workflows.GenParams(prompt="a fox", seed=3, width=1024, height=768), None, None)
+    assert not any(n["class_type"] == "TextGenerate" for n in off.values()) and next(n for n in off.values() if n["class_type"] == "CLIPTextEncode")["inputs"]["text"] == "a fox"
+    pick("flux2", "txt2img")
+    assert app.v_workflow.get() == "flux2-klein-t2i.json" and app.v_enhance.get() is False
+    # Upscale / Refine have no layer mask
+    lm2 = rec(app.f_lm, "pack_forget")
+    for key, mode in (("flux2", "upscale"), ("flux2", "refine"), ("flux3", "upscale")):
+        lm2.clear()
+        pick(key, mode)
+        assert lm2, (key, mode, "no layer mask in Upscale / Refine")
+    # Mix source/new image: under Advanced settings, at the top of the finishing options, directly above Context, only
+    # where it was shown before (Upscale and Refine of Flux 2 / 3, and Fibo Refine, which runs as an edit) (user 28.10.)
+    on, off = rec(app.f_detail, "pack"), rec(app.f_detail, "pack_forget")
+    app.f_ctx.winfo_manager = lambda: "pack"
+    for key, mode, shown in (("flux2", "refine", True), ("flux3", "upscale", True), ("fibo", "refine", True), ("qwen", "edit", False)):
+        on.clear(); off.clear()
+        pick(key, mode)
+        assert bool(on) == shown and bool(off) != shown, (key, mode)
+        assert not shown or on[-1][1].get("before") is app.f_ctx, on
+        app.v_detail.set(0.6)
+        assert app._request().detail == (0.6 if shown else 1.0), (key, mode)   # sent only where the slider is shown
+    del app.f_ctx.winfo_manager, app.f_detail.pack, app.f_detail.pack_forget
+    # one progress line: the success text sits above the bar, nothing is set below it
+    app._reset_progress(done=True, text="Done · seed 5 · 1 layer")
+    assert app.v_pl.get() == "Done" and app.v_pl_rest.get() == " · seed 5 · 1 layer" and app._bar_value == 1.0      # only "Done" is green
+    app._reset_progress()
+    assert app.v_pl.get() == "" and app.v_pl_rest.get() == ""
+    # Reset: back to the startup settings of this tab and function
+    pick("qwen", "edit")
+    app.v_seed.set(99); app.v_detail.set(0.3)
+    app.t_prompt.insert("1.0", "something"); app.t_neg.insert("1.0", "ugly"); app.v_turbo.set(True)
+    app._set_loras([["qwen\\style_a.safetensors", 0.6]])
+    app.reset_settings()
+    r = app._request()
+    assert app.v_seed.get() == -1 and app.v_detail.get() == 1.0
+    assert app._prompt_text() == "" and app.t_neg.get("1.0", "end").strip() == "" and r.loras == [] and app.v_turbo.get() is False
+    assert app.v_model.get() == "qwen" and app.v_mode.get() == "edit" and app.v_workflow.get() == "qwen-image-21-edit.json"
+
+    # Flux 2 Klein (SamplerCustomAdvanced): steps, CFG, sampler and scheduler are usable and reach the graph
+    f2e = workflows.load_template(t.ROOT / "workflows" / "flux2-klein-edit.json")
+    assert workflows.sampler_values(f2e) == {"sampler": "euler", "cfg": 1, "steps": 4, "scheduler": "Flux2Scheduler"}
+    g2 = workflows.set_sampler(f2e, steps=8, cfg=2.5, sampler="dpmpp_2m", scheduler="Flux2Scheduler")
+    assert g2["205"]["inputs"]["steps"] == 8 and g2["204"]["inputs"]["cfg"] == 2.5 and g2["198"]["inputs"]["sampler_name"] == "dpmpp_2m"
+    assert g2["205"]["class_type"] == "Flux2Scheduler"                                    # the workflow's own scheduler stays
+    g2 = workflows.set_sampler(f2e, steps=6, scheduler="karras")
+    assert g2["205"]["class_type"] == "BasicScheduler" and g2["205"]["inputs"]["scheduler"] == "karras" and g2["205"]["inputs"]["steps"] == 6
+    assert g2["205"]["inputs"]["model"] == f2e["204"]["inputs"]["model"]
+    assert all(str(v[0]) in g2 for n in g2.values() for v in n["inputs"].values() if isinstance(v, list) and v)
+    assert f2e["205"]["class_type"] == "Flux2Scheduler"
+    pick("flux2", "edit")
+    assert app.w_steps["state"] == "normal" and app.w_cfg["state"] == "normal" and app.cb_sampler["state"] == "readonly" and app.cb_sched["state"] == "readonly"
+    assert app.cb_sched["values"][0] == "Flux2Scheduler" and app.v_scheduler.get() == "Flux2Scheduler" and app.v_steps.get() == 4
+    app.v_steps.set(6); app.v_scheduler.set("karras")
+    assert app._request().sampler_override == {"steps": 6, "scheduler": "karras"}
+    # Context, Mask grow and Mask blur are not shown for text to image (any model); shown again elsewhere
+    gone = {k: rec(app.w_adv[k], "grid_remove") for k in ("Context", "Mask grow", "Mask blur")}
+    back = {k: rec(app.w_adv[k], "grid") for k in ("Context", "Mask grow", "Mask blur")}
+    pick("flux3", "txt2img")
+    assert all(gone.values()) and not any(back.values())
+    for k in back: back[k].clear()
+    pick("flux3", "edit")
+    assert all(back.values())
+    # Flux 3 restore prompt without "people" (an older copy in the field is replaced); a tip under the prompt in Edit Canvas
+    assert "people" not in models.FLUX3_DEFAULT and models.FLUX3_DEFAULT_OLD in models.STOCK_PROMPTS
+    for key in ("qwen", "fibo", "flux2", "flux3"):     # the same tip for every model (user 3.11.)
+        assert models.BY_KEY[key].modes["edit"].prompt_tip == models.EDIT_TIP, key
+
+    # run time next to "Done"; Flux 2 refine default without "people, faces"; the tip is a wrapped label
+    assert gui.duration_text(23.4) == "23 s" and gui.duration_text(65) == "1 min 05 s" and gui.duration_text(0.2) == "0 s"
+    # the "Done" line after Upscale names the new documents, not "created 0 layers" (review 10.11.)
+    assert gui.made_text(1) == "created 1 layer" and gui.made_text(3) == "created 3 layers" and gui.made_text(0) == "created 0 layers"
+    assert gui.made_text(0, 1) == "opened 1 new document" and gui.made_text(0, 2) == "opened 2 new documents"
+    assert gui.made_text(2, 1) == "created 2 layers"      # layers win when a run made both (not the case today)
+    assert "people" not in models.FLUX2_DEFAULT and models.FLUX2_DEFAULT_OLD in models.STOCK_PROMPTS and models.FLUX2_DEFAULT.endswith("Keep the composition and colors exactly as they are.") and models.FLUX2_DEFAULT_PREV in models.STOCK_PROMPTS
+    assert models.EDIT_TIP == "Describe the result: “Replace the laptop with a book.” or “Remove the sitting person.”"
+    assert app.lbl_hint["wrap"] == "word"      # selectable text
+    # an info icon in front of the tip, both in one row (user 29.10.), in the brighter tip blue (user 3.11.)
+    from pccomfy import gui_theme
+    assert app.lbl_hint_icon["image"] == app._icon("info", gui.HINT_TEXT, px=gui_theme.HINT_ICON_PX)
+    assert app.lbl_hint["fg"] == gui.HINT_TEXT and gui.HINT_TEXT != gui.ACCENT_TEXT
+
+    # the Upscale factor sits under the LLM row (the negative prompt when that row is hidden), above the LoRA box
+    scale_pack = rec(app.f_scale, "pack")
+    pick("flux2", "upscale")
+    assert scale_pack and scale_pack[-1][1].get("after") is app._below_prompt(), scale_pack
+    pick("flux3", "refine")                  # (Flux 2 Upscale / Refine keep the box in the Advanced settings since 6.11.)
+    packs2 = rec(app.f_opts, "pack")
+    app.f_scale.winfo_manager = lambda: "pack"
+    app.f_opts.winfo_manager = lambda: ""
+    app._update_options_box(True, [])
+    assert packs2[-1][1].get("after") is app.f_scale
+    # SeedVR2 (Flux 3 Upscale) and the Turbo LoRA (every Qwen function) sit in the Advanced settings, the rest under the prompt (user 6.11.)
+    for model, mode, adv in (("flux3", "upscale", True), ("qwen", "edit", True), ("qwen", "txt2img", True), ("flux3", "edit", False), ("flux2", "upscale", True), ("flux2", "refine", True), ("flux2", "edit", False), ("moss", "txt2img", False)):
+        pick(model, mode)
+        assert app._opts_in_advanced() is adv, (model, mode)
+    grids = rec(app.f_opts, "grid")
+    lifts = rec(app.f_opts, "lift")
+    pick("flux2", "upscale")
+    app.f_opts.winfo_manager = lambda: ""
+    app._opts_place = ""
+    app._update_options_box(True, [])
+    assert grids and grids[-1][1].get("in_") is app.adv_body and grids[-1][1].get("row") == 4, grids
+    assert lifts
+    # Qwen (user 17.11.): the Turbo LoRA at the top of the finishing options, where "Sharpen result" was: after Mix
+    # source/new, above Context
+    packs3, lifts[:] = rec(app.f_opts, "pack"), []
+    pick("qwen", "edit")
+    app.f_opts.winfo_manager = lambda: ""
+    app._opts_place = ""
+    app.f_ctx.winfo_manager = lambda: "pack"
+    app._update_options_box(True, [])
+    assert packs3 and packs3[-1][1].get("before") is app.f_ctx and app._opts_place == "post", packs3
+    on = rec(app.f_detail, "pack")
+    app.f_detail.winfo_manager = lambda: ""
+    app._pack_post(app.f_detail)                       # Qwen Upscale / Refine: Mix source/new goes above the switch box
+    assert on and on[-1][1].get("before") is app.f_opts, on
+    del app.f_ctx.winfo_manager, app.f_detail.winfo_manager, app.f_detail.pack
+    assert lifts, "the switch box must be lifted above the Advanced settings (it is no child of adv_body: else it is hidden there)"
+
+    # Remove Selection with the name of the object (Flux Klein): the instruction names it; runs.jsonl says what was sent
+    import tempfile
+    import test_reference_mode as T
+    from pccomfy import bridge
+    from pccomfy.bridge import Request
+    for target, expect in (("", "Erase everything inside the red rectangle"), ("the dog", "Remove the dog that is inside the red rectangle")):
+        pc, _, b = T.make(tempfile.mkdtemp(), layers=2)
+        b.comfy = T.FakeComfy()
+        req = Request(mode="remove", workflow=str(t.ROOT / "workflows" / "flux3-klein-edit.json"), enhance=False, remove_target=target)
+        req.params = workflows.GenParams(prompt=target, seed=7)
+        b.run(req)
+        sent = next(n["inputs"]["text"] for n in b.comfy.graphs[0].values() if n["class_type"] == "CLIPTextEncode")
+        assert sent.startswith(expect), sent
+        log = [json.loads(x) for x in (b.exchange / "runs.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert log[-1]["mode"] == "remove" and log[-1]["workflow"] == "flux3-klein-edit.json" and log[-1]["prompt"] == sent
+    from PIL import Image
+    assert bridge.remove_prompt(Image.new("L", (10, 10), 255), 1, "a car").startswith("Delete a car")
+
+    # the PhotoCraft slider: a click on the track sets the value there and calls the command; greyed out it does nothing
+    v, got = t.tk.DoubleVar(value=0.0), []
+    s = gui.Slider(None, from_=0, to=10, variable=v, command=got.append)
+    x0, x1 = s._ends()
+    s._click(type("E", (), {"x": (x0 + x1) / 2})())
+    assert abs(v.get() - 5) < 1e-6 and got and abs(float(got[0]) - 5) < 1e-6
+    s._click(type("E", (), {"x": x1 + 50})())
+    assert v.get() == 10                                   # beyond the end: the maximum
+    s.configure(state="disabled")
+    s._click(type("E", (), {"x": x0})())
+    assert v.get() == 10 and app.w_detail.__class__ is gui.Slider and app.lbl_detail["style"] == "Value.TEntry"
+    # the value box of a slider takes typed values: %, comma, "hard edge", kept in range; nonsense shows the old value
+    # (Mix source/new; Sharpen result, used here before, was removed 17.11.)
+    app.w_detail.configure(state="normal")
+    for typed, want in (("35 %", 0.35), ("12,5", 0.125), ("250", 1.0), ("-3", 0.0), ("abc", 0.0)):
+        app.lbl_detail.configure(text=typed)
+        app.lbl_detail._commit()
+        assert abs(app.v_detail.get() - want) < 1e-9, (typed, app.v_detail.get())
+    assert app.lbl_detail.cget("text") == "0 %"
+    # Flux 2 Refine: its "Default" text wins over your own text (user 11.11.; until then your text stayed, user 3.11.)
+    app.v_model.set("flux2"); app.v_mode.set("edit"); app._on_model()
+    app.t_prompt.delete("1.0", "end"); app.t_prompt.insert("1.0", "my own text")
+    app.v_mode.set("refine"); app._on_mode()
+    assert app._prompt_text() == models.FLUX2_DEFAULT and app.v_fac.get() == "r:Default", (app._prompt_text(), app.v_fac.get())
+    app.v_mode.set("edit"); app._on_mode()
+    app.t_prompt.delete("1.0", "end")
+    app.v_mode.set("refine"); app._on_mode()
+    assert app._prompt_text() == models.FLUX2_DEFAULT and app.v_fac.get() == "r:Default", (app._prompt_text(), app.v_fac.get())
+    ok = gui.ValueBox._typed_ok              # only numbers can be typed: digits and one decimal point or comma (more: test_number_fields)
+    assert ok("1", "5", "5") and ok("1", "3", "0.3") and ok("1", ",", "0,") and ok("0", "", "") and ok("1", "12", "12")
+    assert not ok("1", "a", "a") and not ok("1", "%", "5%") and not ok("1", ".", "0.5.") and not ok("1", "-", "-") and not ok("1", " ", "5 ")
+    app.w_feather.configure(state="normal")
+    app.v_feather.set(4)
+    app.lbl_feather.configure(text="hard edge")
+    app.lbl_feather._commit()
+    assert app.v_feather.get() == 0 and app.lbl_feather.cget("text") == "hard"
+    before = app.v_detail.get()
+    app.w_detail.configure(state="disabled")
+    assert app.lbl_detail["state"] == "disabled"            # greyed out with its slider
+    app.lbl_detail.configure(text="50")
+    app.lbl_detail._commit()
+    assert app.v_detail.get() == before                       # a greyed-out slider takes no typed value
+    app.w_detail.configure(state="normal")
+
+    # Text to image: every model shows the tip under the prompt; MiniMax says where its picture goes instead (a new
+    # document unless "Downsize to canvas" is ticked, PLAN 2.0b)
+    for m in models.MODELS:
+        if "txt2img" in m.modes:
+            want = models.MINIMAX_T2I_TIP if m.key == "minimax" else models.T2I_TIP
+            assert m.modes["txt2img"].prompt_tip == want, m.key
+    pick("flux3", "txt2img")
+    assert app._hint_text == models.T2I_TIP
+
+    # The bin next to "Prompt" empties the field; a greyed-out field (Remove without a name) stays as it is
+    app.t_prompt.configure(state="normal")
+    app.t_prompt.delete("1.0", "end")
+    app.t_prompt.insert("1.0", "a red car")
+    app._clear_prompt()
+    assert app.t_prompt.get("1.0", "end").strip() == ""
+    app.t_prompt.insert("1.0", "kept")
+    app.t_prompt.configure(state="disabled")
+    app._clear_prompt()
+    assert app.t_prompt.get("1.0", "end").strip() == "kept"
+    app.t_prompt.configure(state="normal")
+
+    shutil.rmtree(t.TMP, ignore_errors=True)
+    print("ALL OK (round 5)")
+
+
+if __name__ == "__main__":
+    main()
