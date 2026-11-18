@@ -296,5 +296,5 @@ class TipsMixin:
         cb = ttk.Checkbutton(parent, text=HIDE_TEXT, variable=self._tips_setting_var, style="SetText.TCheckbutton",
                              command=lambda: cfgmod.set_setting(HIDE_KEY, True if self._tips_setting_var.get() else None))
         cb.pack(side="top", anchor="w", padx=14, pady=(12, 4))
-        Tooltip(cb, "Tick to stop the tip of the day when the plugin starts; untick to see the tips again.")
+        Tooltip(cb, "Tick to stop the tip of the day when PxC starts; untick to see the tips again.")
         return cb

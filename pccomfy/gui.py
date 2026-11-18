@@ -70,7 +70,10 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self._frameless = hostos.IS_WINDOWS and not os.environ.get("PCCOMFY_TITLEBAR")
         if self._frameless:
             self.root.wm_overrideredirect(True)
-            self.root.configure(highlightthickness=1, highlightbackground="#5c5c5c")
+            self.root.configure(highlightthickness=1, highlightbackground=WINDOW_BORDER, highlightcolor=WINDOW_BORDER)
+            # the 1 px frame turns blue while the plugin has the focus (user 18.11.); a popup of the plugin counts as focus
+            self.root.bind("<FocusIn>", lambda e: self._focus_frame(), add="+")
+            self.root.bind("<FocusOut>", lambda e: self.root.after(1, self._focus_frame), add="+")
         self._style()
         if not self._frameless:
             self.root.after(200, lambda: winlink.caption(self.root, (0x40, 0x40, 0x40), (0xee, 0xee, 0xee)))
@@ -85,7 +88,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.v_cfg = tk.DoubleVar(value=g("cfg", d["cfg"]))
         self.v_denoise = tk.DoubleVar(value=g("denoise", d["denoise"]))
         self.v_seed = tk.IntVar(value=-1)
-        self.v_writer_seed = tk.IntVar(value=g("writer_seed", WRITER_SEED_DEFAULT))     # Prompt writer seed (user 17.11.)
+        self.v_writer_seed = tk.IntVar(value=max(0, int(g("writer_seed", WRITER_SEED_DEFAULT) or 0)))     # hidden writer seed (17.11.; no field since 18.11.: -1 of an old save = 0)
         self.v_variants = tk.IntVar(value=g("variants", d["variants"]))
         self.v_sampler = tk.StringVar(value=g("sampler", d["sampler"]))
         self.v_scheduler = tk.StringVar(value=g("scheduler", d["scheduler"]))
@@ -197,13 +200,13 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         if self._frameless:         # far right: closes the plugin (what the title bar's cross did)
             self.b_close = ttk.Button(self.f_header, image=self._icon("close", px=SMALL_ICON_PX), style="Link.TButton", command=self._quit)
             self.b_close.pack(side="right", padx=(6, 0))
-            Tooltip(self.b_close, "Close the plugin.")
+            Tooltip(self.b_close, "Close PxC.")
             for w in (self.f_header, self.f_logo, *self.lbl_title):     # drag the window by its header
                 w.bind("<ButtonPress-1>", self._drag_start, add="+")
                 w.bind("<B1-Motion>", self._drag_move, add="+")
         self.b_min = ttk.Button(self.f_header, image=self._icon("minimize", px=SMALL_ICON_PX), style="Link.TButton", command=self.toggle_minimize)
         self.b_min.pack(side="right")
-        self.tt_min = Tooltip(self.b_min, "Minimise: only this header stays. Click again to show the plugin.")
+        self.tt_min = Tooltip(self.b_min, "Minimise: only this header stays. Click again to show PxC.")
         # left of it comes the gear (ui_settings.py, user 4.11.); the clock and Copy canvas sit at the right end of the footer
         self._history_popup = None
         self._cut_popup = None
@@ -232,6 +235,9 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         cols = 3
         for c in range(cols):
             f_md.columnconfigure(c, weight=1, uniform="model")
+        # a short last row (one or two chips) sits centred in its own frame (user 18.11., _grid_chip); made before the chips,
+        # so it lies below them
+        self.f_chip_short = ttk.Frame(f_md)
         self.rb_tabs = {}
         self.chip_lines = {}
         for i, m in enumerate(models.MODELS):
@@ -284,13 +290,17 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.f_enh = ttk.Frame(r)       # packed under Seed / Variants, above the prompt writer drop-down (see below)
         self.cb_enhance = ttk.Checkbutton(self.f_enh, text="Enhance my Prompt with LLM", variable=self.v_enhance, command=self._on_workflow)
         self.cb_enhance.pack(side="left")
-        self.tt_enhance = Tooltip(self.cb_enhance, ENHANCE_TIP)
+        self.tt_enhance = Tooltip(self.cb_enhance, "")      # filled per model by _on_workflow (enhance_tip)
         self._icons["copy"] = self._icon("copy", px=round(ICON_PX * 0.8))     # 80 % of the usual icon, flat like the other icons: white, blue under the mouse (user 1.11.)
         self._last_vgl = ""             # the prompt the text model wrote in the last run
         self._written_for = ""          # Sketch: the model whose written prompt the history put into the field (runs without the upsampler)
         self.b_copy = ttk.Button(self.f_enh, image=self._icons["copy"], style="Copy.Link.TButton", command=self._copy_enhanced, state="disabled")
         self.b_copy.pack(side="left", padx=(8, 0))
         self.tt_copy = Tooltip(self.b_copy, "Copy the prompt the text model wrote in the last run.")
+        # "Reroll prompt" (user 18.11., choice A): a new writer seed, the next run writes a new prompt; only while Enhance is on
+        self.b_reroll = ttk.Button(self.f_enh, text="Reroll prompt", style="Copy.Link.TButton", command=self.reroll_prompt)
+        self.tt_reroll = Tooltip(self.b_reroll, REROLL_TIP)
+        self.v_enhance.trace_add("write", lambda *a: self._update_reroll())
         self.cb_turbo = ttk.Checkbutton(mf, text="LoRA", variable=self.v_turbo, command=self._on_turbo)
         self.cb_turbo.grid(row=1, column=1, sticky="w", padx=(0, 6), pady=(2, 0))   # flush left like the LLM row (user 30.10.)
         self.tt_turbo = Tooltip(self.cb_turbo, LORA_TIP)
@@ -437,7 +447,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.lbl_hint.pack(side="left", anchor="n", fill="x", expand=True, pady=(self._keep(4 + HINT_TEXT_DROP), 0))   # the first line a little lower, level with the icon (user 3.11.; 1 px more 13.11.)
         # Krea 2 / MOSS Expand: writes a description of the surroundings into the field (under the tip, user 29.10.)
         self.b_describe = ttk.Button(r, text="Describe", style="Small.TButton", command=self.describe_scene)
-        Tooltip(self.b_describe, "Qwen 3.5 9B describes the surroundings of your picture (not the main subject) and writes "
+        Tooltip(self.b_describe, "The text model describes the surroundings of your picture (not the main subject) and writes "
                                  "it into the prompt. Edit it as you like.")
         # the prompt field starts empty: the function's default fills it (_apply_model_mode); the last session's text is not
         # restored (user 3.11.: after a start every prompt field is on its default)
@@ -481,9 +491,9 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             cap = ttk.Label(af, text=lbl, style="Muted.TLabel")
             cap.grid(row=0, column=col, sticky="sw", padx=(0, 6))
             w.grid(row=1, column=col, sticky="nw", padx=(0, 6))     # at the top of its row: the taller seed button pushed it down, away from its label
-        # beside the seed: the seed of the last run again (user 1.11.), grey until a run has finished
+        # beside the seed: the seed of the last run again (user 1.11.), grey until a run has finished; 80 % like the copy icon (user 18.11.)
         self._last_seed = None
-        self.b_last_seed = ttk.Button(af, image=self._icon("seed-last"), style="Link.TButton", command=self.use_last_seed, state="disabled")
+        self.b_last_seed = ttk.Button(af, image=self._icon("seed-last", px=round(ICON_PX * 0.8)), style="Link.TButton", command=self.use_last_seed, state="disabled")
         # level with the seed box: the button is higher than the box, so it spans both rows and starts above it (column 3 has no label)
         up = max(0, cap.winfo_reqheight() + (items[2][1].winfo_reqheight() - self.b_last_seed.winfo_reqheight()) // 2)
         self.b_last_seed.grid(row=0, rowspan=2, column=3, sticky="nw", pady=(spacing.Keep(up), 0))
@@ -494,17 +504,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.w_steps, self.w_cfg, self.w_seed = items[0][1], items[1][1], items[2][1]
         self.tt_steps = Tooltip(self.w_steps, "")      # a hint of the mode, when it has one (MOSS: 25 steps)
         self.recipe_widgets = [items[0][1], items[1][1]]
-        # Prompt writer seed (user 17.11., choice A): its own row under Steps / CFG / Seed, only while a prompt writer that samples
-        # runs (_update_writer_seed). The same number keeps the written prompt while the image seed changes.
-        self.f_wseed = ttk.Frame(af)
-        self.f_wseed.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        ttk.Label(self.f_wseed, text="Prompt writer seed (-1 random)", style="Muted.TLabel").grid(row=0, column=0, sticky="sw")
-        self.w_writer_seed = self._spin(self.f_wseed, self.v_writer_seed, -1, 10**SEED_DIGITS - 1, 1, 9, seed_typed_ok)
-        self.w_writer_seed.grid(row=1, column=0, sticky="nw")
-        Tooltip(self.w_writer_seed, "The seed of the text model that writes the prompt. Keep the number and the prompt stays the "
-                                    "same while you change the image seed; another number writes it anew; -1 writes a new one "
-                                    "on every run.")
-        self.f_wseed.grid_remove()
+        # (the "Prompt writer seed" row of 17.11. is gone: the seed is hidden, "Reroll prompt" in the LLM row draws a new one, 18.11.)
 
         sm = ttk.Frame(self.adv_body)
         sm.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
@@ -597,8 +597,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.f_img = ttk.LabelFrame(self.adv_body, text="Image and mask")
         tips = {
             "Base res.": "Size (px) the model works at. Higher = more detail, slower.",
-            "Context": "How much of the surroundings the model sees around your selection, as a share of the selection's "
-                       "longer side (40 % on each side). More often fits the new part better, but it takes longer.",
+            "Context": "How much of the surroundings the model sees around your selection, on each side. More often fits "
+                       "the new part better, but it takes longer.",
             "Mask grow": "Grows the model's mask by this many px (mask workflows only).",
             "Mask blur": "Softens the model's mask edge (mask workflows only).",
         }
@@ -785,8 +785,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         click brings everything back as it was."""
         self._minimized = not self._minimized
         self.b_min.configure(image=self._icon("chevron-down" if self._minimized else "minimize", px=SMALL_ICON_PX))
-        self.tt_min.text = ("Show the plugin again." if self._minimized else
-                            "Minimise: only this header stays. Click again to show the plugin.")
+        self.tt_min.text = ("Show PxC again." if self._minimized else
+                            "Minimise: only this header stays. Click again to show PxC.")
         self.f_header.pack_configure(pady=(8, 8 if self._minimized else 0))     # alone, the header gets room below too
         if self._minimized:
             for w in (self.f_tabs, self.lbl_empty, self.f_scrollbox, self.f_status, self.f_foot):
@@ -820,7 +820,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
 
     # a second PhotoCraft (a PSD opened by a double click) has no control channel: the plugin reads and writes only the one
     # it sits on (user 16.11., bug: Ctrl+S saved the picture of the other PhotoCraft; choice 1: link to the right one and warn)
-    OTHER_PC_HINT = ("Another PhotoCraft is open. The plugin only works with the PhotoCraft window it sits on: "
+    OTHER_PC_HINT = ("Another PhotoCraft is open. PxC only works with the PhotoCraft window it sits on: "
                      "open your images there (File > Open).")  # approved by the user 16.11.
 
     def _other_photocraft(self) -> bool:
@@ -844,7 +844,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
     # the two resets of the page in the hamburger menu (user 16.11.; the texts of the former footer button "Reset page")
     RESET_SAVED_TIP = ("Back to the starting settings of the chosen model and function: your saved settings (right-click on "
                        "the model), else the standard ones. Other models and functions keep what they have.")
-    RESET_DEFAULT_TIP = ("Back to the plugin standard settings of the chosen model and function; your saved settings for this "
+    RESET_DEFAULT_TIP = ("Back to the PxC standard settings of the chosen model and function; your saved settings for this "
                          "model and function are forgotten.")
 
     def _footer_menu(self):

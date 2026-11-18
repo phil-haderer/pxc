@@ -27,9 +27,9 @@ STATE_TEXT = {"ready": "is ready.", "partial": "is not yet available", "missing"
 HINT_SAME = "same size and header as "          # behind a file in the chain list (user 3.11.)
 HINT_INCOMPLETE = "incomplete? shorter than its header says"
 RELINKED_HEAD = "Relinked models:"      # over the list of your own files that stand in for expected ones (user 6.11.)
-LINKS_INTRO = ("Click the chain symbol next to a file to pick your own file. A model is enabled in the plugin as soon as the files "
+LINKS_INTRO = ("Click the chain symbol next to a file to pick your own file. A model is enabled in PxC as soon as the files "
                "for its standard settings are linked. ComfyUI reads its model folders only when it starts: After downloading a new "
-               "file, restart ComfyUI and click refresh (⟳) at the bottom of the plugin.")      # the text on top of Model Links (user 16.11.)
+               "file, restart ComfyUI and click refresh (⟳) at the bottom of PxC.")      # the text on top of Model Links (user 16.11.)
 GGUF_ALT = "Alternatively:"
 GGUF_LINK = "Download GGUF-weights"      # under the weights of a main model (user 5.11.)
 SIMILAR_FILE = "A file with a similar name (not checked, make sure it is the right one): "      # under a missing file with no renamed copy: same model name, other precision or spelling (user 7.11.)
@@ -37,7 +37,7 @@ PROBABLE_FILE = "This is probably the right file: "      # under a missing file,
 HINT_IN_USE = "in use"            # behind the file the plugin uses now in the list of the chain symbol (user 7.11.)
 HINT_EXPECTED = "the expected file"      # in the chain list, when another file is linked: the way back
 HINT_SIMILAR = "similar name"
-HINT_EXPLAIN = "Marked files have the same size and safetensors header as another file this plugin expects."
+HINT_EXPLAIN = "Marked files have the same size and safetensors header as another file PxC expects."
 DOT_RED = "#e5484d"                   # the dot in front of a model that is not available (nothing in front of a ready one)
 DOT_PAD = 4                            # px of room to the left of the dot (user 1.11.)
 SETTINGS_W, SETTINGS_H = 640, 700      # the settings window at first (before the display scaling; 16 % narrower since 2.11.); then the size it was closed at
@@ -159,7 +159,8 @@ class SettingsMixin(DownloadMixin):
         style.configure("Missing.Tab.Toolbutton", foreground=NA_RED)      # a tab that is not available: red text, the background of an inactive tab
         self.b_gear = ttk.Button(self.f_header, image=self._icon("gear", px=GEAR_HEAD_PX), style="Link.TButton", command=self.toggle_settings)
         self.b_gear.pack(side="right", padx=(0, 6))
-        Tooltip(self.b_gear, "Settings: which model files ComfyUI has, links to get the missing ones.")
+        Tooltip(self.b_gear, "Settings: model files and downloads, where Save image puts files, ComfyUI address, "
+                                 "interface scale, Copy report.")
         style.configure("Empty.TLabel", foreground="#ffffff", font=font(10, bold=True))      # H2, white (user 6.11.)
         self.v_empty = tk.StringVar(value="")
         self.lbl_empty = ttk.Label(self.root, textvariable=self.v_empty, style="Empty.TLabel", anchor="center", justify="center",
@@ -459,7 +460,7 @@ class SettingsMixin(DownloadMixin):
         rows += [("line", f"{k}  →  {v}", "hint") for k, v in sorted(links.items())]      # the blue of the tip under the prompt marks what you changed (user 6.11.)
         if self.inv is None:
             rows.append(("error", "ComfyUI could not be read.", (self._inv_error or "Not connected yet.")
-                         + "\nStart ComfyUI, then click the refresh arrow (⟳) at the bottom of the plugin."))
+                         + "\nStart ComfyUI, then click the refresh arrow (⟳) at the bottom of PxC."))
             rows += [("enable", m.key, m.label, True) for m in models.MODELS]
         else:
             for row in self.inv.rows():
@@ -768,9 +769,9 @@ class SettingsMixin(DownloadMixin):
         for text, tip, command in (
                 ("Show all hidden models", "Brings back every model chip that was hidden (right-click menu of a chip or the tick in the model tab).",
                  self._show_hidden_models),
-                ("Reset all modes to default settings", "Forgets every page you saved with “Set current settings as startup settings” (right-click on a model chip): "
-                 "all models and functions start with the plugin standard settings again. Asks first.", self._reset_all_modes),
-                ("Copy report", "Copies a report to the clipboard for a bug report: plugin version, where it is installed, Python, "
+                ("Reset all modes to default settings", "Forgets every page you saved with “Set current settings as startup settings (for this mode and model)” (right-click on a model chip): "
+                 "all models and functions start with the PxC standard settings again. Asks first.", self._reset_all_modes),
+                ("Copy report", "Copies a report to the clipboard for a bug report: PxC version, where it is installed, Python, "
                  "which config files it reads and what they change, the ComfyUI address, which model files are missing. No prompts, "
                  "no passwords; your user folder is shown as ~.", self._copy_report)):
             b = ttk.Button(parent, text=text, style="SetSmall.TButton", command=command)
@@ -950,7 +951,7 @@ class SettingsMixin(DownloadMixin):
         cb = ttk.Combobox(row, textvariable=self.v_ui_scale, values=self.UI_SCALE_CHOICES, state="readonly", width=8)
         cb.pack(side="left")
         cb.bind("<<ComboboxSelected>>", lambda e: self._ui_scale_pick())
-        Tooltip(cb, "Size of the plugin window, from 50 % to 300 %. Auto follows your system. Pick a value if the window is too big or too small. 100 % is the size your system gives; 120 % is a fifth bigger, 80 % a fifth smaller (on Windows). Counts from the next start.")
+        Tooltip(cb, "Size of the PxC window, from 50 % to 300 %. Auto follows your system. Pick a value if the window is too big or too small. 100 % is the size your system gives; 120 % is a fifth bigger, 80 % a fifth smaller (on Windows). Counts from the next start.")
         self.lbl_ui_scale = ttk.Label(row, text="", style=SET_STYLES["muted"])
         self.lbl_ui_scale.pack(side="left", padx=(8, 0))
 
@@ -959,7 +960,7 @@ class SettingsMixin(DownloadMixin):
         v = self.v_ui_scale.get()
         cfgmod.set_setting("ui_scale", None if v == "Auto" else int(v.split()[0]) / 100)
         try:
-            self.lbl_ui_scale.configure(text="Applies the next time you start the plugin.")
+            self.lbl_ui_scale.configure(text="Applies the next time you start PxC.")
         except (tk.TclError, AttributeError):
             pass
 
@@ -989,7 +990,7 @@ class SettingsMixin(DownloadMixin):
         b = ttk.Button(btns, text="Refresh", image=self._icon("refresh", px=round(SET_ICON_PX * 0.9)), compound="left",
                        style="SetSmall.TButton", command=self._comfy_address_check)
         b.pack(side="left", fill="y")
-        Tooltip(b, "Checks the address and, if it is ComfyUI, uses it from now on: the plugin reads its models and nodes again.")
+        Tooltip(b, "Checks the address and, if it is ComfyUI, uses it from now on: PxC reads its models and nodes again.")
         reset = ttk.Button(btns, text="Reset to default", style="SetSmall.TButton", command=self._comfy_address_reset)      # a button like the others (user 6.11.)
         reset.pack(side="left", fill="y", padx=(8, 0))
         Tooltip(reset, "Goes back to the standard address of ComfyUI on this PC.")
@@ -1362,12 +1363,12 @@ class SettingsMixin(DownloadMixin):
                 usable = row[3] if len(row) > 3 else True
                 var = self._shown_vars[key]
                 var.set(key not in cfgmod.hidden_tabs() if usable else False)     # a model without its files is not in the plugin
-                cb = ttk.Checkbutton(line(), text="Show this model in the plugin", variable=var, style="SetText.TCheckbutton",
+                cb = ttk.Checkbutton(line(), text="Show this model in PxC", variable=var, style="SetText.TCheckbutton",
                                      command=lambda k=key, v=var: self._set_model_hidden(k, not v.get()))
                 cb.pack(side="left", pady=(0, 4))
                 made.append(cb)
                 if usable:
-                    Tooltip(cb, "Untick to hide this model in the plugin, tick to show it again.")
+                    Tooltip(cb, "Untick to hide this model in PxC, tick to show it again.")
                 else:
                     cb.configure(state="disabled")
                     Tooltip(cb, "This model can be shown only when the files for its standard settings are there (see below).")
@@ -1463,7 +1464,7 @@ class SettingsMixin(DownloadMixin):
                 box = line()
                 self.b_link_reset = ttk.Button(box, text="Reset to startup", command=self._link_reset, style="SetSmall.TButton")
                 self.b_link_reset.pack(side="right", pady=(2, 2))
-                Tooltip(self.b_link_reset, "All links as they were when the plugin started.")
+                Tooltip(self.b_link_reset, "All links as they were when PxC started.")
                 self.b_link_undo = ttk.Button(box, text="Undo", command=self._link_undo, style="SetSmall.TButton")
                 self.b_link_undo.pack(side="right", padx=(0, 6), pady=(2, 2))
                 Tooltip(self.b_link_undo, "Takes back the last change of the links.")

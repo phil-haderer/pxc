@@ -1012,7 +1012,7 @@ class QueueRunner:
             req0 = self._requests.get(job.batch_id)
             b = self.store.batches.get(job.batch_id)
         if req0 is None:
-            self._fail(job, "The settings of this batch are gone (the plugin was restarted).", transient=False)
+            self._fail(job, "The settings of this batch are gone (PxC was restarted).", transient=False)
             return
         try:
             with Image.open(job.input_png) as im:

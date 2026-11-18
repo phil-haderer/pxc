@@ -318,9 +318,9 @@ class DownloadMixin:
 
     # ---------- "Check files" (user 17.11.): the files on the disk against the checksums of models.json ----------
 
-    CHECK_TIP = ("Reads every model file of the plugin that is in ComfyUI's models folder and compares it with the checksum in "
+    CHECK_TIP = ("Reads every model file of PxC that is in ComfyUI's models folder and compares it with the checksum in "
                  "models.json (in the background; large files take a while). Nothing is changed or deleted.")
-    CHECK_DAMAGED_HINT = ("A damaged file is not deleted by the plugin. Delete it yourself in the folder shown, then load it "
+    CHECK_DAMAGED_HINT = ("A damaged file is not deleted by PxC. Delete it yourself in the folder shown, then load it "
                           "again with its disk symbol (or download it by hand).")
 
     def _check_row(self, parent):

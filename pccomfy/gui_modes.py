@@ -4,6 +4,7 @@ from __future__ import annotations
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 from .workflows import lora_subgraph as workflows_lora_subgraph, stage_subgraph as workflows_stage_subgraph
+from .workflows import writer_samples as workflows_writer_samples
 
 
 class ModeMixin:
@@ -244,6 +245,8 @@ class ModeMixin:
         mode = self.v_mode.get()
         hidden = cfgmod.hidden_tabs()
         shown = [m.key for m in models.MODELS if m.key in self.rb_tabs and m.key not in hidden]
+        if not shown:
+            self.f_chip_short.grid_remove()           # every model hidden: no centred short row either
         for m in models.MODELS:
             rb = self.rb_tabs.get(m.key)
             if rb is None:
@@ -259,12 +262,34 @@ class ModeMixin:
     def _grid_chip(self, key: str, i: int, n: int, cols: int = 3):
         """Chip i of n in the grid without gaps (11.12.): every chip has its own grey line on the left and on top, so two
         neighbours share one line; the line on the right only where no chip follows in the row, the one below only where no chip
-        is below. The grey comes from a backdrop frame in the same cell (chip_lines), so a missing slot has no lines."""
+        is below. The grey comes from a backdrop frame in the same cell (chip_lines), so a missing slot has no lines.
+        A last row with fewer than `cols` chips is centred (user 18.11.): its k chips go into their own frame (f_chip_short,
+        gui.py) across the whole width, between two empty side columns. All its columns share one uniform group with
+        weights cols - k (sides) and 2 (chips), so a chip is exactly 1/cols of the width like the chips above (chips spanning
+        half columns would break the uniform widths in Tk). Under a full row the short row has no top line of its own; the
+        row above draws its bottom line instead, so the line stays 1 px where the rows meet half a chip apart."""
         r, c = divmod(i, cols)
+        last = (n - 1) // cols                      # index of the last row
+        k = n - last * cols                         # chips in the last row
+        short = k < cols
         right = 1 if (c == cols - 1 or i == n - 1) else 0
-        below = 1 if i + cols >= n else 0
-        self.chip_lines[key].grid(row=r, column=c, sticky="nsew")
-        self.rb_tabs[key].grid(row=r, column=c, sticky="ew", padx=(1, right), pady=(1, below))
+        below = 1 if (r == last or (short and r == last - 1)) else 0
+        if short and r == last:
+            box = self.f_chip_short
+            if c == 0:                              # the first chip of the short row sets up its frame
+                for col in range(cols + 2):
+                    w = (cols - k) if col in (0, k + 1) else 2 if 1 <= col <= k else 0
+                    box.columnconfigure(col, weight=w, uniform="chip" if w else "")
+                box.grid(row=r, column=0, columnspan=cols, sticky="ew")
+            cell = {"row": 0, "column": c + 1, "in_": box}
+            top = 0 if r > 0 else 1
+        else:
+            if i == n - 1:                          # no short row (any more): its frame leaves
+                self.f_chip_short.grid_remove()
+            cell = {"row": r, "column": c, "in_": self.f_models}
+            top = 1
+        self.chip_lines[key].grid(sticky="nsew", **cell)
+        self.rb_tabs[key].grid(sticky="ew", padx=(1, right), pady=(top, below), **cell)
 
     def _chip_menu(self, key: str, event):
         """Right-click on a model chip (L3, user 29.10.): save the settings of the chosen model, or hide the model (it comes
@@ -278,7 +303,7 @@ class ModeMixin:
         here = self.v_model.get() == key and mode in m.modes          # saving takes the window as it is: only for the chosen model
         if here:                      # not offered on any other chip (user 1.11.)
             menu.add_command(label="Set current settings as startup settings (for this mode and model)", command=lambda: self._save_page(key))
-            menu.add_command(label="Reset to plugin standard settings (for this mode and model)",
+            menu.add_command(label="Reset to PxC standard settings (for this mode and model)",
                              command=lambda: self.reset_settings(factory=True))
             menu.add_separator()
         menu.add_command(label="Hide this model", command=lambda: self._set_model_hidden(key, True))
@@ -593,7 +618,7 @@ class ModeMixin:
         finally:
             self._factory = False
         if factory:
-            self._status("Reset to the plugin standard settings; your startup settings for this mode and model are forgotten.")
+            self._status("Reset to the PxC standard settings; your startup settings for this mode and model are forgotten.")
 
     def _start_fresh(self):
         """At every start the sliders, sampler, steps, LoRAs and the other starting settings are the standard ones of the
@@ -1001,6 +1026,21 @@ class ModeMixin:
         on(self.w_adv["Mask blur"], masked and not editor)
         on(self.cb_lm, mode != "upscale", "readonly")        # Upscale opens a new document: no layer to mask
         self._update_negative_box()
+        self._sync_post_box()
+
+    def _sync_post_box(self):
+        """The finishing rows' box (``f_post``, first row of the Advanced settings) is in the grid only while a row is packed in it.
+        Tk keeps the last size of a box that lost all its rows, so MiniMax (no Context, Edge feather, layer mask or Original size
+        row) showed an empty line before Steps (user 18.11.)."""
+        f = getattr(self, "f_post", None)
+        try:
+            used = bool(f.pack_slaves())
+            if used and not f.winfo_manager():
+                f.grid()
+            elif not used and f.winfo_manager():
+                f.grid_remove()
+        except (AttributeError, tk.TclError):
+            pass
 
     def _update_negative_box(self):
         """No model shows a "Negative prompt" row (user 2.11.; a workflow keeps its own negative text). The frame stays packed,
@@ -1020,10 +1060,10 @@ class ModeMixin:
         # no text model here, or a fixed / ready-made prompt: the row is hidden, never a greyed-out box (user 30.10.)
         has_writer = self._llm_row_wanted()
         self._show_enhance_box(has_writer)
-        llm = next((m for m in (writer_model(t) for t in self._wf_templates()) if m), "")
         name = next((n for n in (writer_name(t) for t in self._wf_templates()) if n), "")
-        # the model's name only in the tooltip, never in the checkbox (user 30.10.)
-        self.tt_enhance.text = ENHANCE_TIP + (f"\nText model: {name}" if name else "") + (f"\n{llm}" if " " in llm and llm != name else "")
+        # the model's name only in the tooltip, never in the checkbox (user 30.10.); one short line (user 18.11., choice C)
+        samples = any(workflows_writer_samples(t) for t in self._wf_templates())      # Fibo: no Reroll prompt, no sentence
+        self.tt_enhance.text = enhance_tip(self.v_model.get(), name, samples)
         self.cb_enhance.configure(text="Enhance my Prompt with LLM")
         has_lora = self._has_lora_switch()
         self.cb_turbo.configure(state="normal" if has_lora else "disabled", text=self._lora_label())

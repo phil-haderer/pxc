@@ -50,8 +50,15 @@ def main():
     app.bridge.describe_canvas = describe
     app.bridge.cancel = ev.set
     app._llm_file = lambda: ""
-    app.describe_canvas()
-    assert app._describing and str(app.b_stop.cget("state")) == "normal"
+    for _ in range(750):                        # describe_canvas ignores the click while any worker runs; on slow CI machines a
+        app.describe_canvas()                   # later refresh started one after the wait above (install matrix, 17./18.11.):
+        if getattr(app, "_describing", False):  # click again until it is taken, at most about 15 s
+            break
+        app.root.update()
+        time.sleep(0.02)
+    assert getattr(app, "_describing", False), \
+        f"click never taken: worker alive={bool(app.worker and app.worker.is_alive())}, batch={app._blocked_by_batch()}"
+    assert str(app.b_stop.cget("state")) == "normal"
     app.stop()                                  # Esc / the Cancel button
     for _ in range(100):
         app.root.update()

@@ -32,7 +32,7 @@ def data_checks():
     assert styles.fill(models.SKETCH_ILLUSTRATION, "a red barn", mark) == models.SKETCH_ILLUSTRATION.replace(mark, "a red barn")
     assert styles.fill(models.SKETCH_ILLUSTRATION, None, mark) == models.SKETCH_ILLUSTRATION
     groups = got["txt2img"]
-    assert len(groups) == 13 and sum(len(g["styles"]) for g in groups) == 84 + 7  # renamed and thinned (plan B step 3, 10.11.) + own
+    assert len(groups) == 13 and sum(len(g["styles"]) for g in groups) == 80 + 7  # renamed and thinned (plan B step 3, 10.11.; 4 merged 18.11.) + own
     # the own texts (tools/styles-own.json, user 10.11.) stand at the end of their group, word for word
     # (tools/ is private since 17.11.: the release export leaves it out, so the check runs only where it is)
     own_file = ROOT / "tools" / "styles-own.json"
@@ -48,6 +48,14 @@ def data_checks():
     assert [g["name"] for g in groups][:3] == ["Photo", "Studio & product", "Film look"], [g["name"] for g in groups]
     names = [s["name"] for g in groups for s in g["styles"]]
     assert len(set(names)) == len(names), "short names must be unique"
+    # 18.11. (docs/plan/stil-vorschlag-18-11.md): merged styles are gone, renamed ones carry the new name, no scene words left
+    assert not {"Dark romantic landscape, oil", "Gothic fantasy, fiery red", "Soft clouds, white minimal",
+                "Stop-motion, felt and clay", "Cyberpunk city, neon rain", "8-bit pixel art"} & set(names)
+    assert {"Claymation, stop-motion", "Cyberpunk neon, rain", "Solarpunk", "Cosmic glow", "Pixel art"} <= set(names)
+    t2i_text = " ".join(s["text"] for g in groups for s in g["styles"]).lower()
+    assert not any(w in t2i_text for w in ("megacity", "megastructures", "skeletal", "pastoral scene", "silhouette in window",
+                                           "nocturnal city lighting", "turquoise water"))
+    assert "voxel" not in next(s["text"] for g in groups for s in g["styles"] if s["name"] == "Low-poly game look")
     assert all(s["text"].strip() and s["name"].strip() for g in groups for s in g["styles"])
     assert all(len(g["styles"]) <= 25 for g in groups)       # a menu that fits the screen
     assert all(len(n) <= 40 for n in names), max(names, key=len)   # descriptive, but short enough for the menu
@@ -58,9 +66,9 @@ def data_checks():
     if src.exists() and sel.exists():
         texts = {e["index"]: e["styleKeywords"] for e in json.loads(src.read_text(encoding="utf-8"))}
         sys.path.insert(0, str(ROOT / "tools"))
-        from build_styles import REWRITES       # Krea texts rewritten after a test (17.11.)
-        want = [(g["name"], s["name"], REWRITES.get(s["name"], texts[s["index"]]))
-                for g in json.loads(sel.read_text(encoding="utf-8"))["groups"] for s in g["styles"]]
+        from build_styles import final          # rewritten, renamed and merged styles (17.11., 18.11.)
+        want = [(g["name"], *f) for g in json.loads(sel.read_text(encoding="utf-8"))["groups"] for s in g["styles"]
+                if (f := final(s["name"], texts[s["index"]]))]
         have = [(g["name"], s["name"], s["text"]) for g in groups for s in g["styles"]
                 if (g["name"], s["name"], s["text"]) not in own_styles]
         assert have == want
@@ -97,7 +105,12 @@ def look_checks(got):
         if "edit" in s["tabs"]:
             assert ed[s["name"]] == models.EDIT_FRAME.format(look=s["look"])
         if "sketch" in s["tabs"] and "fixed" not in s:
-            assert sk[s["name"]] == models.SKETCH_FRAME.format(look=s["look"])
+            no_lines = "" if s.get("lines") else models.SKETCH_NO_LINES      # user 18.11.: no sketch lines left
+            assert sk[s["name"]] == models.SKETCH_FRAME.format(look=s["look"]) + no_lines
+    # 18.11.: the sentence on 31 styles (Realistic photo has it in its own words), never on the 14 line styles
+    clean = {n for n, t in sk.items() if t.lower().endswith("no drawing lines left.")}
+    lined = {s["name"] for s in all_src if s.get("lines")}
+    assert len(clean) == 32 and len(lined) == 14 and not clean & lined and "Anime" in lined and "Watercolor" in clean
     # the same frames and looks as the style pilot (tests/live_style_round.py)
     pilot = (ROOT / "tests" / "live_style_round.py").read_text(encoding="utf-8")
     assert 'EDIT_FRAME = "' + models.EDIT_FRAME + '"' in pilot
@@ -134,7 +147,7 @@ def icon_checks():
 
 def gui_checks():
     app = ra.make()
-    assert set(app.m_styles) == {k for k, _l in gui_common.MODE_LABELS} | {"txt2img", "edit", "sketch"} and len(app._style_texts) == 84 + 7 + 41 + 46
+    assert set(app.m_styles) == {k for k, _l in gui_common.MODE_LABELS} | {"txt2img", "edit", "sketch"} and len(app._style_texts) == 80 + 7 + 41 + 46
     assert not str(app.b_styles.cget("text")) and app.b_styles.cget("image")      # an icon in the column right of the field (12.11.)
     # the button: only in Text to image, Edit canvas and Sketch to image
     ra.go(app, "flux3", "txt2img")

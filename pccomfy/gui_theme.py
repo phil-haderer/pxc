@@ -50,6 +50,21 @@ def stack_height(root) -> int:
 
 
 class ThemeMixin:
+    def _focus_frame(self):
+        """The window's 1 px frame (only without title bar, Windows): blue (ACCENT) while a widget of the plugin has the
+        focus, grey (WINDOW_BORDER) when another program has it (user 18.11.)."""
+        if not getattr(self, "_frameless", False):
+            return
+        try:
+            has = self.root.focus_get() is not None
+        except (KeyError, tk.TclError):      # a widget Tk cannot name (a combobox list) still belongs to the plugin
+            has = True
+        color = ACCENT if has else WINDOW_BORDER
+        try:
+            self.root.configure(highlightbackground=color, highlightcolor=color)
+        except tk.TclError:                  # the window is closing
+            pass
+
     # ---------- UI ----------
 
     def _style(self):

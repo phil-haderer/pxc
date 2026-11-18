@@ -31,7 +31,7 @@ def version_change(stored, current: str = __version__, had_files: bool = True) -
         return "", ""
     if a > b:
         return "newer", (f"These settings were saved by a newer version ({stored}); this is {current}. "
-                         "If something looks odd, update the plugin.")
+                         "If something looks odd, update PxC.")
     if a < b or str(stored) != str(current):
         return "updated", f"Updated from {stored} to {current}."
     return "", ""
@@ -94,9 +94,9 @@ def build_report(app=None) -> str:
     """The report as text. `app` is the window (None: only what does not need it, for tests and the command line)."""
     from . import config as cfgmod
     root = Path(__file__).resolve().parent.parent
-    lines = ["PxC plugin report"]
+    lines = ["PxC report"]
     commit = git_commit(root)
-    lines.append(f"Plugin: {__version__}" + (f" (git {commit})" if commit else " (no git checkout)"))
+    lines.append(f"PxC: {__version__}" + (f" (git {commit})" if commit else " (no git checkout)"))
     lines.append(f"Installed in: {root}")
     tk = ""
     try:
@@ -119,7 +119,7 @@ def build_report(app=None) -> str:
         cfg = cfgmod.DEFAULTS
     wdir, note = cfgmod.effective_workflows_dir(cfg["comfyui"]["workflows_dir"])
     count = len(list(wdir.glob("*.json"))) if wdir.is_dir() else 0
-    lines.append(f"Workflows: {wdir} ({count} files)" + ("  [config.toml folder replaced by the plugin's own]" if note else ""))
+    lines.append(f"Workflows: {wdir} ({count} files)" + ("  [config.toml folder replaced by PxC's own]" if note else ""))
     err = cfgmod.write_error()
     if err:
         lines.append(f"Settings could not be saved: {err}")

@@ -33,7 +33,7 @@ def version_note(current, minimum: str = MIN_VERSION) -> str | None:
     cur, low = _version_tuple(current), _version_tuple(minimum)
     if not cur or not low or cur >= low:
         return None
-    return f"PhotoCraft {current} is older than {minimum}, the oldest version this plugin supports. Updating PhotoCraft is recommended."
+    return f"PhotoCraft {current} is older than {minimum}, the oldest version PxC supports. Updating PhotoCraft is recommended."
 
 
 # PhotoCraft refuses document commands while the Crop tool extends or crops the canvas and waits for Enter: it answers

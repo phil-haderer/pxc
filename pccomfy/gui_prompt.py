@@ -1,7 +1,9 @@
 """The prompt field: editor keys, hints, ready-made prompts, enhance and negative boxes. (moved out of gui.py unchanged; see PLAN.md, phase 0)."""
 from __future__ import annotations
 
-from . import custom_prompts, hostos, manifest, spacing, styles
+import random
+
+from . import custom_prompts, hostos, manifest, spacing, styles, workflows
 from .popmenu import PopMenu, place_right_of
 from .refslots import BBOX_TIP, MULTI_MODE, SCRIBBLE_MODE, TAB_MODE, retag
 from .gui_common import *  # noqa: F401,F403
@@ -87,7 +89,7 @@ class PromptMixin:
             self.f_enh.pack(fill="x", padx=10, pady=(6, 0), after=self.f_neg)
         elif not on and shown:
             self.f_enh.pack_forget()
-        self._update_writer_seed()      # the Prompt writer seed row follows the writer (Advanced settings, user 17.11.)
+        self._update_reroll()           # "Reroll prompt" follows the row and the Enhance tick (user 18.11.)
         if on != shown and getattr(self, "_sized", False):
             self._fit_height()
 
@@ -320,6 +322,35 @@ class PromptMixin:
             put_in_front(self.t_prompt, box["text"])
             self._status("Described. The text is at the start of the prompt.")
         self.root.after(200, check)
+
+    def _reroll_wanted(self) -> bool:
+        """"Reroll prompt" (user 18.11., choice A): wherever the "Enhance my Prompt with LLM" row is shown (MiniMax too), while
+        Enhance is ticked, and only when the writer samples (Fibo's takes the likeliest words: a new seed would change nothing)."""
+        if not (self._llm_row_wanted() and bool(self.v_enhance.get())):
+            return False
+        try:
+            return any(workflows.writer_samples(load_template(w)) for w in resolve(self.workflows_dir / self.v_workflow.get()))
+        except (OSError, ValueError, KeyError):
+            return False
+
+    def _update_reroll(self):
+        """Show or hide "Reroll prompt" right of the copy icon."""
+        if not hasattr(self, "b_reroll"):
+            return
+        if self._reroll_wanted():
+            if not self.b_reroll.winfo_manager():
+                self.b_reroll.pack(side="left", padx=(10, 0), after=self.b_copy)
+        elif self.b_reroll.winfo_manager():
+            self.b_reroll.pack_forget()
+
+    def reroll_prompt(self):
+        """A new writer seed (hidden, user 18.11.): the next run writes a new prompt, the runs after it keep that one again."""
+        old = self._writer_seed_value()
+        new = old
+        while new == old:
+            new = random.randint(0, 10**SEED_DIGITS - 1)
+        self.v_writer_seed.set(new)
+        self._status("The next run writes a new prompt.")
 
     def _copy_enhanced(self):
         """The prompt the text model wrote in the last run goes to the clipboard."""

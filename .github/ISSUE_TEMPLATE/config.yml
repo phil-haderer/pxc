@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/phil-haderer/pxc/security/policy
+    about: Please report security problems privately, not as a public issue.
+  - name: Model downloads
+    url: https://github.com/phil-haderer/pxc/blob/main/docs/model-downloads.md
+    about: Every model file with its size, ComfyUI folder and download link.

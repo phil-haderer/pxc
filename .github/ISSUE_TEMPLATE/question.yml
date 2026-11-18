@@ -1,0 +1,27 @@
+name: Question / help
+description: Setup, models or how to use PxC.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please look at the **Help** section of the README first; it covers the most common problems (ComfyUI not connected, PhotoCraft not found, missing model files).
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+  - type: textarea
+    id: report
+    attributes:
+      label: PxC report (optional)
+      description: Gear window ▸ Other settings ▸ Copy report.
+      render: text

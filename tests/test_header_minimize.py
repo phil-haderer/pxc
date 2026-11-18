@@ -31,7 +31,7 @@ def main():
     assert shown["tabs"] and shown["body"], shown
     app.toggle_minimize()
     assert app._minimized and not any(shown.values()), shown
-    assert app.tt_min.text.startswith("Show the plugin")
+    assert app.tt_min.text.startswith("Show PxC")
     app._apply_start_state()                             # a refresh while minimised packs nothing again
     assert not any(shown.values()), shown
     app.toggle_minimize()

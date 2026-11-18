@@ -63,9 +63,9 @@ assert cfgmod.write_error() == ""                                               
 # ---- the report ----
 (HOME / "config.toml").write_text('[comfyui]\nworkflows_dir = "~/gone-folder"\n', encoding="utf-8")
 rep = appinfo.build_report()
-assert rep.startswith("PxC plugin report") and f"Plugin: {__version__}" in rep
+assert rep.startswith("PxC report") and f"PxC: {__version__}" in rep
 assert "config.toml: found" in rep and "config.toml changes: comfyui.workflows_dir" in rep, rep
-assert "[config.toml folder replaced by the plugin's own]" in rep and "settings.json: " + __version__ in rep, rep
+assert "[config.toml folder replaced by PxC's own]" in rep and "settings.json: " + __version__ in rep, rep
 assert "prompt" not in rep.lower() and "token" not in rep.lower()
 home = str(Path.home())
 red = appinfo.redact(f"{home}{chr(92)}data and {home.replace(chr(92), '/')}/x and {home.upper()}")
@@ -113,7 +113,7 @@ else:
         time.sleep(0.02)
     app._copy_report()
     got = app.root.clipboard_get()
-    assert got.startswith("PxC plugin report") and "Window: model" in got and "ComfyUI: http://127.0.0.1:1" in got, got
+    assert got.startswith("PxC report") and "Window: model" in got and "ComfyUI: http://127.0.0.1:1" in got, got
     assert "Report copied" in app.v_status.get()
     app.root.destroy()
 print("ALL OK (appinfo)")

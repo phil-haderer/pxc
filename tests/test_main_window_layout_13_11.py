@@ -108,6 +108,36 @@ def minimax_checks(app):
     assert abs(left(first) - left(app.f_gen)) <= 1, (left(first), left(app.f_gen))
 
 
+def minimax_advanced_checks(app):
+    """MiniMax, Advanced settings (user 18.11.): no empty line before Steps. The finishing rows' box (f_post) has no row for
+    MiniMax; Tk kept its last height, so it stayed in the grid as a blank line. It is in the grid only while a row is in it."""
+    import time
+
+    def settle():
+        for _ in range(15):
+            app.root.update()
+            time.sleep(0.03)
+    if not app.v_adv_open.get():
+        app._toggle_advanced()
+    for model, mode in (("qwen", "inpaint"), ("minimax", "txt2img"), ("minimax", "edit")):
+        app.v_model.set(model)           # qwen Fill first: the box has rows and a height that could be left over
+        app.v_mode.set(mode)
+        app._on_model()
+        settle()
+        if model == "qwen":
+            assert app.f_post.winfo_manager() == "grid" and app.f_post.winfo_height() > 1
+            continue
+        assert not app.f_post.pack_slaves() and not app.f_post.winfo_manager(), (mode, "empty box must leave the grid")
+        top = min(w.winfo_y() for w in app.adv_body.grid_slaves() if w.winfo_ismapped())
+        steps = app.w_steps.winfo_y() + app.w_steps.master.winfo_y()
+        assert top <= 2 and steps - top < 30, (mode, "Steps must start at the top of the Advanced settings", top, steps)
+    app.v_model.set("qwen")              # and the box comes back with its rows
+    app.v_mode.set("inpaint")
+    app._on_model()
+    settle()
+    assert app.f_post.winfo_manager() == "grid" and app.f_post.winfo_height() > 1
+
+
 def main():
     app = make_app()
     app.root.deiconify()
@@ -116,6 +146,7 @@ def main():
     hint_checks(app)
     placeholder_checks(app)
     minimax_checks(app)
+    minimax_advanced_checks(app)
     print("ALL OK (main window layout 13.11.)")
 
 

@@ -84,26 +84,6 @@ class RunMixin:
         except (tk.TclError, ValueError):
             return WRITER_SEED_DEFAULT
 
-    def _writer_seed_wanted(self) -> bool:
-        """The Prompt writer seed row is shown while a prompt writer that samples runs (user 17.11.): Fibo's writer takes the
-        likeliest words, a seed would change nothing."""
-        if not self._writer_runs():
-            return False
-        wf = self.v_workflow.get()
-        try:
-            return any(workflows.writer_samples(load_template(w)) for w in resolve(self.workflows_dir / wf))
-        except (OSError, ValueError, KeyError):
-            return False
-
-    def _update_writer_seed(self):
-        """Show or hide the Prompt writer seed row (Advanced settings)."""
-        if not hasattr(self, "f_wseed"):
-            return
-        if self._writer_seed_wanted():
-            self.f_wseed.grid()
-        else:
-            self.f_wseed.grid_remove()
-
     def _request(self) -> Request:
         wf = self.v_workflow.get()
         wf_path = None if wf == BUILTIN else str(self.workflows_dir / wf)

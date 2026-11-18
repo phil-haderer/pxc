@@ -56,7 +56,7 @@ def effective_workflows_dir(configured) -> tuple[Path, str]:
     except OSError:
         return p, ""
     if shipped and not (shipped & have):
-        return WORKFLOWS_DIR, (f"The workflows folder in config.toml ({p}) has none of the plugin's workflows, so the plugin's own "
+        return WORKFLOWS_DIR, (f"The workflows folder in config.toml ({p}) has none of PxC's workflows, so PxC's own "
                                f"folder is used. Remove workflows_dir from {CONFIG_FILE} to hide this note.")
     return p, ""
 

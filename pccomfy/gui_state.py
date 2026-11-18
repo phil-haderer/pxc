@@ -240,7 +240,7 @@ class StateMixin:
         put(self.v_cfg, "cfg", float)
         put(self.v_denoise, "denoise", float)
         put(self.v_seed, "seed", int)
-        put(self.v_writer_seed, "writer_seed", int)
+        put(self.v_writer_seed, "writer_seed", lambda v: max(0, int(v)))     # hidden since 18.11.: a -1 of an old save counts as 0
         put(self.v_variants, "variants", int)
         put(self.v_sampler, "sampler", str)
         put(self.v_scheduler, "scheduler", str)

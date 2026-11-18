@@ -834,7 +834,7 @@ class RefSlotsMixin:
                     lt.bind("<Button-1>", lambda e, k=k: self._refs_insert_tag(k, self._refs_click_index()))
                     Tooltip(lt, "Click to put it where your cursor is in the prompt (or at the end), or drag the picture into the prompt.")
                 busy = k in self._ref_busy
-                bar = [("eye", "Preview", "Shows this picture larger beside the plugin.",
+                bar = [("eye", "Preview", "Shows this picture larger beside PxC.",
                         lambda k=k: self._refs_preview(k), False),
                        ("remove", "Remove", "Takes this image out of the slots.", lambda k=k: self._refs_remove(k), False),
                        ("cut", "Undo cut" if it.cut_out else "Cut out",

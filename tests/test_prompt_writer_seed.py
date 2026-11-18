@@ -1,8 +1,8 @@
 """Prompt writer seed (user 17.11., choice A): a seed of its own for the text model that writes the prompt inside a run, so a new
 image seed keeps the written prompt. Only the writer of the run (and its reference description in Scribble with reference);
-Describe canvas and the slot descriptions are left alone. The row sits in the Advanced settings and is shown only while a
-writer that samples runs (not Fibo). Start value 0 (as the workflows' own), -1 = a new one each run; saved like the other
-settings. Workflows, bridge and the window with the stubbed Tk.
+Describe canvas and the slot descriptions are left alone. Start value 0 (as the workflows' own), -1 = a new one each run
+(bridge). Since 18.11. the window has no seed row: the seed is hidden and "Reroll prompt" draws a new one
+(tests/test_prompt_reroll.py). Workflows and bridge here.
 
     python tests/test_prompt_writer_seed.py
 """
@@ -70,61 +70,9 @@ def check_bridge():
     assert q.writer_seed == 9
 
 
-def check_window():
-    import shutil
-    import test_gui_presets as t
-    gui, cfgmod = t.gui, t.cfgmod
-    app = gui.App(cfgmod.load())
-    wfdir = Path(app.workflows_dir)
-    wfdir.mkdir(parents=True, exist_ok=True)
-    names = sorted({w for m in gui.models.MODELS for w in m.workflows()})
-    for f in names:
-        shutil.copy(ROOT / "workflows" / f, wfdir / f)
-    app.cb_workflow["values"] = [gui.BUILTIN] + names
-    shown = {"on": False}
-    app.f_wseed.grid = lambda *a, **k: shown.__setitem__("on", True)
-    app.f_wseed.grid_remove = lambda *a, **k: shown.__setitem__("on", False)
-
-    def pick(model, mode):
-        app.v_model.set(model)
-        app.v_mode.set(mode)
-        app._on_model()
-
-    assert app.v_writer_seed.get() == gui.WRITER_SEED_DEFAULT == 0
-    pick("qwen", "sketch")
-    assert shown["on"], "Qwen Sketch to image: the writer samples, the row is shown"
-    assert app._request().params.writer_seed == 0
-    app.v_writer_seed.set(1234)
-    assert app._request().params.writer_seed == 1234
-    assert app._collect()["writer_seed"] == 1234
-    pick("fibo", "sketch")
-    assert not shown["on"], "Fibo's writer takes the likeliest words: no row"
-    pick("flux3", "inpaint")
-    assert not shown["on"], "Flux 3 Fill has no prompt writer"
-    pick("flux3", "txt2img")
-    app.v_enhance.set(True)
-    app._on_workflow()
-    assert shown["on"], "Flux 3 Text to image with Enhance my Prompt on"
-    app.v_enhance.set(False)
-    app._on_workflow()
-    assert not shown["on"], "Enhance off: the writer does not run"
-    # saved settings and the history put it back; Reset page goes back to the start value
-    s = app._collect()
-    app.v_writer_seed.set(0)
-    app._apply_settings(dict(s, writer_seed=987))
-    assert app.v_writer_seed.get() == 987
-    app._apply_settings({k: v for k, v in s.items() if k != "writer_seed"})     # an older save without the key keeps the box
-    assert app.v_writer_seed.get() == 987
-    app._reset_settings()
-    assert app.v_writer_seed.get() == 0
-    app.v_writer_seed.set(-1)
-    assert app._request().params.writer_seed == -1
-
-
 def main():
     check_workflows()
     check_bridge()
-    check_window()
     print("ALL OK (prompt writer seed)")
 
 

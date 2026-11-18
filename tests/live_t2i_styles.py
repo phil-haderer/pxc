@@ -8,7 +8,8 @@ simulator, the real ComfyUI), seed 1234, an empty white canvas of CANVAS.
 
     python tests\\live_t2i_styles.py plan
     python tests\\live_t2i_styles.py run [--models flux3 qwen ...] [--into <folder>] [--dry] [--free] [--url http://<ip>:8188]
-    python tests\\live_t2i_styles.py run --anime [--into <folder>]   (the new text of Anime background, golden sky; 17.11.)
+    python tests\\live_t2i_styles.py run --anime [--into <folder>]   (Anime, golden sky with the text of styles.json; 17.11., 18.11.)
+    python tests\\live_t2i_styles.py run --redo [--models flux2 fibo] [--url ...]   (the 3 README pictures whose style text changed; 18.11.)
     python tests\\live_t2i_styles.py view [folder]      (data\\t2i-styles\\<time>\\ansicht.html; a click shows 100 %)
 
 Output: data\\t2i-styles\\<time>\\bilder\\<model>-<n>.png and key.json (resumes in --into).
@@ -43,13 +44,13 @@ PLAN = {
     "flux2": [("Food photography", "a stack of fluffy pancakes with blueberries, maple syrup dripping down the side, powdered "
                "sugar and a cup of coffee in the background"),
               ("Linocut print", "a grey heron standing in reeds at a misty lake, a wooden rowing boat and distant pine trees"),
-              ("Claymation toy figures", "a tiny astronaut planting a flower on a small rocky planet, a little rover and a "
+              ("Claymation, stop-motion", "a tiny astronaut planting a flower on a small rocky planet, a little rover and a "
                "waving green alien beside him")],
     "qwen": [("Mid-century travel poster", "a cable car above an alpine village with a turquoise lake, the word \"ALPENSEE\" "
               "in large letters at the top"),
              ("Product photo, colour backdrop", "an open vintage brass pocket watch with an engraved lid, its chain curled "
               "beside it"),
-             ("Anime background, golden sky", "a small railway station on a hill, a red train arriving, sunflowers along the "
+             ("Anime, golden sky", "a small railway station on a hill, a red train arriving, sunflowers along the "
               "platform")],
     "moss": [("Studio portrait", "an old fisherman with a weathered face, a grey knitted cap and a wooden pipe"),
              ("Impressionist painting, sunny", "a café terrace by the sea with white tablecloths, a waiter carrying a tray "
@@ -65,7 +66,7 @@ PLAN = {
              ("Vintage paper collage", "a whale swimming through the clouds above a small town, little birds around it"),
              ("Low-poly game look", "a desert oasis with palm trees, a camel caravan and an old caravanserai")],
     "minimax": [("Business headshot", "a woman in her thirties with short black hair and round glasses, a navy blazer"),
-                ("Cyberpunk city, neon rain", "a delivery robot crossing a crowded market street, holographic signs and "
+                ("Cyberpunk neon, rain", "a delivery robot crossing a crowded market street, holographic signs and "
                  "people with umbrellas"),
                 ("Oil painting, 19th-century realism", "a blacksmith at his anvil, sparks flying, tools hanging on the "
                  "wall behind him")],
@@ -75,25 +76,31 @@ SECS = {"flux3": 30, "flux2": 45, "qwen": 30, "moss": 60, "krea2": 30, "fibo": 7
 
 # --anime (user 17.11.): Qwen drew "Anime background, golden sky" as a photo-like sunset; the Krea text says "anime" once and
 # then only light words. The new text for every model, two subjects (the railway station of the first run and a second one)
-ANIME_STYLE = "Anime background, golden sky"
-ANIME_TEXT = ("2D anime illustration, hand-painted anime film background art, clean line work and cel shading, glowing "
-              "golden-hour sky with large painted cumulus clouds, warm amber and soft teal palette, nostalgic slice-of-life mood")
+# 18.11. (user): "background" out of name and text, "Anime, golden sky"; the text comes from styles.json
+ANIME_STYLE = "Anime, golden sky"
 ANIME_SUBJECTS = ("a small railway station on a hill, a red train arriving, sunflowers along the platform",
                   "a girl on a bicycle riding along a coastal road, a lighthouse and the sea below")
+
+
+# --redo (user 18.11.): the README pictures whose style text changed (docs/plan/stil-vorschlag-18-11.md) again, with the same
+# model, subject, seed and canvas as in the run of 17.11.; only the style text is new
+REDO = [("flux2", 2), ("fibo", 3), ("minimax", 2)]     # Linocut print, Low-poly, Cyberpunk (the Oil painting blacksmith is out, 18.11.)
 
 
 def style_texts() -> dict:
     return {s["name"]: s["text"] for g in styles.load()["txt2img"] for s in g["styles"]}
 
 
-def jobs(models_wanted, anime=False) -> list:
+def jobs(models_wanted, anime=False, redo=False) -> list:
     st = style_texts()
     out = []
     if anime:
-        return [(mk, f"anime{n}", ANIME_STYLE + " (new text)", subj, subj + "\n" + ANIME_TEXT)
+        return [(mk, f"anime{n}", ANIME_STYLE + " (new text)", subj, subj + "\n" + st[ANIME_STYLE])
                 for mk in models_wanted for n, subj in enumerate(ANIME_SUBJECTS, 1)]
     for mk in models_wanted:
         for n, (style, subject) in enumerate(PLAN[mk], 1):
+            if redo and (mk, n) not in REDO:
+                continue
             if style not in st:
                 sys.exit(f"style not in styles.json: {style}")
             out.append((mk, n, style, subject, subject + "\n" + st[style]))
@@ -101,7 +108,7 @@ def jobs(models_wanted, anime=False) -> list:
 
 
 def cmd_plan(a):
-    js = jobs(a.models, a.anime)
+    js = jobs(a.models, a.anime, a.redo)
     for mk, n, style, subject, _ in js:
         print(f"{models.BY_KEY[mk].label:22} {n}  {style:34} {subject}")
     secs = sum(SECS.get(mk, 60) for mk, *_ in js)
@@ -119,7 +126,7 @@ def run_one(comfy, req, pic, exch):
 
 
 def cmd_run(a):
-    js = jobs(a.models, a.anime)
+    js = jobs(a.models, a.anime, a.redo)
     out = BASE / ("dry-" + time.strftime("%Y%m%d-%H%M%S")) if a.dry else (
         Path(a.into) if a.into else BASE / time.strftime("%Y%m%d-%H%M%S"))
     for sub in ("bilder", "xch"):
@@ -240,7 +247,8 @@ def main():
     for name in ("plan", "run"):
         r = sub.add_parser(name)
         r.add_argument("--models", nargs="+", default=list(PLAN), choices=list(PLAN))
-        r.add_argument("--anime", action="store_true", help="the new text of Anime background, golden sky, two subjects")
+        r.add_argument("--anime", action="store_true", help="Anime, golden sky (text of styles.json), two subjects")
+        r.add_argument("--redo", action="store_true", help="only the README pictures whose style text changed (18.11.)")
         if name == "run":
             r.add_argument("--into")
             r.add_argument("--dry", action="store_true", help="the whole bridge against a fake ComfyUI, no GPU")

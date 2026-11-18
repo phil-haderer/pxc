@@ -617,6 +617,8 @@ def cfg_typed_ok(action: str, typed: str, after: str) -> bool:
 
 SEED_DIGITS = 8
 WRITER_SEED_DEFAULT = 0      # Prompt writer seed: fixed like the workflows' own 0, so the written prompt stays (user 17.11.)
+REROLL_TIP = ("Next run: the text model writes a new prompt. Without clicking, the same prompt and settings give the "
+              "same written prompt.")
 
 
 def seed_typed_ok(action: str, typed: str, after: str) -> bool:
@@ -769,7 +771,22 @@ class ValueBox(ttk.Entry):
             s._draw()
         self._cmd()
 
-ENHANCE_TIP = "On: a text model writes the detailed prompt from your short text. Off: your text is sent as typed."
+WINDOW_BORDER = "#5c5c5c"        # the 1 px frame of the window without title bar (Windows); ACCENT while it has the focus
+ENHANCE_TIP = "Rewrites your prompt with {writer}. {time}"     # the tooltip of "Enhance my Prompt with LLM" (user 18.11., choice C)
+ENHANCE_SLOW = "Takes longer, most on smaller GPUs."          # a 9B writer
+ENHANCE_SLOW_SMALL = "Takes a little longer."                 # a 4B writer (Flux 2, Fibo, Krea 2)
+ENHANCE_WRITERS = {"flux3": "the Flux 3 prompt upsampler (Qwen 3.5 9B)"}     # where the writer is more than its base model
+
+
+def enhance_tip(model: str, name: str, reroll: bool) -> str:
+    """The tooltip of "Enhance my Prompt with LLM": which text model rewrites the prompt and that it costs time; the Reroll
+    line only where the button can appear (review 18.11.)."""
+    writer = ENHANCE_WRITERS.get(model) or name or "a text model"
+    text = ENHANCE_TIP.format(writer=writer, time=ENHANCE_SLOW_SMALL if "4B" in writer else ENHANCE_SLOW)
+    return text + ("\n" + ENHANCE_REROLL_TIP if reroll else "")
+
+
+ENHANCE_REROLL_TIP = "Reroll prompt: the next run writes a new prompt."     # only where the button exists (review 18.11.)
 LORA_TIP = "The workflow's own LoRA: on/off, and its strength."
 STAGE_TIP = "A stage of the workflow you can switch off."
 FONT = "Inter" if fonts.load() else ("Segoe UI" if hostos.IS_WINDOWS else "Sans")   # Inter = PhotoCraft's font (fonts.py)
@@ -834,11 +851,11 @@ NO_LLM_MODES = ("outpaint", "remove", "sketch", "scribble") + SCALE_MODES   # no
 # Sketch: the upsampler always runs with Flux 3, Flux 2 and Qwen, Fibo never has one (user 10.11.)
 EDIT_MODES = ("edit", "multi_edit", "sketch", "scribble")     # the window modes behind the one function button Edit (its tabs)
 LLM_TIP = "Describe Canvas: describes the picture in PhotoCraft and puts the text in front of your prompt. Ctrl+Z undoes it."   # the Describe Canvas button (user 3.11.)
-STYLES_TIP = "Style prompts"
+STYLES_TIP = "Style prompts: pick a style or one of your saved prompts."
 SAVE_PROMPT_TIP = "Save prompt: keeps the text of the prompt under a name; find it under Style prompts > Custom prompts."   # the Save button next to Describe Canvas (user 11.11.)
 SET_STYLE_MODES = ("edit", "sketch")   # Styles sets the whole sentence here instead of adding to it (plan B, 10.11.; Edit canvas: its field is not filled on opening)
 STYLE_KEY = "style_"                # settings.json: the style chosen last per mode ("style_sketch")
-LIVE_TIP = "Shows the picture while it is being made, under the plugin. It goes away when the result is in PhotoCraft."
+LIVE_TIP = "Shows the picture while it is being made, under PxC. It goes away when the result is in PhotoCraft."
 ERROR, ERROR_TEXT = "#e5484d", "#ffc2c2"
 DONE_GREEN = "#39A95D"      # only the word "Done" above the bar
 def _dpi_aware() -> None:
@@ -977,6 +994,7 @@ __all__ = [
     "seed_typed_ok",
     "SEED_DIGITS",
     "WRITER_SEED_DEFAULT",
+    "REROLL_TIP",
     "workflows_tags",
     "FLUX2_SCHEDULER",
     "GenParams",
@@ -1012,6 +1030,9 @@ __all__ = [
     "wheel_up",
     "bind_wheel",
     "ENHANCE_TIP",
+    "WINDOW_BORDER",
+    "enhance_tip",
+    "ENHANCE_REROLL_TIP",
     "LORA_TIP",
     "STAGE_TIP",
     "FONT",

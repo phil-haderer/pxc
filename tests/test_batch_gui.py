@@ -605,7 +605,7 @@ def main():
     app._batch_recover()
     assert pump(app, lambda: ("recover",) in runner.calls)
     app._batch_event("queue-job", job("r1", "done"))
-    assert app.v_status.get() == "Picked up 1 batch result that finished while the plugin was closed.", app.v_status.get()
+    assert app.v_status.get() == "Picked up 1 batch result that finished while PxC was closed.", app.v_status.get()
 
     # ---- the setting "Name in the queue" ----
     cfgmod.set_setting(jobqueue.OWNER_SETTING, None)

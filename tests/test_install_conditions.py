@@ -92,7 +92,7 @@ def version_checks():
     assert note("0.20.2", "0.20.1") is None and note("0.21.0", "0.20.9") is None and note("1.0.0", "0.99.9") is None   # newer: no hint (minimum only)
     assert "older" in note("0.19.0", "0.20.1") and "older" in note("0.9.0", "0.10.0")     # compared as numbers, not as text
     assert note("v0.20.2-beta", "0.20.1") is None and "older" in note("v0.19.0-beta", "0.20.1")   # a prefix and a suffix are cut off
-    assert note("0.19.0", "0.20.1") == "PhotoCraft 0.19.0 is older than 0.20.1, the oldest version this plugin supports. Updating PhotoCraft is recommended."
+    assert note("0.19.0", "0.20.1") == "PhotoCraft 0.19.0 is older than 0.20.1, the oldest version PxC supports. Updating PhotoCraft is recommended."
     assert note("9.9.9") is None and photocraft.MIN_VERSION
     # the client: currentVersion of updates.status; no answer or an error gives None
     pc = photocraft.PhotoCraft.__new__(photocraft.PhotoCraft)

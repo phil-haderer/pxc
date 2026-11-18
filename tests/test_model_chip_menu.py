@@ -78,7 +78,7 @@ def main():
         ("command", "Hide this model")]
     app._chip_menu(app.v_model.get(), Ev())                # the chosen model offers it
     assert [(k, it.get("label")) for k, it in app.m_chip.items][1:] == [
-        ("command", "Reset to plugin standard settings (for this mode and model)"), ("sep", None), ("command", "Hide this model")]
+        ("command", "Reset to PxC standard settings (for this mode and model)"), ("sep", None), ("command", "Hide this model")]
     assert app.m_chip.items[0] == ("command", app.m_chip.items[0][1]) and app.m_chip.items[0][1]["label"] == "Set current settings as startup settings (for this mode and model)"   # renamed 12.11.
 
     # the function opens with the model last used for it (no favourite any more)

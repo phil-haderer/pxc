@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in PxC does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The quickest help comes with the **PxC report**: gear window ▸ **Other settings** ▸ **Copy report**, then paste it below. It contains no prompts and no access tokens.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead. The status line at the bottom of the window helps.
+    validations:
+      required: true
+  - type: input
+    id: model-function
+    attributes:
+      label: Model and function
+      placeholder: e.g. Flux 3 Klein, Edit ▸ Edit canvas
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: PxC report
+      description: Gear window ▸ Other settings ▸ Copy report. It lists the PxC, Python, PhotoCraft and ComfyUI versions.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: Graphics card and VRAM
+      placeholder: e.g. RTX 3060, 12 GB
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: |
+        Optional. If we ask for more: the last lines of `data\exchange\runs.jsonl` (Linux: `~/.cache/pccomfy/exchange/runs.jsonl`) and `last-graph.json` in the same folder, the exact request sent to ComfyUI. Both can contain your prompts, so look through them before you post.

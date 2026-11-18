@@ -16,7 +16,7 @@
       },
       {
        "name": "35 mm snapshot, harsh flash",
-       "text": "analog 35mm film grain, candid snapshot aesthetic, cinematic motion blur, harsh flash photography, lo-fi retro texture, moody atmospheric lighting, vintage film color grading"
+       "text": "35mm film snapshot, harsh direct flash, candid moment, film grain, slightly overexposed highlights, vintage colour"
       },
       {
        "name": "Tilt-shift, miniature look",
@@ -24,11 +24,11 @@
       },
       {
        "name": "Tiny planet, 360° circle",
-       "text": "stereographic projection, tiny planet effect, 360-degree panorama, surreal landscape, fish-eye lens distortion, circular horizon, vibrant nature"
+       "text": "stereographic projection, tiny planet effect, 360-degree panorama, fish-eye lens distortion, circular horizon"
       },
       {
-       "name": "Drone shot from above, turquoise water",
-       "text": "top-down aerial perspective, turquoise water, minimalist composition, drone photography, water caustics, geometric symmetry, vibrant light reflections"
+       "name": "Drone shot from above",
+       "text": "top-down aerial drone photography, minimalist composition, geometric symmetry, crisp light reflections, vibrant colours"
       },
       {
        "name": "Rainbow light leaks, dreamy",
@@ -44,7 +44,7 @@
       },
       {
        "name": "Cyanotype blue print, glowing",
-       "text": "monochromatic cyanotype palette, heavy film grain, glowing ethereal highlights, nocturnal atmosphere, submerged dreamscape, halation bloom, high-contrast low-key lighting, surreal lo-fi texture"
+       "text": "cyanotype print, monochrome Prussian blue and white, soft glowing highlights, fine film grain, paper texture"
       },
       {
        "name": "Golden hour travel photo",
@@ -61,7 +61,7 @@
      "styles": [
       {
        "name": "Bright white minimal, high key",
-       "text": "high-key minimalism, sterile white environment, diffused soft lighting, architectural geometric forms, editorial surrealism, shallow depth of field, clean crisp textures"
+       "text": "high-key minimalism, bright white surroundings, soft diffused light, clean sculptural forms, shallow depth of field, crisp textures"
       },
       {
        "name": "Coloured studio lights, red and blue",
@@ -110,11 +110,11 @@
       },
       {
        "name": "Film look, cool blue night",
-       "text": "cinematic twilight, cyan monochrome, backlit silhouette, nocturnal atmospheric, grainy film texture, liminal space, moody minimalism, moonlit melancholy"
+       "text": "cinematic night look, cyan monochrome grading, moonlight, grainy film texture, moody minimalism, soft haze"
       },
       {
        "name": "Film noir, teal and fog",
-       "text": "cinematic noir, deep indigo and teal, atmospheric fog, low-key lighting, heavy film grain, silhouette in window, voyeuristic perspective"
+       "text": "cinematic film noir, deep indigo and teal, atmospheric fog, low-key lighting, hard shadows, heavy film grain"
       },
       {
        "name": "Neon city night, bokeh",
@@ -122,7 +122,7 @@
       },
       {
        "name": "Light beams in haze, dramatic",
-       "text": "chiaroscuro lighting, volumetric light beams, deep blue and black palette, atmospheric haze, monolithic structures, high contrast, cinematic isolation, nocturnal atmosphere"
+       "text": "chiaroscuro lighting, volumetric light beams, atmospheric haze, deep blue and black palette, high contrast, cinematic isolation"
       },
       {
        "name": "Thriller, red and black",
@@ -160,7 +160,7 @@
      "styles": [
       {
        "name": "Oil painting, 19th-century realism",
-       "text": "impasto oil painting, visible brushstrokes, earthy color palette, chiaroscuro lighting, textured canvas, 19th century realism, atmospheric depth"
+       "text": "19th-century realist oil painting, visible impasto brushstrokes, earthy colour palette, chiaroscuro lighting, atmospheric depth, textured canvas"
       },
       {
        "name": "Impressionist painting, sunny",
@@ -168,19 +168,15 @@
       },
       {
        "name": "Swirling night-sky painting",
-       "text": "swirling impasto brushstrokes, post-impressionist digital painting, celestial nocturne, vibrant cobalt and gold, textured oil texture, dreamlike luminous atmosphere, dynamic rhythmic movement"
+       "text": "swirling impasto oil brushstrokes, post-impressionist, vibrant cobalt blue and gold, dynamic rhythmic movement, dreamlike luminous atmosphere"
       },
       {
        "name": "Baroque painting, dark and red",
-       "text": "chiaroscuro lighting, baroque oil painting style, deep crimson and black palette, regal gothic aesthetic, intricate metallic textures, dramatic shadows, infernal dark fantasy"
-      },
-      {
-       "name": "Dark romantic landscape, oil",
-       "text": "classical oil painting, chiaroscuro lighting, tonalist landscape, dark romanticism, textured canvas, nocturne atmosphere, muted earth tones, impasto brushstrokes"
+       "text": "baroque oil painting, dramatic chiaroscuro, deep crimson and black palette, rich metallic details, deep shadows, dramatic mood"
       },
       {
        "name": "Fauvist painting, wild colours",
-       "text": "thick impasto oil painting, fauvist color palette, expressive brushstrokes, bold black outlines, naive art style, saturated color blocking, textured canvas grain"
+       "text": "fauvist oil painting, wild unmixed colours, thick expressive brushstrokes, saturated colour blocking, textured canvas"
       },
       {
        "name": "Naive folk art",
@@ -188,7 +184,7 @@
       },
       {
        "name": "Gouache, flat and earthy",
-       "text": "grainy gouache texture, muted earth tones, minimalist flat composition, stippled shading, soft organic shapes, handcrafted illustration style, contemplative mood"
+       "text": "grainy gouache texture, muted earth tones, minimalist flat composition, soft organic shapes, handcrafted illustration style, contemplative mood"
       },
       {
        "name": "Watercolor storybook",
@@ -213,7 +209,7 @@
      "styles": [
       {
        "name": "Pencil gesture sketch",
-       "text": "minimalist gesture drawing, expressive pencil linework, textured paper background, visible construction lines, fluid ink silhouettes, analog sketch aesthetic, hand-drawn character design"
+       "text": "minimalist gesture drawing, expressive pencil linework, textured paper background, visible construction lines, analog sketch aesthetic, hand-drawn character design"
       },
       {
        "name": "Etching, cross-hatched",
@@ -221,11 +217,11 @@
       },
       {
        "name": "Linocut print",
-       "text": "risograph print, linocut illustration, textured cream paper, hand-carved aesthetic, grainy ink texture, bold graphic minimalism, vintage woodblock print, misregistered ink layers"
+       "text": "linocut print, bold hand-carved lines, grainy black ink, textured cream paper, high-contrast graphic look"
       },
       {
        "name": "Gothic ink drawing",
-       "text": "dark fantasy, ink wash, crimson accents, high-contrast engraving, gothic surrealism, skeletal motifs, textured parchment, intricate line art"
+       "text": "gothic ink drawing, ink wash, high-contrast engraving lines, crimson accents, textured parchment, intricate line art, dark mood"
       },
       {
        "name": "Minimal line art, flat colours",
@@ -254,7 +250,7 @@
       },
       {
        "name": "Clear-line comic",
-       "text": "ligne claire, flat vector illustration, bold black outlines, vibrant gradient background, paper grain texture, surrealist conceptual art, minimalist graphic design"
+       "text": "ligne claire, even black outlines, flat colours, no gradients, clean detailed backgrounds, paper texture"
       },
       {
        "name": "Flat corporate illustration",
@@ -279,19 +275,19 @@
       },
       {
        "name": "90s anime, VHS grain",
-       "text": "1990s anime style, hand-painted cel animation, nocturnal city lighting, vintage VHS film grain, cinematic retro anime, moody atmospheric color palette"
+       "text": "1990s anime style, hand-painted cel animation, vintage VHS film grain, cinematic retro anime, moody atmospheric colour palette"
       },
       {
-       "name": "Anime, rainy night city",
-       "text": "melancholic anime style, cinematic urban nightscape, cool blue and purple tones, rain-soaked atmosphere, soft bokeh lighting, introspective emotional close-up, dramatic shadow play"
+       "name": "Anime, rainy night",
+       "text": "melancholic anime style, cinematic night mood, cool blue and purple tones, rain and wet reflections, soft bokeh lights, dramatic shadows"
       },
       {
-       "name": "Anime background, golden sky",
-       "text": "2D anime illustration, hand-painted anime film background art, clean line work and cel shading, glowing golden-hour sky with large painted cumulus clouds, warm amber and soft teal palette, nostalgic slice-of-life mood"
+       "name": "Anime, golden sky",
+       "text": "2D anime illustration, hand-painted anime film art, clean line work and cel shading, glowing golden-hour sky with large painted cumulus clouds, warm amber and soft teal palette, nostalgic slice-of-life mood"
       },
       {
        "name": "Manga, bold ink",
-       "text": "minimalist manga illustration, bold ink line art, solid vibrant background, flat color blocking, high contrast graphic art, slice of life anime, pop art aesthetic"
+       "text": "manga ink illustration, bold black line art, screentone shading, black and white, high contrast, dynamic composition"
       },
       {
        "name": "Modern comic, cel shaded",
@@ -303,7 +299,7 @@
       },
       {
        "name": "1930s rubber-hose cartoon",
-       "text": "rubber hose animation style, bold ink outlines, vintage print texture, halftone shading, mid-century commercial art, minimalist graphic illustration, risograph aesthetic"
+       "text": "1930s rubber hose cartoon animation, bold black ink outlines, pie-cut eyes, bouncy limbs, black and white with halftone shading, vintage film grain"
       }
      ]
     },
@@ -315,16 +311,12 @@
        "text": "3D clay render, matte texture, minimalist rounded geometry, soft studio lighting, playful design, clean solid background, tactile digital sculpture"
       },
       {
-       "name": "Claymation toy figures",
-       "text": "3D claymation style, tactile toy aesthetic, soft pastel palette, matte and plush textures, chibi proportion, vibrant whimsical render, shallow depth of field"
-      },
-      {
-       "name": "Stop-motion, felt and clay",
-       "text": "tactile stop-motion style, felt and claymation textures, vibrant primary color palette, miniature diorama composition, shallow depth of field, whimsical character design, soft studio lighting"
+       "name": "Claymation, stop-motion",
+       "text": "stop-motion claymation, handmade clay and felt figures, tactile matte textures, soft pastel and primary colours, miniature set, soft studio light, shallow depth of field"
       },
       {
        "name": "Yarn embroidery",
-       "text": "tactile textile landscape, 3D embroidery relief, needle felted fiber art, chunky yarn texture, handcrafted wool tapestry, whimsical pastoral scene, intricate stitch detail"
+       "text": "3D embroidery relief, needle-felted fiber art, chunky yarn texture, handcrafted wool tapestry look, intricate stitch detail, soft whimsical colours"
       },
       {
        "name": "Voxel diorama, pastel",
@@ -332,7 +324,7 @@
       },
       {
        "name": "Low-poly game look",
-       "text": "low-poly 3D, voxel art style, golden hour sunset, nostalgic retro game graphics, volumetric lighting, pixelated textures, soft depth of field"
+       "text": "low-poly 3D, flat-shaded triangular facets, stylized game look, golden hour light, soft depth of field, clean simple textures"
       },
       {
        "name": "Liquid chrome 3D",
@@ -344,12 +336,12 @@
      "name": "Pixel & glitch",
      "styles": [
       {
-       "name": "8-bit pixel art",
-       "text": "pixel art, 8-bit retro gaming, dithered shading, cosmic surrealism, high-contrast palette, retro digital minimalism, nostalgic computer graphics"
+       "name": "Pixel art",
+       "text": "16-bit pixel art, limited colour palette, crisp square pixels, dithered shading, nostalgic game look"
       },
       {
        "name": "VHS glitch",
-       "text": "analog glitch art, CRT scanlines, chromatic aberration, VHS tracking error, pixelated decay, interlaced signal, cobalt blue aesthetic, retro digital distortion"
+       "text": "analog glitch art, CRT scanlines, chromatic aberration, VHS tracking error, pixelated decay, interlaced signal, retro digital distortion"
       }
      ]
     },
@@ -358,15 +350,15 @@
      "styles": [
       {
        "name": "Technicolor, 1950s print",
-       "text": "vintage halftone print, saturated technicolor palette, heavy film grain, mid-century retro aesthetic, lo-fi airbrush texture, pop surrealism, warm sun-drenched lighting"
+       "text": "saturated Technicolor palette, vintage 1950s halftone print, mid-century advertising look, warm sunlit colours, light grain"
       },
       {
        "name": "Vintage lithograph, three colours",
-       "text": "vintage lithograph texture, halftone dot pattern, stippled pointillism, tri-tone color palette, surrealist botanical illustration, retro risograph style, woodcut engraving aesthetic"
+       "text": "vintage three-colour lithograph, halftone dot pattern, tri-tone palette, soft paper texture, botanical-print look"
       },
       {
        "name": "1980s airbrush",
-       "text": "1980s airbrush illustration, nocturnal surrealism, vintage film grain, chromatic aberration, stippled glow, high-contrast chiaroscuro, cosmic lens flare, atmospheric dreamcore"
+       "text": "1980s airbrush illustration, smooth gradients, chrome highlights, soft glow, lens flare, high contrast"
       },
       {
        "name": "1970s sci-fi book cover",
@@ -386,28 +378,24 @@
        "text": "bioluminescent glow, dark fantasy illustration, chiaroscuro lighting, painterly digital texture, neon accent lighting, ethereal atmospheric depth, high-contrast noir"
       },
       {
-       "name": "Gothic fantasy, fiery red",
-       "text": "dark gothic fantasy, chiaroscuro lighting, fiery crimson accents, expressive impasto texture, ominous atmosphere, dynamic painterly brushstrokes, high contrast composition"
-      },
-      {
        "name": "Misty ancient forest ruins",
        "text": "cinematic dark fantasy, misty primordial forest, overgrown ancient ruins, desaturated green and earth tones, volumetric atmospheric lighting, scale comparison, moss-draped textures"
       },
       {
-       "name": "Cyberpunk city, neon rain",
-       "text": "cyberpunk megacity, volumetric atmospheric haze, high-contrast neon lighting, rain-slicked urban canyons, dramatic vertical perspective, futuristic industrial decay, magenta and cyan color palette"
+       "name": "Cyberpunk neon, rain",
+       "text": "cyberpunk look, high-contrast neon lighting, magenta and cyan palette, rain-slicked reflections, volumetric haze, futuristic industrial grit"
       },
       {
-       "name": "Concrete sci-fi megastructures",
-       "text": "brutalist sci-fi megastructures, monolithic concrete architecture, atmospheric hazy environment, muted cold tones with warm accents, monumental industrial scale, dystopian cinematic realism"
+       "name": "Brutalist sci-fi",
+       "text": "brutalist sci-fi look, raw concrete textures, hazy atmosphere, muted cold tones with warm accents, dystopian cinematic realism"
       },
       {
-       "name": "Green future city",
-       "text": "solarpunk, biophilic architecture, aerial perspective, organic curves, misty tropical landscape, vertical forests, eco-futurism"
+       "name": "Solarpunk",
+       "text": "solarpunk aesthetic, organic curves, soft misty daylight, fresh green and warm white palette, eco-futuristic optimism"
       },
       {
-       "name": "Deep space nebula",
-       "text": "deep space noir, ethereal light, analog film grain, glowing nebula, chiaroscuro lighting, retro-futuristic haze, cosmic mystery, diffused lens flare"
+       "name": "Cosmic glow",
+       "text": "ethereal cosmic light, glowing nebula colours, analog film grain, chiaroscuro lighting, retro-futuristic haze, diffused lens flare"
       }
      ]
     },
@@ -415,20 +403,16 @@
      "name": "Surreal",
      "styles": [
       {
-       "name": "Soft clouds, white minimal",
-       "text": "minimalist surrealism, ethereal cloud textures, soft diffuse lighting, sculptural white forms, pastel gradient backdrop, serene dreamscape, high-key composition"
-      },
-      {
-       "name": "Mirror lake, endless horizon",
-       "text": "surreal minimalism, glass-like perfect reflection, ethereal dreamscape, soft pastel gradients, symmetrical composition, vast horizon, diffused golden hour light"
+       "name": "Surreal reflections, pastel",
+       "text": "surreal minimalism, glass-like perfect reflections, soft pastel gradients, symmetrical composition, diffused golden hour light, serene dreamy mood"
       },
       {
        "name": "Floating objects, blue sky",
        "text": "minimalist surrealism, bright cerulean sky, sharp natural sunlight, high-contrast white textures, weightless floating objects, sculptural composition, airy dreamlike atmosphere"
       },
       {
-       "name": "Terracotta arches, warm light",
-       "text": "minimalist surrealism, terracotta architecture, geometric arches, sculptural plaster, dramatic sunlight, monochromatic warm palette, hypnotic perspective"
+       "name": "Terracotta tones, warm light",
+       "text": "minimalist surrealism, monochromatic terracotta palette, sculptural plaster textures, dramatic warm sunlight, long hard shadows"
       }
      ]
     }
@@ -623,7 +607,7 @@
       },
       {
        "name": "Technicolor, 1950s print",
-       "text": "Transform this image into a 1950s Technicolor print with saturated colours, halftone texture and heavy grain. Keep the composition, the subjects and their positions."
+       "text": "Transform this image into a 1950s Technicolor print with saturated colours, halftone texture and light grain. Keep the composition, the subjects and their positions."
       },
       {
        "name": "Synthwave",
@@ -648,31 +632,31 @@
       },
       {
        "name": "Studio portrait",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a professional studio portrait photograph with soft key light, a seamless grey backdrop and natural skin texture. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a professional studio portrait photograph with soft key light, a seamless grey backdrop and natural skin texture. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Studio product photo",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a clean commercial studio product photograph on a seamless white background with soft diffused light and gentle shadows. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a clean commercial studio product photograph on a seamless white background with soft diffused light and gentle shadows. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Stock photo (lifestyle)",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a bright lifestyle stock photograph with soft natural window light, warm natural tones and a candid feel. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a bright lifestyle stock photograph with soft natural window light, warm natural tones and a candid feel. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Golden hour travel photo",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a travel photograph in golden hour light with a warm amber glow and long soft shadows. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a travel photograph in golden hour light with a warm amber glow and long soft shadows. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Vintage black-and-white photo",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a vintage black-and-white film photograph with visible grain, soft contrast and slightly faded tones. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a vintage black-and-white film photograph with visible grain, soft contrast and slightly faded tones. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Black and white, hard light",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a high-contrast black-and-white photograph with hard directional light, deep shadows and fine film grain. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a high-contrast black-and-white photograph with hard directional light, deep shadows and fine film grain. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Cyanotype",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a cyanotype print in shades of Prussian blue and white with grainy texture and glowing highlights. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a cyanotype print in shades of Prussian blue and white with grainy texture and glowing highlights. Keep the composition and the shapes of the drawing. No drawing lines left."
       }
      ]
     },
@@ -681,19 +665,19 @@
      "styles": [
       {
        "name": "Film look, warm dusk",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a cinematic film still at dusk with warm amber light, deep blue shadows and 35 mm film grain. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a cinematic film still at dusk with warm amber light, deep blue shadows and 35 mm film grain. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Film look, cool blue night",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a cinematic film still at night with cool cyan tones, moonlit light and grainy film texture. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a cinematic film still at night with cool cyan tones, moonlit light and grainy film texture. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Film noir, teal and fog",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a film noir still with deep indigo and teal tones, low-key light, soft fog and heavy film grain. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a film noir still with deep indigo and teal tones, low-key light, soft fog and heavy film grain. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "1970s film, muted greens",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a 1970s film photograph with muted green and earth tones, overcast diffused light and vintage grain. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a 1970s film photograph with muted green and earth tones, overcast diffused light and vintage grain. Keep the composition and the shapes of the drawing. No drawing lines left."
       }
      ]
     },
@@ -702,19 +686,19 @@
      "styles": [
       {
        "name": "Watercolor",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a watercolor painting with soft washes, gentle colour bleeds and visible paper texture. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a watercolor painting with soft washes, gentle colour bleeds and visible paper texture. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Oil painting",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into an oil painting with visible brushstrokes, rich colours and canvas texture. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into an oil painting with visible brushstrokes, rich colours and canvas texture. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Impressionist painting",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into an impressionist oil painting with dappled light, textured brushstrokes and a soft pastel palette. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into an impressionist oil painting with dappled light, textured brushstrokes and a soft pastel palette. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Gouache",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a gouache painting with flat matte colour areas, muted earth tones and a grainy paper texture. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a gouache painting with flat matte colour areas, muted earth tones and a grainy paper texture. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Watercolor storybook",
@@ -722,11 +706,11 @@
       },
       {
        "name": "Japanese ink wash",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a Japanese ink wash painting in black ink with bleeding washes, translucent layers and open white space. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a Japanese ink wash painting in black ink with bleeding washes, translucent layers and open white space. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Oil pastel",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into an oil pastel drawing with bold fauvist colours, gestural strokes and textured paper. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into an oil pastel drawing with bold fauvist colours, gestural strokes and textured paper. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Naive folk art",
@@ -734,7 +718,7 @@
       },
       {
        "name": "Swirling night-sky painting",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a post-impressionist night-sky painting with swirling thick brushstrokes in cobalt blue and gold. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a post-impressionist night-sky painting with swirling thick brushstrokes in cobalt blue and gold. Keep the composition and the shapes of the drawing. No drawing lines left."
       }
      ]
     },
@@ -801,15 +785,15 @@
      "styles": [
       {
        "name": "Flat vector",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a flat vector illustration with clean shapes, hard-edged shadows and a warm sunny palette. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a flat vector illustration with clean shapes, hard-edged shadows and a warm sunny palette. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Mid-century travel poster",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a mid-century travel poster with bold colour blocks, simple geometric shapes and sharp graphic shadows. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a mid-century travel poster with bold colour blocks, simple geometric shapes and sharp graphic shadows. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Risograph",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a risograph print in a cobalt blue and yellow duotone with grainy texture and slightly misregistered layers. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a risograph print in a cobalt blue and yellow duotone with grainy texture and slightly misregistered layers. Keep the composition and the shapes of the drawing. No drawing lines left."
       }
      ]
     },
@@ -818,27 +802,27 @@
      "styles": [
       {
        "name": "3D render",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a stylized 3D render with soft global illumination, smooth materials and gentle depth of field. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a stylized 3D render with soft global illumination, smooth materials and gentle depth of field. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "3D clay render",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a 3D clay render with matte surfaces, soft rounded shapes and soft studio light. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a 3D clay render with matte surfaces, soft rounded shapes and soft studio light. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Claymation toy figures",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a claymation scene with tactile toy-like figures, matte and plush textures and a soft pastel palette. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a claymation scene with tactile toy-like figures, matte and plush textures and a soft pastel palette. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Stop-motion, felt and clay",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a stop-motion scene made of felt and clay with bright primary colours, miniature scale and soft studio light. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a stop-motion scene made of felt and clay with bright primary colours, miniature scale and soft studio light. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Voxel diorama",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into an isometric voxel diorama with small cubes, pastel colours and soft light. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into an isometric voxel diorama with small cubes, pastel colours and soft light. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Low-poly game look",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a low-poly 3D game scene with flat-shaded facets and soft warm light. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a low-poly 3D game scene with flat-shaded facets and soft warm light. Keep the composition and the shapes of the drawing. No drawing lines left."
       }
      ]
     },
@@ -847,19 +831,19 @@
      "styles": [
       {
        "name": "Pixel art",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into 16-bit pixel art with a limited colour palette and crisp square pixels. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into 16-bit pixel art with a limited colour palette and crisp square pixels. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Technicolor, 1950s print",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a 1950s Technicolor print with saturated colours, halftone texture and heavy grain. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a 1950s Technicolor print with saturated colours, halftone texture and light grain. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "Synthwave",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a synthwave image with neon magenta and cyan light, CRT scanlines and analog grain. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a synthwave image with neon magenta and cyan light, CRT scanlines and analog grain. Keep the composition and the shapes of the drawing. No drawing lines left."
       },
       {
        "name": "1980s airbrush",
-       "text": "Turn this sketch of <WHAT IT SHOWS> into a 1980s airbrush illustration with smooth gradients, a soft glow and lens flares. Keep the composition and the shapes of the drawing."
+       "text": "Turn this sketch of <WHAT IT SHOWS> into a 1980s airbrush illustration with smooth gradients, a soft glow and lens flares. Keep the composition and the shapes of the drawing. No drawing lines left."
       }
      ]
     }

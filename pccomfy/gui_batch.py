@@ -114,7 +114,7 @@ class BatchMixin:
             self._batch_sync_job = self.root.after(200, self._batch_sync)
 
     def _batch_recover(self):
-        """Once after the start: results a batch job finished at ComfyUI while the plugin was closed are picked up (runner thread)."""
+        """Once after the start: results a batch job finished at ComfyUI while PxC was closed are picked up (runner thread)."""
         runner = getattr(self, "runner", None)
         if runner is None or not _recover_allowed():
             return
@@ -181,7 +181,7 @@ class BatchMixin:
         if job.get("id") in getattr(self, "_rescue_ids", set()) and job.get("status") == jobqueue.DONE:
             self._rescue_ids.discard(job["id"])
             self._rescued = getattr(self, "_rescued", 0) + 1
-            self._status(f"Picked up {plural(self._rescued, 'batch result')} that finished while the plugin was closed.")
+            self._status(f"Picked up {plural(self._rescued, 'batch result')} that finished while PxC was closed.")
         if job.get("status") == jobqueue.RUNNING and job.get("batch_id") in getattr(self, "_batch_mine", set()):
             if job.get("batch_id") != getattr(self, "_batch_shown", None) or job.get("id") != getattr(self, "_batch_job", None):
                 self._batch_shown, self._batch_job, self._ahead_n = job["batch_id"], job["id"], 0
@@ -1046,7 +1046,7 @@ class BatchMixin:
             ok = getattr(r, action)(j["id"])
         self._queue_fill()
         if action == "retry" and not ok:
-            self.lbl_q_detail.configure(text="Can't retry: the settings of this batch are gone (the plugin was restarted).")
+            self.lbl_q_detail.configure(text="Can't retry: the settings of this batch are gone (PxC was restarted).")
         self._batch_sync_soon()
 
     # clicks in the list: a row's symbol does its action; a waiting or paused picture can be dragged to a new place (user 13.11.)

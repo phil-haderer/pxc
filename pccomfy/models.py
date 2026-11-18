@@ -152,8 +152,9 @@ def ref_scribble_text(tag_style: str) -> str:
 # same frames as the style pilot, tests/live_style_round.py; tools/build_style_looks.py writes the texts into styles.json).
 EDIT_FRAME = "Transform this image into {look}. Keep the composition, the subjects and their positions."
 SKETCH_FRAME = "Turn this sketch of " + SKETCH_MARK + " into {look}. Keep the composition and the shapes of the drawing."
-SKETCH_PLACEHOLDER = "Choose a style under Styles"
-NO_STYLE = "Choose a style under Styles, or type a prompt."
+SKETCH_NO_LINES = " No drawing lines left."     # after the frame of every Sketch style whose look wants no lines (user 18.11.)
+SKETCH_PLACEHOLDER = "Choose a style under Style prompts"
+NO_STYLE = "Choose a style under Style prompts, or type a prompt."
 SKETCH_TIP = ("Replace " + SKETCH_MARK + " with what the sketch shows, with its surroundings: "
               "“a house and a road in a green summer meadow”.")
 WRITTEN_TIP = "Loaded the written prompt: it runs as it is, without the prompt writer. Choose a style or a template to start fresh."   # Sketch after the history (user 10.11.)
@@ -218,7 +219,7 @@ FUNCTION_TIPS = {
     "edit": "Changes the whole picture from your text (\"make it night\"). A selection is ignored.",
     "multi_edit": ("Edit the picture with reference images in the slots below (drop, paste or add files). "
                    "Name them in the text by their tags. The whole picture changes; a selection is ignored."),
-    "sketch": "Turns a sketch on the canvas into a picture in the style you choose under Styles. A selection is ignored.",
+    "sketch": "Turns a sketch on the canvas into a picture in the style you choose under Style prompts. A selection is ignored.",
     "scribble": "Turns coloured scribbles on a photo into real objects; only the place around them changes. A selection is ignored.",
 }
 
@@ -381,8 +382,8 @@ FIBO = Model(
 # of 13 in 77 s (user 17.11.). 4 MP is the start (8 MP with the writer 12 of 13, but 108 s).
 GEN_MP_STEPS = (4, 8, 12, 16, 20)       # the size row of MiniMax (user 10.11.)
 MINIMAX_STEPS_TIP = "MiniMax H3 Image is made for 6 steps at CFG 1."
-MINIMAX_DESCRIBE_TIP = ("MiniMax H3 Image likes a long English description of the finished picture: subject, place, light, "
-                        "camera and style, in full sentences.")   # also in tips.py (h3-image-bench, user 13.11.)
+MINIMAX_DESCRIBE_TIP = ("Tip: tick \"Enhance my Prompt with LLM\" – MiniMax H3 Image likes a long English description of "
+                        "the finished picture.")   # also in tips.py (user 18.11., choice C)
 MINIMAX_T2I_TIP = MINIMAX_DESCRIBE_TIP   # the "Downsize to canvas" sentence went (too long, user 13.11.); it stays in DOWNSIZE_TIP
 MINIMAX_EDIT = dict(gen_mp=4, downsize=True, layer_mask="none", enhance=False)    # Edit / Multi image edit: 4 MP, "Downsize to canvas" on, the writer off (user 17.11.)
 MINIMAX = Model(
