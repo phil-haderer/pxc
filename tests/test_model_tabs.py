@@ -322,33 +322,34 @@ def main():
     assert json.loads((Path(t.TMP) / "state.json").read_text(encoding="utf-8"))["model"] == "qwen"
     assert json.loads((Path(t.TMP) / "state.json").read_text(encoding="utf-8"))["loras"] == [["qwen\\style_a.safetensors", 0.6]]
     from pccomfy import ui_settings
-    assert ui_settings.ALL_FILES_BUTTON == "Download all model files" and not hasattr(ui_settings, "tab_title")
-    # the model buttons of the settings window wrap into rows when the full names do not fit (user 3.11.)
-    class B:
-        def __init__(self, w):
-            self.w, self.pos = w, None
+    assert ui_settings.ALL_FILES_BUTTON == "Download missing files" and not hasattr(ui_settings, "tab_title")
+    # the model pages of the settings window behind one field (user 19.11., choice C; before a grid of chips)
+    assert not hasattr(ui_settings, "ButtonTabs") and hasattr(ui_settings, "ModelPicker")
 
-        def winfo_reqwidth(self):
-            return self.w
+    class Name:
+        def __init__(self):
+            self.kw = {}
 
-        def grid_forget(self):
-            self.pos = None
+        def configure(self, **kw):
+            self.kw.update(kw)
 
-        def grid(self, row, column, **kw):
-            self.pos = (row, column)
+    class Var:
+        def __init__(self, v=""):
+            self.v = v
 
-    class Bar:
-        def columnconfigure(self, *a, **k):
-            pass
-    bt = ui_settings.ButtonTabs.__new__(ui_settings.ButtonTabs)
-    bt.bar, bt.buttons = Bar(), [B(w) for w in (170, 160, 140, 190, 130, 130, 110)]
-    bt._layout(1100)
-    bt._layout(1100)                                                               # always two rows, 4 + 3 (user 12.11.)
-    assert [b.pos for b in bt.buttons] == [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2)], [b.pos for b in bt.buttons]
-    bt._layout(500)                                                                # too narrow for 4 in a row: wraps by width
-    assert max(b.pos[0] for b in bt.buttons) >= 2
-    bt._layout(800)
-    assert [b.pos for b in bt.buttons] == [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2)], [b.pos for b in bt.buttons]
+        def get(self):
+            return self.v
+
+        def set(self, v):
+            self.v = v
+    mp = ui_settings.ModelPicker.__new__(ui_settings.ModelPicker)
+    mp.name, mp.current, mp.titles, mp.pages = Name(), Var("p1"), {}, []
+    mp.tab("p2", text="Flux 2 Klein Edit", image="dot")            # not the page shown: the field stays
+    assert mp.name.kw == {} and mp.titles["p2"] == {"text": "Flux 2 Klein Edit", "image": "dot"}
+    mp.tab("p1", text="Qwen Image 2.1", image="dot", compound="left")
+    assert mp.name.kw == {"text": "Qwen Image 2.1", "image": "dot"} and mp.field_text == "Qwen Image 2.1"
+    mp.tab("p1", image="")                                         # ready: no dot
+    assert mp.name.kw["image"] == "" and mp.name.kw["text"] == "Qwen Image 2.1"
     shutil.rmtree(t.TMP, ignore_errors=True)
     print("ALL OK (model tabs)")
 

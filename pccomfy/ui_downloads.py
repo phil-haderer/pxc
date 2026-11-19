@@ -323,23 +323,23 @@ class DownloadMixin:
     CHECK_DAMAGED_HINT = ("A damaged file is not deleted by PxC. Delete it yourself in the folder shown, then load it "
                           "again with its disk symbol (or download it by hand).")
 
+    def _check_label(self) -> str:
+        """The entry of the menu "⋯" (user 19.11., choice K2; before a button): it stops a check that runs."""
+        return "Stop checking" if getattr(self, "_check", None) is not None else "Check files"
+
     def _check_row(self, parent):
-        """The row "Check files" on the tab Model Links: the button (it turns into "Stop checking" while it runs), a bar, a short
-        line and, after a check, the result per file."""
+        """What "Check files" (an entry of the menu "⋯") shows on the tab Model Links: a progress bar with a short line (only
+        while there is something to say) and, after a check, the result per file."""
         box = ttk.Frame(parent)      # noqa: F405
-        box.pack(fill="x", side="top", padx=12, pady=(8, 0))
-        head = ttk.Frame(box)      # noqa: F405
-        head.pack(fill="x")
+        box.pack(fill="x", side="top", padx=12)
+        head = self.f_check_head = ttk.Frame(box)      # noqa: F405
         running = getattr(self, "_check", None) is not None
-        self.b_check = ttk.Button(head, text="Stop checking" if running else "Check files", style="SetSmall.TButton",      # noqa: F405
-                                  command=self.check_files)
-        self.b_check.pack(side="left")
-        Tooltip(self.b_check, self.CHECK_TIP)      # noqa: F405
         self.pb_check = ttk.Progressbar(head, length=self._px(120), maximum=1, value=0)      # noqa: F405
         self.l_check = ttk.Label(head, text=getattr(self, "_check_line", ""), style="SetText.TLabel")      # noqa: F405
         self.l_check.pack(side="left", padx=(8, 0))
         if running:
-            self.pb_check.pack(side="left", padx=(8, 0), before=self.l_check)
+            self.pb_check.pack(side="left", padx=(0, 0), before=self.l_check)
+        self._check_head()
         self.t_check = tk.Text(box, height=1, wrap="word", relief="flat", borderwidth=0, highlightthickness=0,      # noqa: F405
                                bg=BG, fg=FG, font=font(9))      # noqa: F405
         self._check_show(getattr(self, "_check_result", None))
@@ -450,16 +450,31 @@ class DownloadMixin:
         if running and total and name:
             self._check_line = f"{round(100 * done / total)} %  " + name.replace("\\", "/").rpartition("/")[2]
         try:
-            self.b_check.configure(text="Stop checking" if running else "Check files")
             if running:
                 self.pb_check.configure(maximum=max(total, 1), value=done)
-                self.pb_check.pack(side="left", padx=(8, 0), before=self.l_check)
+                self.pb_check.pack(side="left", padx=(0, 0), before=self.l_check)
             else:
                 self.pb_check.pack_forget()
             self.l_check.configure(text=self._check_line)
+            self._check_head()
             if not running:
                 self._check_show(getattr(self, "_check_result", None))
         except (AttributeError, tk.TclError):      # noqa: F405  (the settings window is closed: the status line says the end)
+            pass
+
+    def _check_head(self):
+        """The line with the bar under the top row only while a check runs or its last line is to be read (no empty gap)."""
+        head = getattr(self, "f_check_head", None)
+        if head is None:
+            return
+        try:
+            if getattr(self, "_check", None) is not None or getattr(self, "_check_line", ""):
+                if head.winfo_manager() != "pack":
+                    others = head.master.pack_slaves()          # the result text: the line stays above it
+                    head.pack(fill="x", pady=(8, 0), **({"before": others[0]} if others else {}))
+            else:
+                head.pack_forget()
+        except tk.TclError:      # noqa: F405
             pass
 
     def _check_show(self, res):

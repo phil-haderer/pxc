@@ -6,6 +6,20 @@ entry here.
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-19
+
+### Added
+- **Update check:** once a day at the start PxC asks GitHub whether a newer version is out (GitHub sees your IP
+  address and the PxC version, nothing else). A newer version shows as a blue dot on the gear and a line at the top of
+  Gear ▸ Other settings with **What's new** (the release page) and **Skip this version**. **Check now** asks at once;
+  untick **Check for updates** to stop it. If you installed with `git clone`, **Update now** runs `git pull` for you.
+
+### Changed
+- **Model Links redesigned:** a narrower settings window; you pick the model in a field, and every file has its own
+  field that opens the search right below it (instead of the chain icon). One blue button **Download missing files**
+  shows the size. Undo, Reset and Check files moved into the menu **⋯**. The pages Model Links and Other settings are
+  chips like the function buttons, and **Supported Modes** sits above the mode tiles.
+
 ## [1.0.6] - 2026-11-19
 
 ### Added
@@ -98,7 +112,9 @@ in your document.
 - Windows 10/11 and Linux, an NVIDIA graphics card, PhotoCraft 0.20.2 or newer.
 - One custom node pack: ComfyUI-KJNodes.
 
-[Unreleased]: ../../compare/v1.0.5...HEAD
+[Unreleased]: ../../compare/v1.0.7...HEAD
+[1.0.7]: ../../compare/v1.0.6...v1.0.7
+[1.0.6]: ../../compare/v1.0.5...v1.0.6
 [1.0.5]: ../../compare/v1.0.4...v1.0.5
 [1.0.4]: ../../compare/v1.0.3...v1.0.4
 [1.0.3]: ../../compare/v1.0.2...v1.0.3

@@ -120,8 +120,8 @@ def main():
     app.open_settings()
     files = {d["name"]: d for d in ts.file_rows(app)}
     assert files[SMALL]["dl"] is None and files[SMALL]["browser"] is False and files[GATED]["browser"] is True
-    heads = {r[1]: r[5] for r in app._settings_rows() if r[0] == "model"}
-    assert heads["moss"]["count"] == 2 and heads["moss"]["size"] and heads["krea2"] is None      # the all-missing symbol: two or more
+    heads = {r[1]: r[2] for r in app._settings_rows() if r[0] == "download"}      # the blue button only where files are missing (user 19.11.)
+    assert heads["moss"]["count"] == 2 and heads["moss"]["size"] and "krea2" not in heads
 
     fake_gate = threading.Event()
     log = []
@@ -186,8 +186,8 @@ def main():
         rows = {d["name"]: d for d in ts.file_rows(app)}
         assert rows[ULTRA]["browser"] and rows[ULTRA]["hint"].startswith("The disk symbol opens civitai.com") and "civitai.com" in rows[ULTRA]["hint"]
         assert "models" + chr(92) + "loras" + chr(92) + "Flux 2" in rows[ULTRA]["hint"] and "licence" in rows[UPS]["hint"]
-        head = next(r for r in app._settings_rows() if r[0] == "model" and r[1] == "flux2")
-        assert head[5]["count"] == 1 and head[5]["site"] == 1      # the whole package, optional files too (user 3.11.): the same files the download below opens; Flux 2's Sketch writes with qwen3vl 4B since 10.11. (no gated upsampler)
+        head = next(r for r in app._settings_rows() if r[0] == "download" and r[1] == "flux2")
+        assert head[2]["count"] == 1 and head[2]["site"] == 1      # the whole package, optional files too (user 3.11.): the same files the download below opens; Flux 2's Sketch writes with qwen3vl 4B since 10.11. (no gated upsampler)
         asked = []
         t.mb.askokcancel = lambda title, msg, **k: asked.append(msg) or True
         opened.clear()
@@ -200,8 +200,8 @@ def main():
 
         # the tabs: rows split per model, the functions each model covers
         top, per, extra = app._settings_sections(app._settings_rows())
-        assert [r[0] for r in top] == ["links", "intro"] and set(per) == {m.key for m in ts.models.MODELS}
-        assert per["krea2"][0][0] == "model" and per["krea2"][1][0] == "enable" and per["krea2"][2][0] == "sep" and per["krea2"][3][0] == "modes"
+        assert [r[0] for r in top] == ["links"] and set(per) == {m.key for m in ts.models.MODELS}      # no intro text (user 19.11.)
+        assert per["krea2"][0][0] == "model" and per["krea2"][1][0] == "modes" and per["krea2"][2][0] in ("download", "head")
         assert extra[0][0] == "head" and all(r[0] in ("head", "file", "stop") for r in extra)
         cover = {m: st for m, _l, st, _tip in app._mode_cover("krea2")}
         assert cover["txt2img"] == "ready" and cover["inpaint"] == "none" and "img2img" not in cover
@@ -239,16 +239,16 @@ def check_button(app, mdir):
     target = mdir / "vae_approx" / SMALL
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"y" * small.size)                     # the right size, the wrong content: damaged
-    assert app.b_check.cget("text") == "Check files"
+    assert app._check_label() == "Check files"            # the entry of the menu "⋯" (user 19.11., K2)
     app.check_files()
-    assert app._check is not None and app.b_check.cget("text") == "Stop checking"
+    assert app._check is not None and app._check_label() == "Stop checking"
     drain_check(app, until=lambda: app._check is None)
     res = {r["name"]: r for r in app._check_result}
     assert set(res) == set(manifest.FILES), "every file of models.json is listed"
     assert res[SMALL]["state"] == "damaged" and target.exists() and target.stat().st_size == small.size      # not deleted
     assert res["flux2-vae.safetensors"]["state"] == "damaged"       # the fake download above wrote one byte: the size is wrong
     assert res["moss_image_sft_int8_convrot.safetensors"]["state"] == "missing"
-    assert "damaged" in app.l_check.cget("text") and "missing" in app.l_check.cget("text") and app.b_check.cget("text") == "Check files"
+    assert "damaged" in app.l_check.cget("text") and "missing" in app.l_check.cget("text") and app._check_label() == "Check files"
     report = app.check_report(app._check_result)
     assert report.startswith(app.CHECK_DAMAGED_HINT) and "Delete it yourself" in report and str(target) in report
     assert report.index("damaged: " + SMALL) < report.index("missing: moss_image_sft_int8_convrot.safetensors")
@@ -291,7 +291,7 @@ def check_button(app, mdir):
         app.check_files()                     # the second click stops it
         gate.set()
         drain_check(app, until=lambda: app._check is None)
-        assert app.l_check.cget("text") == "Check stopped." and app.b_check.cget("text") == "Check files"
+        assert app.l_check.cget("text") == "Check stopped." and app._check_label() == "Check files"
     finally:
         ui_downloads.downloads.check_files = real_check
 

@@ -313,13 +313,14 @@ class PopMenu:
         self._geo = (x, y, self._w, self._h)
         self._top.wm_geometry(f"{self._w}x{self._h}+{x}+{y}")
 
-    def tk_popup(self, x, y, entry="", anchor_w=None, above_w=None):
+    def tk_popup(self, x, y, entry="", anchor_w=None, above_w=None, below_w=None):
         """Shows the menu with its top left corner at screen (x, y) and returns at once. With `anchor_w` (a widget) the
         menu opens to the RIGHT of it, top-aligned (left of it when there is no room), x and y are then ignored.
-        With `above_w` it opens ABOVE that widget, right-aligned with it (the footer's hamburger), x and y are then ignored."""
-        self.post(x, y, anchor_w=anchor_w, above_w=above_w)
+        With `above_w` it opens ABOVE that widget, right-aligned with it (the footer's hamburger), x and y are then ignored.
+        With `below_w` it opens BELOW that widget, right-aligned with it (the "⋯" of the settings window, 19.11.)."""
+        self.post(x, y, anchor_w=anchor_w, above_w=above_w, below_w=below_w)
 
-    def post(self, x, y, anchor_w=None, above_w=None):
+    def post(self, x, y, anchor_w=None, above_w=None, below_w=None):
         if self._top is not None or any(m._top is not None for m in self._chain):
             self.unpost()
         if not self.entries:
@@ -334,6 +335,9 @@ class PopMenu:
         elif above_w is not None:
             x = above_w.winfo_rootx() + above_w.winfo_width() - self._w
             y = above_w.winfo_rooty() - self._h - self._px(SUB_GAP)
+        elif below_w is not None:
+            x = below_w.winfo_rootx() + below_w.winfo_width() - self._w
+            y = below_w.winfo_rooty() + below_w.winfo_height()
         self._place(int(x), int(y))
         self._chain = [self]
         self._show_top(self)

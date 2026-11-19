@@ -821,9 +821,11 @@ def main():
     import inspect
     src = inspect.getsource(ui_settings.SettingsMixin._other_settings)
     seq = [ln.strip() for ln in src.splitlines() if ln.strip().startswith("self._") and "(parent)" in ln]
-    assert [c.split("#")[0].strip() for c in seq] == ["self._comfy_address_row(parent)", "self._other_sep(parent)",
-                                                  "self._save_image_row(parent)", "self._other_sep(parent)", "self._owner_name_row(parent)",
-                                                  "self._ui_scale_row(parent)", "self._tips_setting_row(parent)"], seq
+    # the update line at the very top and "Check for updates" above the tips tick (user 19.11.)
+    assert [c.split("#")[0].strip() for c in seq] == ["self._update_note_row(parent)", "self._comfy_address_row(parent)",
+                                                  "self._other_sep(parent)", "self._save_image_row(parent)", "self._other_sep(parent)",
+                                                  "self._owner_name_row(parent)", "self._ui_scale_row(parent)",
+                                                  "self._update_check_row(parent)", "self._tips_setting_row(parent)"], seq
     assert src.index("Copy report") < src.index("_ui_scale_row")
 
     # ---- closing the window stops the runner; a batch job at ComfyUI is not cancelled ----

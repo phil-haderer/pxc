@@ -673,6 +673,10 @@ class RunMixin:
                     self._download_event(data)
                 elif kind == "filecheck":
                     self._check_event(data)
+                elif kind == "update":
+                    self._update_done(data)
+                elif kind == "update-git":
+                    self._update_git_done(*data)
                 elif kind == "feather":
                     self._feather_done(*data)
                 elif kind.startswith(("queue-", "batch-", "gen-")):

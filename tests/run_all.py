@@ -22,7 +22,7 @@ def child_env(home: str) -> dict:
     """Environment of one test process. PCCOMFY_HOME always points at a throw-away folder: pccomfy.config reads it at import
     time, so a test that imports pccomfy before it sets its own would otherwise use (and could overwrite) the real data/ folder.
     A test that sets its own PCCOMFY_HOME simply overrides this one."""
-    return {**os.environ, "PYTHONIOENCODING": "utf-8", "PCCOMFY_NO_TIPS": "1", "PCCOMFY_NO_WATCH": "1", "PCCOMFY_HOME": home}
+    return {**os.environ, "PYTHONIOENCODING": "utf-8", "PCCOMFY_NO_TIPS": "1", "PCCOMFY_NO_WATCH": "1", "PCCOMFY_NO_UPDATE_CHECK": "1", "PCCOMFY_HOME": home}
 
 
 def run_one(p: Path) -> tuple[Path, bool, str, float]:

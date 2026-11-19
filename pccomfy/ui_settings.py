@@ -13,66 +13,89 @@ name" and other settings. All decisions live in ``inventory.py`` and ``manifest.
 from __future__ import annotations
 
 import difflib
+import tkinter.font as tkfont
 import webbrowser
 
-from . import comfyaddr, comfydir, hostos, icons, inventory, jobqueue, linkpicker, manifest, namematch, savefile, sthead
+from . import comfyaddr, comfydir, hostos, icons, inventory, jobqueue, linkpicker, manifest, namematch, savefile, spacing, sthead
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 from .gui_theme import HEADER_H, ICON_PX
 from .popmenu import PopMenu
 from .ui_downloads import DownloadMixin, browser_only, site_hint, size_text
+from .ui_update import UpdateMixin
 
 EMPTY_TEXT = {"choose": "Choose a model", "none_linked": "Link your models in the settings"}
-STATE_TEXT = {"ready": "is ready.", "partial": "is not yet available", "missing": "is not yet available"}      # after the model name (user 1.11.)
+STATE_TEXT = {"ready": "ready", "partial": "not ready", "missing": "not ready"}      # small after the model name (user 19.11.; before "is ready.", 1.11.)
 HINT_SAME = "same size and header as "          # behind a file in the chain list (user 3.11.)
 HINT_INCOMPLETE = "incomplete? shorter than its header says"
-RELINKED_HEAD = "Relinked models:"      # over the list of your own files that stand in for expected ones (user 6.11.)
-LINKS_INTRO = ("Click the chain symbol next to a file to pick your own file. A model is enabled in PxC as soon as the files "
-               "for its standard settings are linked. ComfyUI reads its model folders only when it starts: After downloading a new "
-               "file, restart ComfyUI and click refresh (⟳) at the bottom of PxC.")      # the text on top of Model Links (user 16.11.)
 GGUF_ALT = "Alternatively:"
 GGUF_LINK = "Download GGUF-weights"      # under the weights of a main model (user 5.11.)
-SIMILAR_FILE = "A file with a similar name (not checked, make sure it is the right one): "      # under a missing file with no renamed copy: same model name, other precision or spelling (user 7.11.)
-PROBABLE_FILE = "This is probably the right file: "      # under a missing file, when a renamed copy of it is in the models folder (user 3.11.)
+SIMILAR_FILE = "Similar name (check it): "      # under a missing file with no renamed copy: same model name, other precision or spelling (user 7.11.; short 19.11.)
+PROBABLE_FILE = "Probably right: "      # under a missing file, when a renamed copy of it is in the models folder (user 3.11.; short 19.11.)
+FIELD_MISSING = "Missing · choose your file"      # the link field of a missing file (user 19.11.)
+FIELD_LINKED = " · linked"                       # after your file in the link field (blue)
+RESTART_NOTE = "Loaded: restart ComfyUI, then click refresh (⟳) at the bottom of PxC."      # under a file just downloaded
 HINT_IN_USE = "in use"            # behind the file the plugin uses now in the list of the chain symbol (user 7.11.)
 HINT_EXPECTED = "the expected file"      # in the chain list, when another file is linked: the way back
 HINT_SIMILAR = "similar name"
 HINT_EXPLAIN = "Marked files have the same size and safetensors header as another file PxC expects."
 DOT_RED = "#e5484d"                   # the dot in front of a model that is not available (nothing in front of a ready one)
 DOT_PAD = 4                            # px of room to the left of the dot (user 1.11.)
-SETTINGS_W, SETTINGS_H = 640, 700      # the settings window at first (before the display scaling; 16 % narrower since 2.11.); then the size it was closed at
-SET_ICON_PX = 16                       # the download and chain symbols next to a file
+SETTINGS_W, SETTINGS_H = 520, 700      # the settings window at first (before the display scaling; 640 until 19.11.); then the size it was closed at
+SET_ICON_PX = 16                       # the download symbol next to a file
 SET_STYLES = {"head": "SetHead.TLabel", "ok": "SetOk.TLabel", "bad": "SetBad.TLabel", "note": "SetNote.TLabel",
               "muted": "SetMuted.TLabel", "green": "SetGreen.TLabel", "red": "SetRed.TLabel",
-              "head9": "SetHead9.TLabel", "warn": "SetWarn.TLabel", "hint": "SetHint.TLabel"}
-SET_MIN_W, SET_MIN_H = 480, 300        # the smallest the settings window can be dragged to
+              "head9": "SetHead9.TLabel", "warn": "SetWarn.TLabel", "hint": "SetHint.TLabel", "section": "SetSection.TLabel"}
+SET_MIN_W, SET_MIN_H = 440, 300        # the smallest the settings window can be dragged to (480 until 19.11.)
+# the spacing of Model Links (user 19.11.): page margin, inside one file, between two files, before a section
+SET_PAD, SET_IN, SET_ITEM, SET_SECTION = 16, 4, 12, 20
+MODEL_GAP = 24                         # between the model chips and the name of the model (user 19.11.)
 
 
-class ButtonTabs(ttk.Frame):
-    """The model tabs of the settings window as a row of buttons that wraps into more rows (user 3.11.): the full model names
-    do not fit side by side. Used like the part of ttk.Notebook the window needs: add, select, index, tab."""
+class ModelPicker(ttk.Frame):
+    """The model pages of the settings window behind one field like the link fields of the files (user 19.11., choice C;
+    before a grid of chips that took three rows): "● Qwen Image 2.1 ▾". A click opens a list of every model and "Additional",
+    a red dot in front of a model whose files are missing. Used like the part of ttk.Notebook the window needs: add, select,
+    index, tab; ``on_select`` is called with a page after it is shown (the window draws a page then)."""
 
-    GAP = 4
-
-    def __init__(self, parent):
+    def __init__(self, parent, app):
         super().__init__(parent)
-        self.bar = ttk.Frame(self)
-        self.bar.pack(fill="x", pady=(4, 6))
+        self.app = app
+        px = app._px
+        self.bar = tk.Frame(self, bg=PANEL, highlightthickness=1, highlightbackground=CHIP_LINE, highlightcolor=CHIP_LINE,
+                            cursor="hand2", takefocus=1)
+        self.bar.pack(fill="x")
+        self.arrow = tk.Label(self.bar, text="▾", bg=PANEL, fg=FG, font=font(9), padx=px(8), cursor="hand2")
+        self.arrow.pack(side="right")
+        self.name = tk.Label(self.bar, text="", bg=PANEL, fg=FG, font=font(10), anchor="w", compound="left",
+                             padx=px(8), pady=px(4), cursor="hand2")
+        self.name.pack(side="left", fill="x", expand=True)
         self.body = ttk.Frame(self)
         self.body.pack(fill="both", expand=True)
         self.pages: list = []
-        self.buttons: list = []
+        self.titles: dict = {}             # str(page) -> {"text": ..., "image": ...}
         self.current = tk.StringVar(value="")
-        self.bar.bind("<Configure>", lambda e: self._layout(e.width), add="+")
+        self.on_select = None
+        self.menu = None
+        for w in (self.bar, self.name, self.arrow):
+            w.bind("<Button-1>", self.open_list, add="+")
+            w.bind("<Enter>", lambda e: self._hover(True), add="+")
+            w.bind("<Leave>", lambda e: self._hover(False), add="+")
+        self.bar.bind("<Return>", self.open_list, add="+")
+        self.bar.bind("<space>", self.open_list, add="+")
+        Tooltip(self.name, "Choose the model whose files you want to see.")
+
+    def _hover(self, on: bool):
+        try:
+            self.bar.configure(highlightbackground="#9a9a9a" if on else CHIP_LINE)
+        except tk.TclError:
+            pass
 
     def add(self, page, text: str = ""):
-        b = ttk.Radiobutton(self.bar, text=text, value=str(page), variable=self.current, style="Set.Tab.Toolbutton",
-                            command=lambda p=page: self.select(p))
         self.pages.append(page)
-        self.buttons.append(b)
+        self.titles[str(page)] = {"text": text, "image": ""}
         if len(self.pages) == 1:
             self.select(page)
-        self._layout(self.bar.winfo_width())
 
     def select(self, page=None):
         if page is None:
@@ -83,48 +106,47 @@ class ButtonTabs(ttk.Frame):
             p.pack_forget()
         page.pack(in_=self.body, fill="both", expand=True)
         self.current.set(str(page))
+        self._show_name()
+        if self.on_select is not None:
+            self.on_select(page)
         return None
 
     def index(self, page) -> int:
         return self.pages.index(page)
 
     def tab(self, page, **kw):
-        self.buttons[self.pages.index(page)].configure(**kw)
-        self._layout(self.bar.winfo_width())
+        t = self.titles.setdefault(str(page), {"text": "", "image": ""})
+        for k in ("text", "image"):
+            if k in kw:
+                t[k] = kw[k] or ""
+        if str(page) == self.current.get():
+            self._show_name()
 
-    def _layout(self, width: int):
-        """Two rows (user 12.11.): the first gets ceil(n/2) buttons (7 models: 4 + 3), the second the rest; each row's buttons
-        share its width. Only if such a row is wider than the bar, the buttons fill a row until the next does not fit."""
-        n = len(self.buttons)
-        widths = []
-        for b in self.buttons:
-            w = b.winfo_reqwidth()
-            widths.append(w if isinstance(w, int) else 0)
-        gap = self.GAP
-        per_row = max(1, -(-n // 2))
-        rows = [list(range(i, min(i + per_row, n))) for i in range(0, n, per_row)]
-        if isinstance(width, int) and width > 1 and any(sum(widths[i] for i in r) + gap * (len(r) - 1) > width for r in rows):
-            rows, cur, used = [], [], 0
-            for i in range(n):
-                if cur and used + gap + widths[i] > width:
-                    rows.append(cur)
-                    cur, used = [], 0
-                cur.append(i)
-                used += widths[i] + (gap if len(cur) > 1 else 0)
-            if cur:
-                rows.append(cur)
-        for b in self.buttons:
-            b.grid_forget()
-        for r, row in enumerate(rows):
-            for c, i in enumerate(row):
-                self.buttons[i].grid(row=r, column=c, sticky="ew", padx=(0, gap), pady=(0, gap))
-                self.bar.columnconfigure(c, weight=1)
+    def _show_name(self):
+        t = self.titles.get(self.current.get(), {"text": "", "image": ""})
+        try:
+            self.name.configure(text=t["text"], image=t["image"] or "")
+        except tk.TclError:
+            pass
+        self.field_text = t["text"]          # for the tests
 
+    def open_list(self, e=None):
+        """The list under the field: every page, with the red dot as in the field."""
+        menu = PopMenu(self.app._settings_win or self.app.root, scale=getattr(self.app, "ui", 1.0))
+        for p in self.pages:
+            t = self.titles.get(str(p), {"text": "", "image": ""})
+            menu.add_command(label=t["text"], icon=t["image"] or None, command=lambda pg=p: self.select(pg))      # no tick: the field names it
+        menu.tk_popup(self.bar.winfo_rootx(), self.bar.winfo_rooty() + self.bar.winfo_height())
+        self.menu = menu
+        return "break"
 
-ALL_FILES_BUTTON = "Download all model files"      # one model's whole package, the optional files too (user 3.11.)
-OPTIONAL_HEAD = "Needed for additional features"      # what for stands in brackets after each file (manifest.feature_use, user 16.11.)
-# one short line under a locked model (user 16.11. evening: the info text at the top explains linking and the restart)
-NOT_ALL_WEIGHTS = "Files for the standard settings of {name} are missing."
+LINK_MSG_MS = 10_000                             # the message with Undo after a change of the links shows this long (user 19.11.)
+MODES_HEAD = "Supported Modes"                    # before the mode tiles of a model (user 19.11.; before "Modes")
+ALL_FILES_BUTTON = "Download missing files"      # one model's missing files, the optional ones too (user 3.11.; name 19.11.)
+REQUIRED_HEAD = "Required"                        # the files of the standard settings (user 19.11.; before "Standard settings need these weights:")
+OPTIONAL_HEAD = "Optional"                        # the files of extra features; what for stands small after each file (user 19.11.)
+ADDITIONAL_HEAD = "Used by several models"        # the page "Additional"
+NOT_ALL_WEIGHTS = "Files for the standard settings of {name} are missing."      # the tooltip of a locked "Show in PxC"
 
 
 def file_path(f) -> str:
@@ -135,7 +157,7 @@ GEAR_HEAD_PX = round(ICON_PX * 0.6 * 1.2)      # the gear, now in the header: 12
 FOOT_REFRESH_PADX, FOOT_RESET_PADX = (4, 0), (12, 0)     # footer: the refresh arrow close to the ComfyUI dot, "Reset page" apart
 
 
-class SettingsMixin(DownloadMixin):
+class SettingsMixin(DownloadMixin, UpdateMixin):
     inv = None                  # inventory.Inventory of the last successful reading (None = ComfyUI not read / not reachable)
     _inv_error = ""
     _settings_win = None
@@ -167,6 +189,7 @@ class SettingsMixin(DownloadMixin):
                                    wraplength=self._px(MIN_W - 40))
         self._foot_hidden = False
         self._apply_start_state(fit=False)
+        self._update_init()             # the blue dot of a newer release and the daily check (ui_update.py)
 
     # ---------- reading ComfyUI ----------
 
@@ -440,10 +463,11 @@ class SettingsMixin(DownloadMixin):
     # ---------- the overlay: content as plain data (tested without Tk) ----------
 
     def _settings_rows(self) -> list[tuple]:
-        """The "Models" tab as rows (kind, data), drawn by _settings_draw; no Tk here. Kinds: "error" (text, detail), "intro"
-        (text), "model" (key, label, state, focus), "file" (a dict, see below), "node" (class, pack, url), "head" (text),
-        "line" (text, style). A file row: expected name, path with its folder ("/vae/flux2-vae.safetensors"), found (your
-        file's name or None), level (required / optional), size text, download url, note, found on disk (a path or "")."""
+        """The "Models" tab as rows (kind, data), drawn by _settings_draw; no Tk here. Kinds (user 19.11.): "links" (the top row:
+        Undo and Reset; no count, choice A), "error" (text, detail), "model" (key, label, state, focus, can be shown), "modes" (key, cover),
+        "download" (key, what is missing), "file" (a dict, see below), "gguf" (url), "node" (class, pack, url), "head" (text),
+        "stop" (file names). A file row: expected name, path with its folder ("/vae/flux2-vae.safetensors"), kind, found (your
+        file's name or None), linked, level (required / optional), size text, download url, found on disk (a path or "")."""
         self._fill_ctx = {"extra": {}, "disk": {}, "cands": {}}      # models folder, yaml, disk files, candidates: once per fill
         try:
             return self._settings_rows_now()
@@ -453,29 +477,29 @@ class SettingsMixin(DownloadMixin):
     def _settings_rows_now(self) -> list[tuple]:
         rows: list[tuple] = []
         links = cfgmod.model_map()
-        rows.append(("links", "Linked files"))
-        rows.append(("intro", LINKS_INTRO))      # one paragraph (user 31.10.; new wording 16.11.)
-        if links:       # a headline over the relinked models, in the font of the other headlines (user 6.11.)
-            rows.append(("head", RELINKED_HEAD))
-        rows += [("line", f"{k}  →  {v}", "hint") for k, v in sorted(links.items())]      # the blue of the tip under the prompt marks what you changed (user 6.11.)
+        if self._fill_ctx is not None:
+            self._fill_ctx["links"] = links
+        # the top row: how many files are linked, with Undo and Reset (user 19.11.: no intro text and no list; a linked file is
+        # blue in its own field)
+        rows.append(("links", len(links)))      # no "N files linked" (user 19.11., choice A: it read as wrong; a linked file is blue)
         if self.inv is None:
             rows.append(("error", "ComfyUI could not be read.", (self._inv_error or "Not connected yet.")
                          + "\nStart ComfyUI, then click the refresh arrow (⟳) at the bottom of PxC."))
-            rows += [("enable", m.key, m.label, True) for m in models.MODELS]
+            rows += [("model", m.key, m.label, "", False, True) for m in models.MODELS]      # only "Show in PxC" (no mark, no state)
         else:
             for row in self.inv.rows():
                 miss = [f for f, found, lv in row["files"] if found is None and f.url and not self._dl_done(f)]      # every file of the package (user 3.11.)
                 direct = [f for f in miss if not browser_only(f)]
+                # the head: mark, name, state and "Show in PxC" in one line (user 19.11.); the last value: can it be shown
                 rows.append(("model", row["key"], row["label"], row["status"].state, row["key"] == self._settings_focus,
-                             {"count": len(direct), "site": len(miss) - len(direct), "size": size_text(sum(f.size for f in direct))}
-                             if miss else None))
-                rows.append(("enable", row["key"], row["label"], row["status"].state != "missing"))
-                rows.append(("sep",))
-                rows.append(("modes", row["key"], self._mode_cover(row["key"])))      # no text model line any more (user 16.11.)
-                rows.append(("sep",))
+                             row["status"].state != "missing"))
+                rows.append(("modes", row["key"], self._mode_cover(row["key"])))      # small tiles (user 19.11.)
+                if miss:      # the one blue button of the page (user 19.11.)
+                    rows.append(("download", row["key"], {"count": len(direct), "site": len(miss) - len(direct),
+                                                          "size": size_text(sum(f.size for f in direct))}))
                 needed = [x for x in row["files"] if x[2] == "required"]
                 extra = [x for x in row["files"] if x[2] != "required"]
-                rows.append(("head", "Standard settings need these weights:"))
+                rows.append(("head", REQUIRED_HEAD))
                 last_unet = max((i for i, x in enumerate(needed) if x[0].kind == "unet"), default=-1)
                 for i, (f, found, level) in enumerate(needed):
                     rows.append(("file", self._file_data(f, found, level)))
@@ -485,12 +509,11 @@ class SettingsMixin(DownloadMixin):
                     pack = manifest.node_pack(c)
                     rows.append(("node", c, pack[0] if pack else "", pack[1] if pack else ""))
                 if extra:       # the files of the extra features, apart from the ones the standard settings need (user 2.11.)
-                    rows.append(("sep",))
                     rows.append(("head", OPTIONAL_HEAD))
                     for f, found, level in extra:      # what each file is for, in brackets after it (user 16.11.)
                         rows.append(("file", {**self._file_data(f, found, level), "feature": manifest.feature_use(row["key"], f.name)}))
                 rows.append(("stop", [f.name for f, _fd, _lv in row["files"]]))
-            rows.append(("head", "Additional models (used by several models)"))
+            rows.append(("head", ADDITIONAL_HEAD))
             add_names = []
             for f, found, use, keys in self.inv.additional_rows():
                 add_names.append(f.name)
@@ -501,28 +524,42 @@ class SettingsMixin(DownloadMixin):
 
     def _mode_cover(self, key: str) -> list[tuple]:
         """The functions a model covers: (mode key, label, state, tooltip); state ready / missing (a file or node is missing) /
-        none (the model does not offer it)."""
+        none (the model does not offer it). Named as in the main window (user 19.11.): the tab "Edit canvas" for the whole-picture
+        edit, and the two tabs that are no mode of their own: "Insert reference" (Flux 3, under Fill; runs as Multi image edit)
+        and "Scribble with reference" (runs as Scribble on photo)."""
         m = models.BY_KEY[key]
+        names = {"edit": "Edit canvas", "multi_edit": "Multi image edit"}      # the tab names under the prompt
+        extra = {"inpaint": ("bbox", "Insert reference", "multi_edit", bool(m.bbox)),
+                 "scribble": ("refscribble", models.REF_SCRIBBLE_LABEL, "scribble", "scribble" in m.modes and models.offers_ref_scribble(m))}
         out = []
-        for mode, label in MODE_LABELS:           # noqa: F405
-            if mode == "img2img":
-                continue
-            if mode not in m.modes:
+
+        def add(mode, label, status_of, offered):
+            if not offered:
                 out.append((mode, label, "none", "This model does not offer this function."))
-                continue
-            st = self.inv.mode_status(key, mode) if self.inv is not None else None
+                return
+            st = self.inv.mode_status(key, status_of) if self.inv is not None else None
             if st is None or st.state == "ready":
                 out.append((mode, label, "ready", "Ready."))
             else:
                 need = [f.name for f in st.missing] + list(st.nodes)
                 out.append((mode, label, "missing", "Missing: " + ", ".join(need[:3]) + (" ..." if len(need) > 3 else "")))
+
+        for mode, label in MODE_LABELS:           # noqa: F405
+            if mode == "img2img":
+                continue
+            add(mode, names.get(mode, label), mode, mode in m.modes)
+            if mode in extra:
+                add(*extra[mode])
         return out
 
     def _file_data(self, f, found, level) -> dict:
         """One file row: expected name, path, found (your file's name or None), level, size, url, note, the download state
         (see DownloadMixin._dl_info), "restart" (loaded, ComfyUI does not list it yet) and "browser" (its page opens instead)."""
         probable = self._probable_file(f) if found is None else ""
+        ctx = getattr(self, "_fill_ctx", None)
+        links = ctx["links"] if (ctx and "links" in ctx) else cfgmod.model_map()
         return {"name": f.name, "path": file_path(f), "found": found, "level": level, "size": f.size_text, "url": f.url,
+                "kind": manifest.KIND_LABEL.get(f.kind, f.kind), "linked": f.name in links,      # the field of the file (user 19.11.)
                 "dl": self._dl_info(f.name),        # no note of models.json under a file (user 16.11. evening; before: no licence, 2.11.)
                 "restart": found is None and f.name in self._dl_restart, "browser": browser_only(f) if f.url else False,
                 "hint": site_hint(f) if (found is None and f.url and browser_only(f)) else "",
@@ -683,50 +720,108 @@ class SettingsMixin(DownloadMixin):
 
         # no ComfyUI dot and no Refresh here: the plugin's footer has both
 
-        self.sep_set_tabs = ttk.Frame(win, style="SepWhite.TFrame", height=1)      # a white line above the tabs Model Links / Other settings (user 6.11.)
-        self.sep_set_tabs.pack(fill="x", padx=10, pady=(4, 0))
-        nb = ttk.Notebook(win)              # tab 1: the models; tab 2: other settings (no credits tab since 16.11.)
-        nb.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        # the pages Model Links / Other settings: a ttk.Notebook without its own tabs, chosen by two chips like the model chips of
+        # the main window (user 19.11.: blue when chosen, no lines above or below). The title, the chips and the content of a page
+        # stand on one line from the left edge: the notebook's 4, the 2 px of the theme's frame around a page, the page's 12.
+        self._set_left = spacing.Keep(spacing.scale(4) + 2 + spacing.scale(12))
+        st = ttk.Style()
+        st.layout("Plain.TNotebook.Tab", [])
+        st.configure("Plain.TNotebook", tabmargins=(0, 0, 0, 0))
+        # as large as the function buttons of the main window (user 19.11.): their font (10 pt, bold when chosen) and their
+        # height, and their top edge level with theirs when the two windows stand side by side, tops level: the plugin has
+        # 8 + 2 below its header (f_tabs, the grid of the functions), here the chips' grey line of 1 takes one of them
+        st.configure("SetTab.Chip.Toolbutton", padding=(14, 3), font=font(10))
+        st.map("SetTab.Chip.Toolbutton", font=[("selected", font(10, bold=True))])
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=(self._set_left, self._set_left),
+                 pady=(spacing.Keep(spacing.scale(8) + spacing.scale(2) - spacing.scale(1)), 0))
+        chips = tk.Frame(row, bg=CHIP_LINE, bd=0, highlightthickness=0)      # its colour shows as the lines around the chips
+        chips.pack(side="left")
+        try:
+            fn_h = self.rb_modes["edit"].winfo_reqheight()
+            chips.rowconfigure(0, minsize=fn_h + 2 * spacing.scale(1))      # the chip itself as high as a function button
+        except (AttributeError, KeyError, tk.TclError):
+            pass
+        nb = ttk.Notebook(win, style="Plain.TNotebook")      # tab 1: the models; tab 2: other settings (no credits tab since 16.11.)
+        nb.pack(fill="both", expand=True, padx=4, pady=(0, 8))      # 4 + 2 + 12 inside the page: the line of _set_left
         tab_models, tab_other = ttk.Frame(nb), ttk.Frame(nb)
-        nb.add(tab_models, text="Model Links")
-        nb.add(tab_other, text="Other settings")      # general switches (user 1.11.): for now the tip popup
+        self._set_tab = tk.IntVar(value=0)
+        self.set_tab_chips = []
+        for i, (page, text) in enumerate(((tab_models, "Model Links"), (tab_other, "Other settings"))):
+            nb.add(page, text=text)
+            c = ttk.Radiobutton(chips, text=text, value=i, variable=self._set_tab, style="SetTab.Chip.Toolbutton",
+                                command=lambda i=i: nb.select(i))
+            c.grid(row=0, column=i, sticky="nsew", padx=(1, 1 if i == 1 else 0), pady=1)
+            # room for its text in bold inside the raised border of a chosen chip (border and ring, 3 px a side), else it is cut off
+            try:
+                bold = tkfont.Font(root=win, font=font(10, bold=True)).measure(text)
+                chips.columnconfigure(i, minsize=bold + 2 * spacing.scale(14) + 2 * self._px(4))
+            except (tk.TclError, AttributeError, TypeError):
+                pass
+            self.set_tab_chips.append(c)
         self._other_settings(tab_other)
         self.nb_settings = nb
+        # "⋯" at the right end of the chip row, only on Model Links (user 19.11., choice K2): Undo, Reset, Check files
+        self.b_set_more = tk.Label(row, text="⋯", bg=BG, fg=FG, font=font(14), padx=self._px(4), pady=0, cursor="hand2", takefocus=1)
+        Tooltip(self.b_set_more, "Undo, reset the links, check the files")
+        for seq in ("<Button-1>", "<Return>", "<space>"):
+            self.b_set_more.bind(seq, lambda e: (self._links_menu(), "break")[1], add="+")
+        self.b_set_more.bind("<Enter>", lambda e: self.b_set_more.configure(fg=ACCENT), add="+")
+        self.b_set_more.bind("<Leave>", lambda e: self.b_set_more.configure(fg=FG), add="+")
+
+        def tab_changed(e=None):
+            try:
+                i = nb.index(nb.select())
+                self._set_tab.set(i)               # also when a page is chosen in code (the ComfyUI address opens Other settings)
+                if i == 0:
+                    self.b_set_more.pack(side="right")
+                else:
+                    self.b_set_more.pack_forget()
+            except tk.TclError:
+                pass
+        nb.bind("<<NotebookTabChanged>>", tab_changed, add="+")
+        tab_changed()
 
         # which models the plugin shows (user 29.10.): after installing, all are shown; untick to hide one (the right-click
         # menu of a chip hides too, only here a model comes back). The tick sits in the tab of its model (user 31.10.)
         hidden = cfgmod.hidden_tabs()
         self._shown_vars = {m.key: tk.BooleanVar(value=m.key not in hidden) for m in models.MODELS}
 
-        # on top of "Models": the linked files (they hold for every model), below them one tab per model and "Additional"
+        # on top of "Models": the message after a change of the links with its Undo (only then), the line of Check files while
+        # it runs or has something to say, then the field with the model and the page of the model
         self.f_set_top = ttk.Frame(tab_models)
-        self.f_set_top.pack(fill="x", side="top", padx=12, pady=(10, 0))      # the same margin as the other tabs (user 6.11.)
+        self.f_set_top.pack(fill="x", side="top", padx=12)
         self.f_set_top.bind("<Configure>", lambda e: self._settings_wrap("top", e.width), add="+")
         self._check_row(tab_models)        # "Check files" (user 17.11.): the checksums of the files on the disk
-        ttk.Frame(tab_models, style="SepWhite.TFrame", height=1).pack(fill="x", pady=(6, 0))      # white line above the model tabs (user 1.11.)
-        self.nb_models = ButtonTabs(tab_models)
-        self.nb_models.pack(fill="both", expand=True, pady=(0, 0))
+        self.nb_models = ModelPicker(tab_models, self)
+        self.nb_models.pack(fill="both", expand=True, padx=(12, 0), pady=(12, 0))      # the field 12 px in; the page's scroll bar at the right edge
+        self.nb_models.bar.pack_configure(padx=(0, 12))      # the field ends 12 px before the right edge too
+        self.nb_models.body.pack_configure(pady=(MODEL_GAP, 0))      # room between the field and the model's name
         self._set_pages = {m.key: self._scroll_page(m.key, m.label) for m in models.MODELS}
         self._set_pages["additional"] = self._scroll_page("additional", "Additional")
+        keys = {str(p["page"]): k for k, p in self._set_pages.items()}
+        self.nb_models.on_select = lambda page: self._draw_page(keys.get(str(page), ""))
         bind_wheel(win, self._settings_wheel)      # only this window: the plugin's body has its own
         self._set_widgets = []
-
-        self._settings_fill()
+        self._page_rows = {}               # nothing to draw yet: the page of the focus is chosen first, then only it is drawn
+        self._link_msg = ""                # the message with Undo shows only after a change in this window
         if focus in self._set_pages:
             self._select_model_tab(focus)
+
+        self._settings_fill()
         self._detect_async()       # a model copied in since the last reading is listed when the window opens (if ComfyUI sees it)
 
     def _settings_frame(self, win):
         """What the missing title bar leaves to us: a thin strip on top with the X (dragging it moves the window) and a grip
         in the lower right corner (dragging it resizes the window)."""
-        tk.Frame(win, height=self._px(3), bg=ACCENT).pack(fill="x", side="top")      # the blue line on the top edge (user 2.11.)
         # the header as the plugin's header (user 6.11.): the same height (as a function button), the same top margin, the title
         # in the same size (H1: 12 pt, white, thin) and at the same distance from the left edge
         bar = ttk.Frame(win, height=self._px(HEADER_H))
-        bar.pack(fill="x", side="top", pady=(max(0, 8 - self._px(3)), 0))      # the blue line above is 3 px: the title stays level with the plugin's title (user 7.11.)
+        # no blue line on top any more (user 19.11.): its 3 px go into the gap, the title stays level with the plugin's title (user 7.11.)
+        bar.pack(fill="x", side="top", pady=(spacing.Keep(spacing.scale(max(0, 8 - self._px(3))) + self._px(3)), 0))
         bar.pack_propagate(False)
         title = ttk.Label(bar, text="Settings", foreground="#ffffff", font=font(12))
-        title.pack(side="left", padx=(12, 0))
+        title.pack(side="left", padx=(spacing.Keep(spacing.scale(4) + 2 + spacing.scale(12)), 0))      # on the line of the chips and the page (user 19.11.)
         x = ttk.Button(bar, text="✕", style="Link.TButton", width=2, command=self._settings_close)
         x.pack(side="right", padx=(0, 6))
         Tooltip(x, "Close the settings.")
@@ -761,6 +856,7 @@ class SettingsMixin(DownloadMixin):
 
     def _other_settings(self, parent):
         """The tab "Other settings" (user 1.11.): the tip tick, and two buttons that undo things done elsewhere in the plugin."""
+        self._update_note_row(parent)         # "Update X available" at the very top, only while one is known (user 19.11., H2)
         self._comfy_address_row(parent)
         self._other_sep(parent)
         self._save_image_row(parent)
@@ -778,6 +874,7 @@ class SettingsMixin(DownloadMixin):
             b.pack(side="top", anchor="w", padx=14, pady=(8, 0))
             Tooltip(b, tip)
         self._ui_scale_row(parent)
+        self._update_check_row(parent)        # "Check for updates" and "Check now" (user 19.11., A1 + A2)
         self._tips_setting_row(parent)        # the very bottom of the tab (user 13.11.)
 
     @staticmethod
@@ -1124,7 +1221,7 @@ class SettingsMixin(DownloadMixin):
         cv.pack(side="left", fill="both", expand=True)
         sb = ThinScrollbar(box, cv, self._px(6), BG, auto=True)
         rows = ttk.Frame(cv)
-        win_id = cv.create_window(self._px(12), 0, window=rows, anchor="nw")      # 12 px from the left edge like the other tabs
+        win_id = cv.create_window(0, 0, window=rows, anchor="nw")      # the notebook is 12 px in already (user 19.11.)
         cv.bind("<Configure>", lambda e: (cv.itemconfigure(win_id, width=max(1, e.width - self._px(12))), self._settings_wrap(key, e.width - self._px(12))), add="+")
         rows.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")), add="+")
         return {"page": box, "cv": cv, "sb": sb, "rows": rows}
@@ -1145,7 +1242,7 @@ class SettingsMixin(DownloadMixin):
 
     def _settings_size(self) -> tuple[int, int]:
         """The window's size: the one it had when it was last closed, else about 640 x 700 (user 2.11.: 16 % narrower than before, remembered)."""
-        saved = cfgmod.get_setting("settings_size2")
+        saved = cfgmod.get_setting("settings_size3")      # a new key with the narrower window (19.11.): the old size is not used
         if isinstance(saved, list) and len(saved) == 2 and all(isinstance(v, int) and v >= 300 for v in saved):
             return saved[0], saved[1]
         return self._px(SETTINGS_W), self._px(SETTINGS_H)
@@ -1205,8 +1302,8 @@ class SettingsMixin(DownloadMixin):
         win, self._settings_win = self._settings_win, None
         try:
             w, h = win.winfo_width(), win.winfo_height()
-            if isinstance(w, int) and isinstance(h, int) and w >= 300 and h >= 300 and [w, h] != cfgmod.get_setting("settings_size2"):
-                cfgmod.set_setting("settings_size2", [w, h])      # the size you gave it comes back next time (user 30.10.)
+            if isinstance(w, int) and isinstance(h, int) and w >= 300 and h >= 300 and [w, h] != cfgmod.get_setting("settings_size3"):
+                cfgmod.set_setting("settings_size3", [w, h])      # the size you gave it comes back next time (user 30.10.)
         except (tk.TclError, AttributeError):
             pass
         try:
@@ -1216,7 +1313,8 @@ class SettingsMixin(DownloadMixin):
 
     def _fill_key(self):
         """What the drawing reads besides the rows (not in the rows): hidden models, the state of the link buttons, running downloads."""
-        return (tuple(sorted(cfgmod.hidden_tabs())), bool(self._map_undo), cfgmod.model_map() != self._map_start, tuple(sorted(self._dl)))
+        return (tuple(sorted(cfgmod.hidden_tabs())), bool(self._map_undo), cfgmod.model_map() != self._map_start, tuple(sorted(self._dl)),
+                getattr(self, "_link_msg", ""))
 
     def _settings_fill(self):
         rows = self._settings_rows()
@@ -1232,10 +1330,10 @@ class SettingsMixin(DownloadMixin):
         """The flat rows split for the tabs: (the rows above the models, {model key: its rows}, the rows of "Additional")."""
         top, per, extra, cur = [], {}, [], None
         for row in rows:
-            if row[0] in ("model", "enable") and row[1] != cur:
+            if row[0] == "model" and row[1] != cur:
                 cur = row[1]
                 per[cur] = []
-            elif row[0] == "head" and row[1].startswith("Additional"):
+            elif row[0] == "head" and row[1] == ADDITIONAL_HEAD:
                 cur = "additional"
             if cur is None:
                 top.append(row)
@@ -1260,10 +1358,25 @@ class SettingsMixin(DownloadMixin):
             return
         top, per, extra = self._settings_sections(rows)
         self._draw_rows(top, top_frame, "top")
-        for key, page in pages.items():
-            self._draw_rows(extra if key == "additional" else per.get(key, []), page["rows"], key)
+        # a page is drawn when it is first shown (user 19.11., choice A: all 8 at once took seconds); the one on screen now
+        self._page_rows = {key: extra if key == "additional" else per.get(key, []) for key in pages}
+        self._pages_drawn = set()
         self._settings_titles()
-        self._settings_wrap()
+        self._settings_wrap("top")
+        try:
+            shown = self.nb_models.select()
+        except (tk.TclError, AttributeError):
+            shown = None
+        self._draw_page(next((k for k, p in pages.items() if p["page"] is shown), ""))
+
+    def _draw_page(self, key: str):
+        """The rows of one model page as widgets, once per drawing of the window (_settings_draw forgets them all)."""
+        pages, rows = getattr(self, "_set_pages", None), getattr(self, "_page_rows", {})
+        if not pages or key not in pages or key not in rows or key in self._pages_drawn:
+            return
+        self._pages_drawn.add(key)
+        self._draw_rows(rows[key], pages[key]["rows"], key)
+        self._settings_wrap(key)
 
     def state_dot(self, state: str):
         """The red dot in front of a model that is not active or available (some or all of its files are missing), with
@@ -1291,16 +1404,18 @@ class SettingsMixin(DownloadMixin):
                 pass
 
     def _draw_rows(self, rows, parent, page: str):
-        """One frame per row in ``parent``: a model's head line, then its files (mark and path on the left, size and the
-        download and chain symbols packed at the right edge first, so a narrow window shortens or wraps the path and never
-        lets the symbols cover it)."""
-        made, count = self._set_widgets, [0]
+        """One frame per row in ``parent``, with the gaps of the page (user 19.11.: SET_IN inside a file, SET_ITEM between two
+        files, SET_SECTION before a section): a model's head line, its modes as tiles, the download button, then its files.
+        A file: mark, kind and size (and the download symbol) on one line, the link field below it."""
+        made, count, prev = self._set_widgets, [0], [""]
         parent.columnconfigure(0, weight=1)
-        slot = self._px(24)
+        px = self._px
+        slot = px(24)
+        indent = 20              # a gap of pack: spacing.py scales it; the field and the notes of a file stand under its kind, right of the mark
 
-        def line():
+        def line(top: int = 0):
             f = ttk.Frame(parent)
-            f.grid(row=count[0], column=0, sticky="ew")
+            f.grid(row=count[0], column=0, sticky="ew", pady=(top if count[0] else 0, 0))
             count[0] += 1
             made.append(f)
             return f
@@ -1315,7 +1430,9 @@ class SettingsMixin(DownloadMixin):
 
         def fit_to_row(box, lb):
             """``lb`` wraps at the width its row leaves it: the row's width minus what the other widgets of the row really
-            take (tick, size, symbols, with their padding), measured, not guessed (user 16.11.: 280 px left a wide gap)."""
+            take (mark, size, symbols, with their padding), measured, not guessed (user 16.11.: 280 px left a wide gap).
+            Measured once when the row is made (they are all packed by then); _settings_wrap applies it with the page's width
+            (19.11.: a <Configure> handler on every row set off a chain of resizes, a page took half a second to show)."""
             lb.configure(justify="left")
 
             def pads(w):          # pack_info gives padx as a number (both sides) or a pair (left, right), as Tk objects or text
@@ -1323,13 +1440,11 @@ class SettingsMixin(DownloadMixin):
                 p = list(p) if isinstance(p, (tuple, list)) else str(p).replace("{", "").replace("}", "").split()
                 return sum(int(float(str(x))) for x in p) * (2 if len(p) == 1 else 1)
 
-            def on_size(e):
-                try:
-                    used = sum(k.winfo_reqwidth() + pads(k) for k in box.pack_slaves() if k is not lb)
-                    lb.configure(wraplength=max(self._px(120), e.width - used - pads(lb) - self._px(4)))
-                except (tk.TclError, ValueError):
-                    pass
-            box.bind("<Configure>", on_size, add="+")
+            try:
+                used = sum(k.winfo_reqwidth() + pads(k) for k in (box.pack_slaves() or []) if k is not lb)
+                self._wrap_labels.append((lb, used + pads(lb) + px(4), page))
+            except (tk.TclError, ValueError, TypeError, AttributeError):
+                pass
 
         def icon(box, kind, tip, command, menu=None, copy=""):
             b = ttk.Button(box, image=self._icon(kind, px=SET_ICON_PX), style="Link.TButton", command=command)
@@ -1340,71 +1455,64 @@ class SettingsMixin(DownloadMixin):
             if menu is not None:
                 b.bind("<Button-3>", menu, add="+")
 
+        def note(text, style, button="", command=None):
+            """A line under a file's field: a hint, with a small button after it (Use) when one click settles it."""
+            box = line(SET_IN)
+            if button:
+                b = ttk.Button(box, text=button, style="SetSmall.TButton", command=command)
+                b.pack(side="right", padx=(8, 0), anchor="n")
+            lb = label(box, text, style, padx=(indent, 0), anchor="w")
+            fit_to_row(box, lb)
+
         for row in rows:
             kind = row[0]
             if kind == "error":
                 box = line()
                 label(box, row[1], "bad", padx=(0, 0))
                 box = line()
-                label(box, row[2], "muted", pady=(0, 8), wrap=self._px(20))
-            elif kind == "intro":
-                label(line(), row[1], "muted", pady=(0, 4), wrap=self._px(20))
+                label(box, row[2], "muted", pady=(0, 8), wrap=px(20))
             elif kind == "model":
-                _k, key, name, state, focus, allm = row
-                box = line()
-                if allm:
-                    b = ttk.Button(box, text=f"{ALL_FILES_BUTTON} ({allm['size']})", image=self._icon("save", px=SET_ICON_PX), compound="left",
-                                   style="SetSmall.TButton", command=lambda k=key: self.download_missing(k))
-                    b.pack(side="right", padx=(4, 0), pady=(6, 2))
-                    Tooltip(b, f"Download the missing files this model needs ({allm['count']}, {allm['size']})"
-                               + (f"; {allm['site']} open their page in the browser." if allm["site"] else "."))
-                # a green tick or a red X to the left of "<model> is ready." / "<model> is not yet available" (user 3.11.)
-                label(box, "\u2713" if state == "ready" else "\u2717", "green" if state == "ready" else "red", padx=(0, 6), pady=(6, 2))
-                label(box, name + " " + STATE_TEXT[state] + ("   \u25C0" if focus else ""), "head", pady=(6, 2))
-            elif kind == "enable":
-                key = row[1]
-                usable = row[3] if len(row) > 3 else True
+                _k, key, name, state, focus, usable = row
+                box = line(SET_ITEM)
                 var = self._shown_vars[key]
-                var.set(key not in cfgmod.hidden_tabs() if usable else False)     # a model without its files is not in the plugin
-                cb = ttk.Checkbutton(line(), text="Show this model in PxC", variable=var, style="SetText.TCheckbutton",
+                var.set(key not in cfgmod.hidden_tabs() if usable else False)     # a model without its files is not in PxC
+                cb = ttk.Checkbutton(box, text="Show in PxC", variable=var, style="SetText.TCheckbutton",
                                      command=lambda k=key, v=var: self._set_model_hidden(k, not v.get()))
-                cb.pack(side="left", pady=(0, 4))
+                cb.pack(side="right")
                 made.append(cb)
                 if usable:
                     Tooltip(cb, "Untick to hide this model in PxC, tick to show it again.")
                 else:
                     cb.configure(state="disabled")
-                    Tooltip(cb, "This model can be shown only when the files for its standard settings are there (see below).")
-                    label(line(), NOT_ALL_WEIGHTS.format(name=row[2]), "note", padx=(8, 0), pady=(0, 4), wrap=self._px(60))
+                    Tooltip(cb, NOT_ALL_WEIGHTS.format(name=name))
+                # the name stands in the field above (user 19.11.): here only the tick or X and the state (user 3.11.)
+                if state:
+                    label(box, "✓" if state == "ready" else "✗", "green" if state == "ready" else "red", padx=(0, 6))
+                    label(box, STATE_TEXT[state], "muted")
             elif kind == "modes":
-                box = line()      # one text box: the modes (user 1.11.; the text model line below it went 16.11.); it wraps with the window
-                offered = [m for m in row[2] if m[2] != "none"]       # what the model offers
-                cover = ", ".join(("✗ " if st == "missing" else "") + t for _m, t, st, _tip in offered)      # an X on a mode with missing files
-                t = tk.Text(box, wrap="word", bg=BG, fg="#ffffff", relief="flat", borderwidth=0, highlightthickness=0, padx=0, pady=0,
-                            font=font(9), cursor="arrow", height=1, takefocus=0)
-                t.tag_configure("head", font=font(9, bold=True))
-                t.insert("end", "Covers these modes: ", "head")
-                t.insert("end", cover)
-                t.configure(state="disabled")
-                t.pack(fill="x", pady=(6, 2))
-                t.bind("<Configure>", lambda e, t=t: self._fit_text(t, e.width), add="+")
-                made.append(t)
+                self._mode_tiles(line(SET_ITEM), row[2])
+            elif kind == "download":
+                allm = row[2]
+                box = line(SET_ITEM)
+                b = ttk.Button(box, text=f"{ALL_FILES_BUTTON} · {allm['size']}", style="SetAccent.TButton",
+                               command=lambda k=row[1]: self.download_missing(k))
+                b.pack(side="left")
+                Tooltip(b, f"Download the missing files of this model ({allm['count']}, {allm['size']})"
+                           + (f"; {allm['site']} open their page in the browser." if allm["site"] else "."))
             elif kind == "file":
                 f = row[1]
                 ok = f["found"] is not None
-                box = line()
-                # the symbols first: pack gives the space to what is packed first, the path takes what is left
-                icon(box, "link", "Use another file of yours for this one: opens the list of the files ComfyUI has.",
-                     lambda n=f["name"]: self._choose_for(n))
+                box = line(8 if prev[0] == "head" else SET_ITEM)
+                # the symbols first: pack gives the space to what is packed first, the kind takes what is left
                 dl = f["dl"]
                 if dl:                                  # loading: a bar and a cross instead of size and disk symbol
-                    cancel = ttk.Button(box, text="\u2715", style="Link.TButton", width=2,
+                    cancel = ttk.Button(box, text="✕", style="Link.TButton", width=2,
                                         command=lambda n=f["name"]: self.download_cancel(n))
                     cancel.pack(side="right", padx=(4, 0))
                     Tooltip(cancel, "Stop this download. What is loaded stays, loading it again goes on where it stopped.")
                     lb = ttk.Label(box, text="", style=SET_STYLES["muted"], width=8, anchor="e")
                     lb.pack(side="right")
-                    bar = ttk.Progressbar(box, length=self._px(90), maximum=max(dl["total"], 1), value=dl["done"])
+                    bar = ttk.Progressbar(box, length=px(90), maximum=max(dl["total"], 1), value=dl["done"])
                     bar.pack(side="right", padx=(8, 4))
                     self._dl_widgets[f["name"]] = {"bar": bar, "label": lb}
                     self._dl_paint(f["name"])
@@ -1415,69 +1523,148 @@ class SettingsMixin(DownloadMixin):
                         icon(box, "save", tip, lambda n=f["name"]: self.download_file(n), menu=lambda e, u=f["url"]: self._link_menu(e, u))
                     else:
                         ttk.Frame(box, width=slot, height=1).pack(side="right", padx=(4, 0))
-                    lb = ttk.Label(box, text=f["size"] if (f["size"] and not ok) else "", style=SET_STYLES["muted"], width=8, anchor="e")
+                    lb = ttk.Label(box, text=f["size"] or "", style=SET_STYLES["muted"], width=8, anchor="e")
                     lb.pack(side="right")
-                # the tick or X stays on the first line when the path wraps (user 16.11.: not centred on the entry)
-                label(box, "\u2713" if ok else "\u2717", "ok" if ok else ("bad" if f["level"] == "required" else "note"), padx=(8, 6), pady=(self._px(2), 0), anchor="n")
-                path = f["path"] + (f"  ({f['feature']})" if f.get("feature") else "")      # what an extra file is for (user 16.11.)
-                lb_path = label(box, path, "muted" if ok else "", pady=(self._px(2), 0), anchor="n")
-                fit_to_row(box, lb_path)     # a long path wraps (Tk breaks inside the word) instead of running under the symbols (user 13.11.)
-                extra = [(f["use"], "muted")] if f.get("use") else []
+                label(box, "✓" if ok else "✗", "ok" if ok else ("bad" if f["level"] == "required" else "note"),
+                      padx=(0, 6), anchor="n", width=2)
+                what = f.get("feature") or f.get("use") or ""      # what an optional or shared file is for, small after its kind
+                lb_kind = label(box, f["kind"] + (f"   {what}" if what else ""), "", anchor="w")
+                fit_to_row(box, lb_kind)
+                fbox = line(SET_IN)
+                self._link_field(fbox, f, page, spacing.scale(indent)).pack(fill="x", padx=(indent, 0))
+                if f["probable"]:          # a renamed copy of it: one click links it (user 19.11.: a Use button)
+                    note(PROBABLE_FILE + f["probable"], "hint", "Use", lambda n=f["name"], p=f["probable"]: self._link_models(n, p))
+                elif f.get("similar"):
+                    note(SIMILAR_FILE + f["similar"], "hint", "Use", lambda n=f["name"], p=f["similar"]: self._link_models(n, p))
                 if f["hint"]:
-                    extra.append((f["hint"], "note"))               # orange: a website is needed
-                if ok and f["other"]:
-                    extra.append((f"your file: {f['found']}", "muted"))
-                if f["probable"]:
-                    extra.append((PROBABLE_FILE + f["probable"], "note"))      # the chain symbol links it with one click
-                if f.get("similar") and not f["probable"]:
-                    extra.append((SIMILAR_FILE + f["similar"], "note"))      # the chain symbol links it (the list starts with a search)
+                    note(f["hint"], "note")               # a website is needed
                 if f["restart"]:
-                    extra.append(("loaded: restart ComfyUI and click the refresh arrow to list it", "note"))
-                for text, style in extra:
-                    label(line(), text, style, padx=(36, 0), wrap=self._px(60))
+                    note(RESTART_NOTE, "note")
             elif kind == "gguf":
-                box = line()
-                # no extra room above the line: it belongs to the weights row over it (user 16.11.: the gap was too big)
-                label(box, GGUF_ALT, "muted", padx=(36, 4), anchor="n")
+                box = line(SET_IN)
+                label(box, GGUF_ALT, "muted", padx=(indent, 4), anchor="n")
                 b = ttk.Button(box, text=GGUF_LINK, style="SetLink.TButton", command=lambda u=row[1]: webbrowser.open(u))
                 b.pack(side="left", anchor="n")
                 b.copy_text = row[1]                      # right-click: Copy link
                 Tooltip(b, "Opens the Hugging Face page of the GGUF files in your browser (smaller files for little VRAM). "
-                           "Put the file in ComfyUI's models/unet folder, restart ComfyUI and link it with the chain symbol; "
+                           "Put the file in ComfyUI's models/unet folder, restart ComfyUI and choose it in the field above; "
                            "needs the ComfyUI-GGUF node pack.")
             elif kind == "node":
                 _k, cls, pack, url = row
-                box = line()
+                box = line(SET_ITEM)
                 if url:
                     icon(box, "link", f"Get {pack or 'the node pack'}: opens its page.", lambda u=url: webbrowser.open(u), copy=url)
-                label(box, "\u2717", "bad", padx=(8, 6), anchor="n")
-                label(box, f"node {cls}" + (f"   \u2192 {pack}" if pack else ""), "", wrap=self._px(120), anchor="n")
+                label(box, "✗", "bad", padx=(0, 6), anchor="n")
+                label(box, f"node {cls}" + (f"   → {pack}" if pack else ""), "", wrap=px(120), anchor="n")
             elif kind == "head":
-                label(line(), row[1], "head", pady=(10, 2))
+                label(line(SET_SECTION), row[1], "section")
             elif kind == "stop":         # bottom right of every page: stops every running download of this page's files (user 2.11.)
                 names = list(row[1])
                 if not any(n in self._dl for n in names):         # only while a download of this page runs (user 2.11.)
                     continue
-                b = ttk.Button(line(), text="Stop downloads", style="SetSmall.TButton", command=lambda n=names: self.download_cancel_all(n))
-                b.pack(side="right", padx=(4, 0), pady=(10, 8))          # at the right edge like the symbols and the other buttons
+                b = ttk.Button(line(SET_ITEM), text="Stop downloads", style="SetSmall.TButton",
+                               command=lambda n=names: self.download_cancel_all(n))
+                b.pack(side="right", padx=(4, 0))
                 Tooltip(b, "Stops every download that is running for the files on this page. What is loaded stays, loading it again goes on where it stopped.")
-            elif kind == "sep":          # a light line before "Covers these modes", "Standard settings need these weights" and the optional files (user 1.11., 2.11.)
-                ttk.Frame(line(), style="Sep.TFrame", height=1).pack(fill="x", pady=(8, 0))
-            elif kind == "links":          # the head of "Linked files" with its Undo and Reset
+            elif kind == "links":          # after a change of the links: its message and Undo (user 19.11., K2); else nothing
+                msg = getattr(self, "_link_msg", "")
+                if not msg:
+                    continue
                 box = line()
-                self.b_link_reset = ttk.Button(box, text="Reset to startup", command=self._link_reset, style="SetSmall.TButton")
-                self.b_link_reset.pack(side="right", pady=(2, 2))
-                Tooltip(self.b_link_reset, "All links as they were when PxC started.")
-                self.b_link_undo = ttk.Button(box, text="Undo", command=self._link_undo, style="SetSmall.TButton")
-                self.b_link_undo.pack(side="right", padx=(0, 6), pady=(2, 2))
-                Tooltip(self.b_link_undo, "Takes back the last change of the links.")
-                self.b_link_default = ttk.Button(box, text="Reset to default models", command=self._link_default, style="SetSmall.TButton")
-                self.b_link_default.pack(side="right", padx=(0, 6), pady=(2, 2))
-                Tooltip(self.b_link_default, "Removes all links: every model uses its own standard file again (Undo brings the links back).")
-                label(box, row[1], "head", pady=(2, 2))
-                self._link_buttons()
-            elif kind == "line":
-                label(line(), row[1], row[2], padx=(8, 0), wrap=self._px(40))
+                box.grid_configure(pady=(12, 0))
+                if self._map_undo:
+                    b = ttk.Button(box, text="Undo", command=self._link_undo, style="SetSmall.TButton")
+                    b.pack(side="right", padx=(8, 0))
+                    Tooltip(b, "Takes back the last change of the links.")
+                    self.b_link_undo = b
+                lb = label(box, msg, "muted", anchor="w")
+                fit_to_row(box, lb)
+            prev[0] = kind
+        if page != "top":          # room under the last row, so the end of a page does not stick to the window's edge
+            ttk.Frame(line(SET_SECTION), height=1).pack()
+
+    def _mode_tiles(self, box, cover):
+        """The modes of a model as small tiles that wrap with the window (user 19.11.; before one line of text): "Modes", then
+        one tile per mode the model offers, a mode with missing files red with an X. The tooltip says what is missing."""
+        px = self._px
+        head = ttk.Label(box, text=MODES_HEAD, style=SET_STYLES["section"])      # the font of "Required" (user 19.11.)
+        head.place(x=0, y=0)
+        tiles = []
+        for _m, text, st, tip in cover:
+            if st == "none":
+                continue
+            t = tk.Label(box, text=("✗ " if st == "missing" else "") + text, bg=BG, fg=NA_RED if st == "missing" else FG,
+                         font=font(9), padx=px(6), pady=px(1), highlightthickness=1, highlightbackground=CHIP_LINE, bd=0)
+            Tooltip(t, tip)
+            tiles.append(t)
+        box.mode_tiles = tiles          # for the tests
+
+        def flow(e=None):
+            try:
+                width = box.winfo_width()
+                if width <= 1:
+                    return
+                gap = px(6)
+                x0 = 0                   # the heading stands above the tiles (user 19.11.): they take the whole width
+                h = max([t.winfo_reqheight() for t in tiles] or [head.winfo_reqheight()])
+                x, y = x0, head.winfo_reqheight() + px(4)
+                for t in tiles:
+                    w = t.winfo_reqwidth()
+                    if x > x0 and x + w > width:
+                        x, y = x0, y + h + gap
+                    t.place(x=x, y=y)
+                    x += w + gap
+                if box.cget("height") != y + h:
+                    box.configure(height=y + h)
+            except tk.TclError:
+                pass
+        box.configure(height=px(48))
+        box.bind("<Configure>", flow, add="+")
+
+    def _link_field(self, parent, f, page: str = "", indent: int = 0):
+        """The field of a file (user 19.11.; replaces the chain symbol): it shows the file PxC uses, looks like a dropdown and opens
+        the search window of the files ComfyUI has right below it. Missing: a red frame and "Missing · choose your file";
+        linked to a file of yours: blue with "· linked" and ↺, which brings back the expected file. The folder is in its tooltip."""
+        px = self._px
+        found, linked = f["found"], f.get("linked")
+        frame = NA_RED if found is None else (ACCENT_TEXT if linked else CHIP_LINE)
+        box = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=frame, highlightcolor=frame, cursor="hand2", takefocus=1)
+        arrow = tk.Label(box, text="▾", bg=PANEL, fg=FG, font=font(9), padx=px(8), cursor="hand2")
+        arrow.pack(side="right")
+        back = None
+        if linked:
+            back = tk.Label(box, text="↺", bg=PANEL, fg=FG, font=font(10), padx=px(2), cursor="hand2")
+            back.pack(side="right")
+            back.bind("<Button-1>", lambda e, n=f["name"]: (self._link_models(n, ""), "break")[1])
+            Tooltip(back, "Use the expected file again: " + f["name"])
+        text = FIELD_MISSING if found is None else found + (FIELD_LINKED if linked else "")
+        lb = tk.Label(box, text=text, bg=PANEL, fg=MUTED if found is None else (HINT_TEXT if linked else FG), font=font(9),
+                      anchor="w", justify="left", padx=px(8), pady=px(4), cursor="hand2")
+        lb.pack(side="left", fill="x", expand=True)
+        box.field_text = text            # for the tests
+        # the name wraps at the page's width less the indent, the arrows and the frame, set by _settings_wrap with the other labels
+        # (19.11.: a handler of its own on every field set off a chain of resizes, the window took seconds to open)
+        margin = indent + (arrow.winfo_reqwidth() or 0) + ((back.winfo_reqwidth() or 0) if back else 0) + px(20)
+        self.__dict__.setdefault("_wrap_labels", []).append((lb, margin, page))
+
+        def hover(on):
+            if found is not None and not linked:
+                try:
+                    box.configure(highlightbackground="#9a9a9a" if on else CHIP_LINE)
+                except tk.TclError:
+                    pass
+
+        def pick(e=None):
+            self._choose_for(f["name"], below=box)
+            return "break"
+        for w in (box, lb, arrow):
+            w.bind("<Button-1>", pick, add="+")
+            w.bind("<Enter>", lambda e: hover(True), add="+")
+            w.bind("<Leave>", lambda e: hover(False), add="+")
+        box.bind("<Return>", pick, add="+")
+        box.bind("<space>", pick, add="+")
+        Tooltip(lb, f"Expected: {f['path']}. Click to choose another file of yours.")
+        return box
 
     def _fit_text(self, t, width: int | None = None):
         """A read-only text box is as high as its wrapped text (so it never scrolls on its own). Measured only when its width changed
@@ -1502,6 +1689,8 @@ class SettingsMixin(DownloadMixin):
             if page is not None and pg != page:
                 continue
             w = self._page_w.get(pg)
+            if (not isinstance(w, int) or w < 50) and pg != "top":
+                w = next((v for k, v in self._page_w.items() if k != "top" and isinstance(v, int) and v >= 50), None)
             if not isinstance(w, int) or w < 50:
                 w = self._px(SETTINGS_W - 40)
             try:
@@ -1527,13 +1716,50 @@ class SettingsMixin(DownloadMixin):
 
     # ---------- link a file of another name ----------
 
-    def _link_buttons(self):
+    def _link_resets(self) -> dict:
+        """Which resets of the menu "⋯" can act: back to the links of the start, no links at all."""
+        now = cfgmod.model_map()
+        return {"startup": now != self._map_start, "default": bool(now)}
+
+    def _link_msg_gone(self):
+        """The message with Undo goes after LINK_MSG_MS (user 19.11.); Undo stays in the menu "⋯". Only the top row is drawn
+        again, the page keeps its place."""
+        self._link_msg_job = None
+        if not getattr(self, "_link_msg", ""):
+            return
+        self._link_msg = ""
+        top = getattr(self, "f_set_top", None)
+        if top is None:
+            return
         try:
-            self.b_link_undo.configure(state="normal" if self._map_undo else "disabled")
-            self.b_link_reset.configure(state="normal" if cfgmod.model_map() != self._map_start else "disabled")
-            self.b_link_default.configure(state="normal" if cfgmod.model_map() else "disabled")
-        except (AttributeError, tk.TclError):
-            pass
+            for w in top.winfo_children():
+                w.destroy()
+        except tk.TclError:
+            return
+        d = getattr(self, "_drawn", None)
+        if d is not None and d[0] is top:
+            self._drawn = (top, (d[1][0], self._fill_key()))      # the rows are the same: no full drawing next time
+
+    def _links_menu_entries(self) -> list:
+        """What the menu "⋯" of Model Links offers (user 19.11., choice K2): (label, command, usable now, tooltip); None = a line."""
+        can = self._link_resets()
+        return [("Undo", self._link_undo, bool(self._map_undo), "Takes back the last change of the links."),
+                None,
+                ("Reset to startup", self._link_reset, can["startup"], "All links as they were when PxC started."),
+                ("Reset to default models", self._link_default, can["default"], "Every model uses its own standard file again."),
+                None,
+                (self._check_label(), self.check_files, True, self.CHECK_TIP)]
+
+    def _links_menu(self):
+        """The button "⋯" at the right end of the tab row: the menu under it, its right edge at the button's."""
+        menu = PopMenu(self._settings_win or self.root, scale=getattr(self, "ui", 1.0))
+        for e in self._links_menu_entries():
+            if e is None:
+                menu.add_separator()
+            else:
+                menu.add_command(label=e[0], command=e[1], state="normal" if e[2] else "disabled", tip=e[3])
+        menu.tk_popup(0, 0, below_w=self.b_set_more)
+        self._set_menu = menu            # for the tests
 
     def _link_entries(self, expected: str):
         """What the window of the chain symbol lists for ``expected``: (files, likely right files in order, hints, linked file, file in use),
@@ -1580,22 +1806,27 @@ class SettingsMixin(DownloadMixin):
         return (f"ComfyUI lists no {what} file yet. Put your file into ComfyUI's models/{f.folder} folder, restart ComfyUI, then click Refresh."
                 + self.LINK_EMPTY_EXTRA.get(f.kind, ""))
 
-    def _choose_for(self, expected: str):
+    def _choose_for(self, expected: str, below=None):
         """The chain next to a file: a search window with the files ComfyUI has for its kind (typing filters, alphabetical, "Use the expected file again"
         at the bottom when the file is linked). A click links at once (Undo and Reset are in "Linked files")."""
         entries = self._link_entries(expected)
         win = self._settings_win or self.root
+        try:          # right below the field that was clicked (user 19.11.), else at the mouse
+            at = ((below.winfo_rootx(), below.winfo_rooty() + below.winfo_height()) if below is not None
+                  else (win.winfo_pointerx(), win.winfo_pointery()))
+        except tk.TclError:
+            at = (win.winfo_pointerx(), win.winfo_pointery())
         old = getattr(self, "_link_picker", None)
         if old is not None:
             old.close()
         if entries is None:      # nothing to choose from: a note in the window, no red message in the status line (user 7.11.)
-            self._link_picker = linkpicker.LinkPicker(win, (win.winfo_pointerx(), win.winfo_pointery()), [], note=self._link_empty_note(expected),
+            self._link_picker = linkpicker.LinkPicker(win, at, [], note=self._link_empty_note(expected),
                                                       scale=getattr(self, "ui", 1.0))
             return
         cands, pinned, hints, mapped, current = entries
         # a search window instead of a menu (user 7.11.): typing filters, the list is alphabetical, the wheel does not close it
         self._link_picker = linkpicker.LinkPicker(
-            win, (win.winfo_pointerx(), win.winfo_pointery()), cands, pinned, hints, mapped,
+            win, at, cands, pinned, hints, mapped,
             explain=HINT_EXPLAIN if any(h.startswith(HINT_SAME) for h in hints.values()) else "",
             unlink="Use the expected file again" if mapped else "",
             on_pick=lambda n: self._link_models(expected, n), scale=getattr(self, "ui", 1.0), strong=[current] if current else ())
@@ -1628,6 +1859,17 @@ class SettingsMixin(DownloadMixin):
             self._after_link_change("The links are as they were at startup.")
 
     def _after_link_change(self, msg: str = "Link saved."):
+        self._link_msg = msg                 # shown in the settings window with Undo (user 19.11.), for LINK_MSG_MS
+        job = getattr(self, "_link_msg_job", None)
+        if job is not None:
+            try:
+                self.root.after_cancel(job)
+            except (tk.TclError, ValueError):
+                pass
+        try:
+            self._link_msg_job = self.root.after(LINK_MSG_MS, self._link_msg_gone)
+        except (tk.TclError, AttributeError):
+            self._link_msg_job = None
         if self.inv is not None:
             self.inv.mapping = cfgmod.model_map()
             self._set_inventory(self.inv, self._inv_error)      # statuses, tabs and the overlay follow at once

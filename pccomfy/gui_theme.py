@@ -107,6 +107,10 @@ class ThemeMixin:
         s.configure("SetText.TLabel", foreground="#ffffff", font=font(9))
         s.configure("SetText.TCheckbutton", font=font(9))
         s.configure("SetSmall.TButton", padding=(8, 2), width=0, font=font(9))      # Undo and Reset: small, not stretched
+        # Model Links (user 19.11.): the one blue button of a page ("Download missing files") and the small grey section names
+        s.configure("SetAccent.TButton", padding=(10, 3), width=0, font=font(9, bold=True), background=ACCENT, foreground=ON_ACCENT)
+        s.map("SetAccent.TButton", background=[("active", "#5ba3f5"), ("disabled", "#5a6678")], foreground=[("disabled", MUTED)])
+        s.configure("SetSection.TLabel", foreground=MUTED, font=font(9, bold=True))
         # a text link in the settings (the GGUF line): the size of the text round it, the blue of the other links (user 6.11.)
         s.configure("SetLink.TButton", background=BG, foreground=ACCENT_TEXT, padding=0, borderwidth=0, relief="flat", width=0, font=font(9))
         s.map("SetLink.TButton", foreground=[("active", FG)], background=[("active", BG)])

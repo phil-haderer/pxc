@@ -16,7 +16,7 @@ TIPS = (
     "Qwen Image 2.1 fills small selections badly. Use a larger selection, or try Fibo 2.0 Edit Turbo.",
     "Right-click the chosen model chip and pick \"Set current settings as startup settings (for this mode and model)\": the current sliders, sampler, steps and LoRAs become your start for this function and model, and \"Reset page to my saved settings\" in the menu with the three lines at the bottom right returns to them. \"Reset page to default\" in that menu (or \"Reset to PxC standard settings (for this mode and model)\" in the chip menu) gives the PxC standard settings; your startup settings for that page are forgotten.",
     "MOSS does text to image only; Krea 2 is the fast text to image model.",
-    "The gear window lists the files each model needs. The chain icon links a file ComfyUI already has under another name.",
+    "The gear window lists the files each model needs. Click a file's field to use a file ComfyUI already has under another name.",
     "\"Live preview\" shows the picture while it is made. It is greyed out until the model's preview decoder file is downloaded.",
     "MOSS text to image is best without the DMD2 speed LoRA: it starts at 25 steps, CFG 3.0; 35 steps give the most detail. The LoRA (8 steps) is faster but looks more artificial.",
     "Ctrl+Enter generates. Esc or Ctrl+Alt+Enter cancels the run.",

@@ -51,7 +51,7 @@ Many test rounds went into PxC, and every line of it was written with Claude Cod
 - **LLMs included:** one tick lets a text model improve your prompt. It also describes the canvas and reference images, turns sketches and scribbles into prompts, and names what to remove.
 - **Your own prompts:** save a prompt under a name and use it again later, with the function and model it was made for.
 - **Tested settings:** every function and model starts with its tested settings; change them under Advanced settings if you like.
-- **Your models, organised:** **Download all model files** fetches each model as one pack and puts every file into the right ComfyUI folder. Already have a model in another version? Link your own file with the chain symbol in the gear window (Model Links) instead of downloading it again: besides the int8 ConvRot files PxC downloads, the bf16, fp8 and nvfp4 versions of the same model can be used, and GGUF for the main model with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) node pack.
+- **Your models, organised:** **Download missing files** fetches each model as one pack and puts every file into the right ComfyUI folder. Already have a model in another version? Choose your own file in the file's field in the gear window (Model Links) instead of downloading it again: besides the int8 ConvRot files PxC downloads, the bf16, fp8 and nvfp4 versions of the same model can be used, and GGUF for the main model with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) node pack.
 - **Team use:** run ComfyUI on one strong PC or server and point several PxC installations at it (gear window ▸ ComfyUI address). The queue lists your own jobs and, read-only, the jobs of the others, and the progress bar shows how many jobs are ahead of yours.
 
 > Unofficial community project, not affiliated with PhotoCraft, ArtCraft or Storyteller. PhotoCraft is in early alpha
@@ -118,7 +118,7 @@ Then follow [Install on Windows](#install-on-windows) or [Install on Linux](#ins
 1. **Download**: click **Code ▸ Download ZIP** (green button at the top of this page) and unpack it to a folder you keep, for example `C:\programs\pxc`. Prefer git? See [Technical details](#technical-details).
 2. **Set up**: double-click **`setup-windows.bat`**. It sets everything up and puts **PxC** on your desktop; it finds `photocraft.exe` itself and asks once if it can't. No Python yet? It offers to install Python 3.13 with one key press. If that is not possible, or you say no, it opens the download page: install Python 3.13 there with the default options ("tcl/tk" stays ticked) and run `setup-windows.bat` again. (`setup-windows.bat /check` only looks and changes nothing.)
 3. **Start**: start ComfyUI, close PhotoCraft if it is open, then double-click **PxC** on your desktop. PhotoCraft opens and the PxC window appears next to it.
-4. **Get a model**: in the PxC window click the gear ▸ pick a model tab ▸ **Download all model files**, then restart ComfyUI (it reads its model folders only when it starts). **Qwen Image 2.1** and **Fibo 2.0** need no login at external websites; **Flux 3 Klein** needs a free Hugging Face account once (the button opens the page; log in and accept the licence there). You can also download the files by hand: see [Model downloads](#model-downloads).
+4. **Get a model**: in the PxC window click the gear ▸ pick a model ▸ **Download missing files**, then restart ComfyUI (it reads its model folders only when it starts). **Qwen Image 2.1** and **Fibo 2.0** need no login at external websites; **Flux 3 Klein** needs a free Hugging Face account once (the button opens the page; log in and accept the licence there). You can also download the files by hand: see [Model downloads](#model-downloads).
 5. **Generate**: pick a function and a model, type a prompt and press **Generate** (Ctrl+Enter). The status line at the bottom tells you what is happening.
 
 ## Install on Linux
@@ -147,11 +147,11 @@ Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface 
 
 ## Model downloads
 
-**You do not have to sort anything yourself.** Each model is one pack: the **Download all model files** button (gear window ▸ the model's tab) downloads all files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder (a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
+**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder (a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
 
 **Custom nodes** (small add-ons for ComfyUI; install them from the ComfyUI Manager or the link, then restart ComfyUI):
 - [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): needed for Flux 2 and for Upscale with Flux 3 and Fibo.
-- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF): only for smaller GGUF model files (gear window, chain symbol).
+- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF): only for smaller GGUF model files (gear window, the file's field).
 
 <!-- model-downloads:start -->
 
@@ -351,7 +351,7 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 - **Prompts:** **Style prompts** and **Enhance my Prompt with LLM**; next to it, **Reroll prompt** has the text model write a new prompt. **Save** keeps a prompt under a name, **Describe Canvas** writes what the picture shows, the copy button copies the prompt the text model wrote, and Ctrl+Z in the field brings back a deleted prompt.
 - **Pictures & references:** drop, paste (Ctrl+V) or add pictures to the **reference slots**; click a slot's tag or drag its picture into the prompt to name it. **Cut out:** the scissors at the bottom right remove the background with **BiRefNet**, **RMBG-2.0** or **Both**: a copy of the picture is added as a new layer with an editable layer mask. Every reference slot has its own cut-out button. It needs the optional files under [Model downloads](#model-downloads) ▸ Remove background. A **live preview** shows the picture while it is being made.
 - **Work faster:** Ctrl+Enter generates, Esc stops a run, Ctrl+S saves the picture, Q opens the queue. **Batch** runs Refine, Upscale or Edit on all open pictures or a whole folder (optional dry run on the first picture); the **queue** shows what is waiting. **Startup settings:** right-click a model chip and choose "Set current settings as startup settings"; **Reset page** in the bottom-right menu goes back. **Hide this model** for models you do not use, and a **Tip of the day** at start (can be switched off).
-- **Files & settings:** **Check files** (gear window ▸ Model Links) compares the model files on your disk with their checksums; a damaged file is named, never deleted. **Advanced settings:** edge feather, context size, mask density, custom LoRAs.
+- **Files & settings:** **Check files** (gear window ▸ Model Links ▸ ⋯) compares the model files on your disk with their checksums; a damaged file is named, never deleted. **Advanced settings:** edge feather, context size, mask density, custom LoRAs.
 
 <a id="help"></a>
 <details>
@@ -368,7 +368,7 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 | On Linux nothing appears | Run `./pxc.sh` in a terminal; the message tells you what is missing. |
 | **Enhance my Prompt with LLM** is slow, especially with 8 GB of VRAM | Start ComfyUI with the option `--use-ck-attention` (Comfy Kitchen attention): add it at the end of the line with `main.py` in your ComfyUI start file (`.bat`), or run `python main.py --use-ck-attention`. In our tests on 8 GB the prompt writers ran 2 to 5 times faster, Qwen Image 2.1 pictures about 25 % faster, with the same quality of prompts and pictures (tested with ComfyUI 0.45). On 16 GB the prompt writers are fast without it. |
 
-**Update.** Download the new ZIP and unpack it over the old folder, or run `git pull` in the PxC folder if you used `git clone`; then run the setup script again and restart PxC. Your settings stay in `data\` (Linux: `~/.config/pccomfy/`) and are not touched.
+**Update.** Once a day at the start PxC asks GitHub whether a newer version is out (GitHub sees your IP address and the PxC version, nothing else; untick **Check for updates** in Gear ▸ **Other settings** to stop it, **Check now** asks at once). A newer version shows as a blue dot on the gear and a line at the top of **Other settings** with **What's new** (the release page) and **Skip this version**. To install it, download the new ZIP and unpack it over the old folder; if you used `git clone`, **Update now** there runs `git pull` for you. Then run the setup script again if PxC says so, and restart PxC. Your settings stay in `data\` (Linux: `~/.config/pccomfy/`) and are not touched.
 
 **Report a problem.** Open an issue on this repository's **Issues** page and tell us:
 - what you did, what you expected and what happened (the status line at the bottom of the window is useful);

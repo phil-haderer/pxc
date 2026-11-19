@@ -1,4 +1,4 @@
-"""The window of the chain symbol (Settings, "Models"): a search field over the files ComfyUI lists for the kind of the expected file.
+"""The window of a file's field (Settings, Model Links; the chain symbol until 19.11.): a search field over the files ComfyUI lists for the kind of the expected file.
 Typing narrows the list (every word, any case), the list is alphabetical, files that equal the expected file come first with a
 line below them (user 7.11.). The mouse wheel scrolls the list and never closes the window; Escape, a pick or a click into
 another window closes it. A tk.Menu could do none of this (no search, the wheel closed it, a long list ran off the screen).

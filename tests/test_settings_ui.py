@@ -38,18 +38,22 @@ def rows_text(app) -> str:
     for row in app._settings_rows():
         kind = row[0]
         if kind == "model":
-            out.append(f"{row[2]}  {ui_settings.STATE_TEXT[row[3]]}" + ("  \u25C0" if row[4] else ""))
+            out.append(f"{row[2]}  {ui_settings.STATE_TEXT.get(row[3], '')}" + ("  \u25C0" if row[4] else ""))
         elif kind == "file":
             d = row[1]
             out.append(("\u2713 " if d["found"] is not None else "\u2717 ") + d["path"] + ("  (optional)" if d["level"] == "optional" else "")
-                       + (f"  (your file: {d['found']})" if d["other"] else "")
+                       + (f"  (your file: {d['found']})" if d["other"] else "") + ("  linked" if d["linked"] else "")
                        + (f"  {d['size']}" if d["size"] else "")
 )
         elif kind == "node":
             out.append(f"node {row[1]}  {row[2]}")
         elif kind == "error":
             out.append(row[1] + "\n" + row[2])
-        elif kind not in ("sep", "stop"):   # the light lines and the "Stop downloads" buttons carry no text
+        elif kind == "download":
+            out.append(f"{ui_settings.ALL_FILES_BUTTON} \u00b7 {row[2]['size']}")
+        elif kind == "modes":
+            out.append("Modes " + ", ".join(("\u2717 " if st == "missing" else "") + lb for _m, lb, st, _t in row[2] if st != "none"))
+        elif kind not in ("stop", "links"):   # the "Stop downloads" buttons and the top row (Undo, Reset) carry no text
             out.append(row[1])
     return "\n".join(out)
 
@@ -232,14 +236,14 @@ def test_other_settings():
 
 
 def test_page_layout_and_stop():
-    """Each model page: the files the standard settings need first, a line, then the extra-feature files under their own heading
-    (user 2.11.); a "Stop downloads" row ends every page; "Download needed models" leaves out what is loaded already."""
+    """Each model page: the files the standard settings need first ("Required"), then the extra-feature files under "Optional"
+    (user 2.11.; short names 19.11.); a "Stop downloads" row ends every page; "Download missing files" leaves out what is loaded already."""
     app = make_app()
     app._apply_refresh({"_detect": True, "_inv": inventory.Inventory(td.full_lists(), NODES)})
     rows = app._settings_rows()
     heads = [r[1] for r in rows if r[0] == "head"]
-    assert "Needs these weights:" not in heads and heads.count("Standard settings need these weights:") == len(models.MODELS)
-    assert ui_settings.OPTIONAL_HEAD == "Needed for additional features"
+    assert heads.count(ui_settings.REQUIRED_HEAD) == len(models.MODELS) and ui_settings.REQUIRED_HEAD == "Required"
+    assert ui_settings.OPTIONAL_HEAD == "Optional" and not any(r[0] in ("sep", "intro", "enable", "line") for r in rows)
     opt = [h for h in heads if h.startswith(ui_settings.OPTIONAL_HEAD)]
     assert opt and all(h == ui_settings.OPTIONAL_HEAD for h in opt), opt        # no "(what for)" in the heading (user 16.11.)
     # what for stands after each extra file instead, per model (user 16.11.); every such file has its phrase
@@ -252,9 +256,9 @@ def test_page_layout_and_stop():
     assert manifest.feature_use("qwen", "qwen3.5_9b_w4a8_gptq.safetensors").endswith("Sketch to image, Scribble on photo")   # its Sketch writer (16.11. evening)
     assert not manifest.feature_use("qwen", "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors")
     src = (Path(__file__).resolve().parent.parent / "pccomfy" / "ui_settings.py").read_text(encoding="utf-8")
-    assert "f.get(\"feature\")" in src and 'padx=(8, 6), anchor="n")' in src      # brackets after the path; tick on the first line
+    assert 'f.get("feature")' in src and 'padx=(0, 6), anchor="n", width=2)' in src      # what for after the kind; tick on the first line
     i = rows.index(("head", opt[0]))
-    assert rows[i - 1] == ("sep",)                                    # the line between needed and optional
+    assert rows[i - 1][0] in ("file", "gguf", "node")                    # no line between needed and optional any more (user 19.11.)
     stops = [r for r in rows if r[0] == "stop"]
     assert len(stops) == len(models.MODELS) + 1 and rows[-1][0] == "stop"       # one per model page and one for "Additional"
     # within a model page every file before the optional heading is required, every one after it is not
@@ -262,10 +266,10 @@ def test_page_layout_and_stop():
     assert not any("optional, not used" in str(r) for r in rows)
     # a file loaded in this session (ComfyUI lists it only after a restart) is no longer counted as missing
     app._apply_refresh({"_detect": True, "_inv": inventory.Inventory(lists_without(vae="qwen_image_vae.safetensors"), NODES)})
-    before = next(r for r in app._settings_rows() if r[0] == "model" and r[1] == "krea2")[5]
+    before = next((r[2] for r in app._settings_rows() if r[0] == "download" and r[1] == "krea2"), None)
     assert before and before["count"] >= 1
     app._dl_restart.add("qwen_image_vae.safetensors")
-    after = next(r for r in app._settings_rows() if r[0] == "model" and r[1] == "krea2")[5]
+    after = next((r[2] for r in app._settings_rows() if r[0] == "download" and r[1] == "krea2"), None)
     assert after is None or after["count"] == before["count"] - 1, (before, after)
     # no notes of models.json in the file rows (licence 2.11., all of them 16.11. evening); "your file" whenever ComfyUI's file is not the expected one by name, folder included (user 7.11.)
     q = manifest.FILES["qwen_image_2.1_int8_convrot.safetensors"]
@@ -362,7 +366,8 @@ def main():
     app.open_settings(focus="krea2")                                 # the gear shows what is missing
     assert app._settings_win is not None and app._settings_focus == "krea2"
     text = rows_text(app)
-    assert "restart ComfyUI" in text and "Credits" not in text and "Krea 2 Turbo  is not yet available  \u25C0" in text
+    assert "files linked" not in text and "Credits" not in text and "Krea 2 Turbo  not ready  \u25C0" in text
+    assert "intro" not in {r[0] for r in app._settings_rows()}          # no explaining paragraph on top (user 19.11.)
     src = (Path(__file__).resolve().parent.parent / "pccomfy" / "ui_settings.py").read_text(encoding="utf-8")
     assert 'text="Credits"' not in src and "t_credits" not in src          # no Credits tab (user 16.11.: absolute minimum)
     assert "\u2717 /vae/qwen_image_vae.safetensors" in text          # the path with its folder (user 30.10.)
@@ -426,7 +431,7 @@ def main():
     win.winfo_width, win.winfo_height = (lambda: 900), (lambda: 640)     # the size you gave it ...
     app.toggle_settings()
     assert closed == [True] and app._settings_win is None
-    assert cfgmod.get_setting("settings_size2") == [900, 640] and app._settings_size() == (900, 640)   # ... comes back
+    assert cfgmod.get_setting("settings_size3") == [900, 640] and app._settings_size() == (900, 640)   # ... comes back
     app.toggle_settings()
     assert app._settings_win is not None and app._settings_win is not win
     app._settings_close()
@@ -446,7 +451,7 @@ def main():
     assert extra["rmbg-2.0.safetensors"]["use"] == "Remove background (scissors), second model"
     assert extra["taef2_decoder.pth"]["use"] == "Live preview: Flux 3, Flux 2, Fibo, MOSS"
     assert sum(d["name"] == "taef2_decoder.pth" for d in file_rows(app)) == 1          # not again under each model
-    assert "Additional models (used by several models)" in rows_text(app)
+    assert ui_settings.ADDITIONAL_HEAD in rows_text(app) and ui_settings.ADDITIONAL_HEAD == "Used by several models"
     joined = rows_text(app)
     assert "optional" in joined and "(as " not in joined
     assert not hasattr(manifest, "CONTRIBUTORS") and not hasattr(app, "_credits_segments")          # no credits (user 16.11.)
@@ -475,18 +480,20 @@ def main():
     assert "qwen_image_vae.safetensors" in cands and "qwen_image_vae.safetensors" not in app._link_candidates("qwen_image_vae.safetensors")
     assert app._link_candidates("no-such-file") == []
     app._link_models("flux2-vae.safetensors", "my_vae.safetensors")       # one click on an entry links at once
-    assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors"} and app.b_link_undo["state"] == "normal"
+    def usable(label):                                    # an entry of the menu "⋯" (user 19.11., K2) can be used now
+        return next(e[2] for e in app._links_menu_entries() if e and e[0] == label)
+    assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors"} and usable("Undo")
     app._link_undo()                                      # Undo: back to no link
-    assert cfgmod.model_map() == {} and app.b_link_undo["state"] == "disabled"
+    assert cfgmod.model_map() == {} and not usable("Undo")
     app._link_models("flux2-vae.safetensors", "my_vae.safetensors")
     app._link_reset()                                     # Reset: the links of the start (none here)
-    assert cfgmod.model_map() == {} and app.b_link_reset["state"] == "disabled"
-    assert app.b_link_undo["state"] == "disabled"        # Undo takes back relinks only, not the reset
-    assert app.b_link_default["state"] == "disabled"     # no link: nothing to reset to the default models
+    assert cfgmod.model_map() == {} and not usable("Reset to startup") and not usable("Reset to default models")
+    assert not usable("Undo")                             # Undo takes back relinks only, not the reset
+    assert app._link_resets() == {"startup": False, "default": False}     # no link: nothing to reset to the default models
     app._link_models("flux2-vae.safetensors", "my_vae.safetensors")
-    assert app.b_link_default["state"] == "normal"
+    assert app._link_resets()["default"] and usable("Reset to default models")      # both resets in the menu "⋯" (user 19.11.)
     app._link_default()                                   # Reset to default models: all links gone, Undo brings them back
-    assert cfgmod.model_map() == {} and app.b_link_default["state"] == "disabled" and app.b_link_undo["state"] == "normal"
+    assert cfgmod.model_map() == {} and not app._link_resets()["default"] and usable("Undo")
     app._link_undo()
     assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors"}
     app._link_default()
@@ -512,15 +519,12 @@ def main():
     g = {"1": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}}}
     app.comfy.name_fixer(g)
     assert g["1"]["inputs"]["vae_name"] == "my_vae.safetensors"
-    assert "flux2-vae.safetensors  →  my_vae.safetensors" in rows_text(app)
-    assert any(r[0] == "links" for r in app._settings_rows()) and not any("extra_model_paths" in str(r) for r in app._settings_rows())
-    # a headline "Relinked models:" stands directly over the list of relinked files (user 6.11.), and only while there is one
-    rws = app._settings_rows()
-    hi = rws.index(("head", "Relinked models:"))
-    assert rws[hi + 1][0] == "line" and rws[hi - 1][0] == "intro", rws[hi - 1:hi + 2]
-    assert rws[hi + 1][2] == "hint" and ui_settings.SET_STYLES["hint"] == "SetHint.TLabel"      # relinked models in the blue of the prompt tip (user 6.11.)
-    app._link_models("flux2-vae.safetensors", "")         # "Use the expected file again" in the list
-    assert ("head", "Relinked models:") not in app._settings_rows()
+    # the top row counts the links; the file's own field shows it in blue ("linked"), no list on top any more (user 19.11.)
+    assert "/vae/flux2-vae.safetensors  (your file: my_vae.safetensors)  linked" in rows_text(app)
+    assert app._settings_rows()[0] == ("links", 1) and not any("extra_model_paths" in str(r) for r in app._settings_rows())
+    assert ("head", "Relinked models:") not in app._settings_rows() and not hasattr(ui_settings, "RELINKED_HEAD")
+    app._link_models("flux2-vae.safetensors", "")         # the arrow in the field, or "Use the expected file again" in the list
+    assert app._settings_rows()[0] == ("links", 0)
     assert cfgmod.model_map() == {} and app.rb_tabs["flux3"]["style"] == "Missing.Chip.Toolbutton"
     app._settings_close()
 

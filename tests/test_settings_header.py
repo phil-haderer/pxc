@@ -46,11 +46,12 @@ def main():
     assert str(title.cget("font")) == want, (title.cget("font"), want)
     assert want != str(app.lbl_title[0].cget("font"))
     assert str(title.cget("foreground")) == "#ffffff"
-    # the white line sits above the notebook with the tabs, under the header
-    sep, nb = app.sep_set_tabs, app.nb_settings
-    assert str(sep.cget("style")) == "SepWhite.TFrame" and int(str(sep.cget("height"))) == 1
+    # no lines and no blue strip (user 19.11.): the header, then the chips of the pages, then the notebook
+    nb = app.nb_settings
+    row = app.set_tab_chips[0].master.master
     order = app._settings_win.pack_slaves()
-    assert order.index(bar) < order.index(sep) < order.index(nb), order
+    assert order.index(bar) < order.index(row) < order.index(nb), order
+    assert not hasattr(app, "sep_set_tabs") and not hasattr(app, "sep_set_under")
     app._settings_close()
     app.root.destroy()
     shutil.rmtree(TMP, ignore_errors=True)

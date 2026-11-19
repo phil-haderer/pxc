@@ -14,7 +14,9 @@ from pccomfy import ui_settings
 # L1: SettingsMixin and (L2) RefSlotsMixin stand in front on purpose: they wrap some methods and call super(), so they are left out of the "defined twice" check
 # (SettingsMixin brings the download buttons as its own base, DownloadMixin: it stands right behind it)
 assert gui.App.__mro__[1] is ui_settings.SettingsMixin and gui.App.__mro__[2].__name__ == "DownloadMixin", gui.App.__mro__
-assert gui.App.__mro__[3].__name__ == "RefSlotsMixin" and gui.App.__mro__[4:10] == mixins, gui.App.__mro__
+# (and UpdateMixin, the update check of 19.11., as its second base, right after DownloadMixin)
+assert gui.App.__mro__[3].__name__ == "UpdateMixin", gui.App.__mro__
+assert gui.App.__mro__[4].__name__ == "RefSlotsMixin" and gui.App.__mro__[5:11] == mixins, gui.App.__mro__
 names = [n for m in mixins + (gui.App,) for n in vars(m) if callable(vars(m)[n]) and not n.startswith("__")]
 dup = sorted({n for n in names if names.count(n) > 1})
 assert not (set(vars(gui.RefSlotsMixin)) & set(names) - {"_on_mode_ui", "_request", "generate"}), "RefSlotsMixin wraps only these three (with super())"
