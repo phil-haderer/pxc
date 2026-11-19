@@ -157,9 +157,8 @@ def main():
     app.worker.start()
     assert app.runner.gate() is False              # no batch job starts while the window's own worker runs
     app.worker.join()
-    assert app.comfy.owner is None and app.bridge.comfy.owner is None
-    for name in ("gui.py", "gui_run.py", "gui_batch.py"):
-        assert ".owner =" not in (ROOT / "pccomfy" / name).read_text(encoding="utf-8").replace("runner.owner =", ""), name
+    # Generate sends the owner's name too (decision 18.11., replaces 12.11.): the queue window of every PC shows who sent it
+    assert app.comfy is app.bridge.comfy and app.comfy.owner == app.runner.owner == jobqueue.owner_name()
 
     real_runner = app.runner
     app.runner = runner = FakeRunner()
@@ -343,37 +342,108 @@ def main():
     assert app._dry_dlg is None and len(runner.calls) == n
     runner._jobs = saved_jobs
 
-    # ---- the queue window: rows per batch, buttons per status, "At ComfyUI" read in a thread ----
-    bridge.comfy.entries = [{"prompt_id": "x", "number": 1, "client_id": "other", "owner": "Anna", "running": True},
-                            {"prompt_id": "y", "number": 2, "client_id": "other2", "owner": "", "running": False},
-                            {"prompt_id": "z", "number": 3, "client_id": "me", "owner": "tester", "running": False}]
+    # ---- the queue window: every run of the network in one list with "#" and "Sent by" (user 18.11.), batch groups,
+    # buttons per status, ComfyUI's queue read in a thread, the participants below ----
+    runner._jobs[1]["prompt_id"] = "z"             # j2 is our picture at ComfyUI: place 3, still waiting there
+    bridge.comfy.entries = [
+        {"prompt_id": "x", "number": 1, "client_id": "other", "owner": "Anna", "kind": "generate", "batch": "", "running": True, "images": 2},
+        {"prompt_id": "y", "number": 2, "client_id": "other2", "owner": "", "kind": "", "batch": "", "running": False},
+        {"prompt_id": "z", "number": 3, "client_id": "me", "owner": "tester", "kind": "batch", "batch": "b1", "running": False},
+        {"prompt_id": "w1", "number": 4, "client_id": "ben", "owner": "Ben", "kind": "batch", "batch": "bb", "running": False},
+        {"prompt_id": "w2", "number": 5, "client_id": "ben", "owner": "Ben", "kind": "batch", "batch": "bb", "running": False},
+        {"prompt_id": "g", "number": 6, "client_id": "me", "owner": "tester", "kind": "generate", "batch": "", "running": False,
+         "variant": "1/2"}]
     app.open_queue()
     win = app._queue_win
     tv = app.tv_queue
-    assert tv.get_children("") == ("b:b1",) and len(tv.get_children("b:b1")) == 6
-    assert tv.item("b:b1", "values")[0] == "Running" and tv.item("b:b1", "values")[2] == runner.hint
-    assert tv.item("j:j1", "values")[0] == "Done" and tv.item("j:j1", "values")[2] == gui.duration_text(42.0)
-    assert tv.item("j:j3", "values")[2] == "~2 min" and tv.item("j:j6", "values")[0] == "Skipped"
-    assert tv.item("j:j2", "text") == "j2.png" and tv.item("j:j2", "values")[1] == "Upscale"
-    assert pump(app, lambda: len(app.tv_comfy.get_children()) == 3)
+    # flat (user 19.11.): "#" first, "Sent by" second, no folding; what is through stands on top
+    assert tuple(tv.cget("columns"))[:7] == ("idx", "who", "pic", "status", "prog", "fn", "time") and "tree" not in str(tv.cget("show"))
+    assert tv.heading("prog", "text") == "Progress" and int(tv.column("prog", "width")) == app._px(90)
+    assert tv.get_children("") == ("j:j1", "j:j5", "j:j6", "j:j2", "j:j3", "j:j4")      # before ComfyUI was read: own only
+    assert pump(app, lambda: len(app.tv_comfy.get_children()) == 4)
+    top = tv.get_children("")
+    assert top == ("j:j1", "j:j5", "j:j6", "c:x", "c:y", "j:j2", "c:w1", "c:w2", "c:g", "j:j3", "j:j4"), top   # as they run
+    val = lambda iid: tv.item(iid, "values")[:7]           # noqa: E731   (#, Sent by, Picture, Status, Progress, Function, Time)
+    # Progress (user 19.11.): another's run that runs, the time since PxC saw it start (no bar: ComfyUI sends it only to
+    # the one who queued it); what waits, nothing
+    assert val("c:x") == ("1", "Anna", "Generate · 2 variants", "Running", "running 0:00", "", "0 s"), val("c:x")
+    assert val("c:y") == ("2", "unknown", "ComfyUI", "Waiting", "", "", "starts in <1 min"), val("c:y")   # not from PxC
+    assert tv.item("c:x", "tags") == ("other",) and tv.item("j:j2", "tags") in ("", ())
+    # a batch picture: its batch in Function (user 19.11.); sent, ComfyUI keeps it waiting; when it starts, from the runs ahead
+    # (others' runs count with the average of ours: 42 s)
+    assert val("j:j2") == ("3", "tester (you)", "j2.png", "Waiting", "", "Upscale · batch 2/6", "starts in ~1 min"), val("j:j2")
+    assert val("j:j3") == ("~7", "tester (you)", "j3.png", "Waiting", "", "Upscale · batch 3/6", "starts in ~5 min"), val("j:j3")
+    assert val("j:j4")[0] == "" and val("j:j4")[6] == "" and val("j:j1")[3:] == ("Done", "", "Upscale · batch 1/6", "42 s")
+    assert val("j:j6")[3] == "Skipped"
+    assert val("c:w1") == ("4", "Ben", "Batch", "Waiting", "", "", "starts in ~3 min"), val("c:w1")
+    assert val("c:g")[:5] == ("6", "tester (you)", "Generate · variant 1 of 2", "Waiting", "")
+    assert all(v == "" for i in ("c:x", "c:w1", "c:g") for v in tv.item(i, "values")[7:])   # nothing to click there
     rows = [(app.tv_comfy.item(i, "text"), app.tv_comfy.item(i, "values")[0]) for i in app.tv_comfy.get_children()]
-    assert rows == [("Anna", "running"), ("unknown", "waiting"), ("tester (you)", "waiting")], rows
+    assert rows == [("Anna", "running"), ("unknown", "1 waiting"), ("tester (you)", "3 waiting"), ("Ben", "2 waiting")], rows
+    app._queue_comfy_show([])                      # nothing at ComfyUI: you are listed with your pictures waiting in PxC
+    assert len(app.tv_comfy.get_children()) == 1 and app.tv_comfy.item(app.tv_comfy.get_children()[0], "text") == "tester (you)"
+    assert app.tv_comfy.item(app.tv_comfy.get_children()[0], "values")[0] == "2 waiting"
+    assert val("j:j2")[:4] == ("~1", "tester (you)", "j2.png", "Running") and val("j:j3")[0] == "~2"
+    assert val("j:j3")[6] == "starts in ~2 min", val("j:j3")      # the running one still needs 90 s
+    # our own picture that runs: the window's bar as a text bar (user 19.11.)
+    app._bar_value = 0.0
+    app._queue_fill()
+    assert val("j:j2")[4] == "▱▱▱▱▱ 0 %" and val("j:j3")[4] == "", val("j:j2")
+    app._bar_value = 0.6
+    app._queue_fill()
+    assert val("j:j2")[4] == "▰▰▰▱▱ 60 %", val("j:j2")
+    assert gui_batch.progress_text(1.0) == "▰▰▰▰▰ 100 %" and gui_batch.progress_text(None) == "▱▱▱▱▱ 0 %"
+    assert gui_batch.running_text(42) == "running 0:42" and gui_batch.running_text(125.9) == "running 2:05"
+    # our own Generate that runs: its bar too; another's that runs: its time; a pre-placed picture (19.11.): "Sent", no bar,
+    # fixed (not draggable), pause and ✕ still there
+    saved_entries, app._running = app._q_entries, True
+    app._q_seen = {"o1": time.time() - 42}
+    app._queue_comfy_show([
+        {"prompt_id": "g1", "number": 1, "client_id": "me", "owner": "tester", "kind": "generate", "batch": "", "running": True},
+        {"prompt_id": "o1", "number": 2, "client_id": "other", "owner": "Anna", "kind": "generate", "batch": "", "running": True}])
+    assert val("c:g1")[3:5] == ("Running", "▰▰▰▱▱ 60 %") and val("c:o1")[4] == "running 0:42", (val("c:g1"), val("c:o1"))
+    app._running = False
+    runner._jobs[2].update(preplaced=True, prompt_id="pp")
+    app._queue_comfy_show([{"prompt_id": "pp", "number": 1, "client_id": "me", "owner": "tester", "kind": "batch",
+                            "batch": "b1", "running": False}])
+    assert val("j:j3")[3:5] == ("Sent", ""), val("j:j3")
+    assert tv.item("j:j3", "values")[7:] == ("⏸", "", "✕")
+    app._queue_comfy_show([{"prompt_id": "pp", "number": 1, "client_id": "me", "owner": "tester", "kind": "batch",
+                            "batch": "b1", "running": True}])
+    assert val("j:j3")[3] == "Running", val("j:j3")              # ComfyUI has started it before its turn
+    assert not app._q_movable(app._q_jobs["j3"]) and app._q_movable(app._q_jobs["j4"])
+    runner._jobs[2].pop("preplaced")
+    runner._jobs[2].pop("prompt_id")
+    app._bar_value = 0.0
+    app._queue_comfy_show(saved_entries)
+    runner._jobs[1].pop("prompt_id")
     state = lambda: {k: str(b.cget("state")) == "normal" for k, b in app.q_buttons.items()}   # noqa: E731
     assert set(app.q_buttons) == {"pause_batch", "resume_batch", "cancel_batch", "clear"}, set(app.q_buttons)
     # what a row can do sits in the row (user 13.11.): ⏸ / ▶, ↻, ✕ in the last three columns
-    acts = lambda iid: tv.item(iid, "values")[3:]          # noqa: E731
+    acts = lambda iid: tv.item(iid, "values")[7:]          # noqa: E731
     assert acts("j:j3") == ("⏸", "", "✕"), acts("j:j3")             # waiting: pause, cancel
     assert acts("j:j4") == ("▶", "", "✕"), acts("j:j4")             # paused: resume, cancel
     assert acts("j:j2") == ("", "", "✕"), acts("j:j2")              # running: cancel only
     assert acts("j:j1") == ("", "", ""), acts("j:j1")               # done: nothing
     assert acts("j:j5") == ("", "↻", ""), acts("j:j5")              # failed: retry
     assert acts("j:j6") == ("", "", ""), acts("j:j6")               # skipped: no retry
-    assert acts("b:b1") == ("⏸", "", "✕"), acts("b:b1")             # the batch: pause all, cancel the batch
     for iid, col, want in (("j:j3", "pr", ("pause", "j3")), ("j:j3", "x", ("cancel", "j3")), ("j:j4", "pr", ("resume", "j4")),
-                           ("j:j5", "retry", ("retry", "j5")), ("b:b1", "pr", ("pause_batch", "b1")),
-                           ("b:b1", "x", ("cancel_batch", "b1"))):
+                           ("j:j5", "retry", ("retry", "j5"))):
         app._queue_do(app._row_actions(iid)[col], iid)
         assert runner.calls[-1] == want, (iid, col, runner.calls[-1])
+    # keys (user 19.11.): Delete = ✕, Space = pause / resume of the selected row; nothing where the row offers nothing
+    tv.selection_set("j:j3")
+    assert app._queue_key_act("x") == "break" and runner.calls[-1] == ("cancel", "j3")
+    app._queue_key_act("pr")
+    assert runner.calls[-1] == ("pause", "j3")
+    tv.selection_set("j:j4")
+    app._queue_key_act("pr")
+    assert runner.calls[-1] == ("resume", "j4")
+    n = len(runner.calls)
+    tv.selection_set("j:j1")                       # a done picture: nothing
+    app._queue_key_act("x")
+    assert len(runner.calls) == n
+    assert tv.bind("<KeyPress-Delete>") and tv.bind("<KeyPress-space>")
     # a click on a symbol: the real cell under the mouse (the windows must be on screen for that)
     app.root.deiconify()
     win.deiconify()
@@ -387,10 +457,10 @@ def main():
     n = len(runner.calls)
     assert app._queue_press(type("E", (), {"x": x + w // 2, "y": y + h // 2})()) is None and len(runner.calls) == n
     # drag and drop instead of Up / Down: j4 dragged above j3 moves it one place up
-    x, y, w, h = tv.bbox("j:j4", "#0")
+    x, y, w, h = tv.bbox("j:j4", "pic")
     app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
     assert app._q_drag and app._q_drag["iid"] == "j:j4"
-    x, y, w, h = tv.bbox("j:j3", "#0")
+    x, y, w, h = tv.bbox("j:j3", "pic")
     app._queue_motion(type("E", (), {"x": x + 5, "y": y + h // 2})())
     assert tv.index("j:j4") < tv.index("j:j3")
     app._queue_fill()                                             # a runner event while dragging: no redraw under the mouse
@@ -398,22 +468,138 @@ def main():
     app._queue_release(None)
     assert runner.calls[-1] == ("move", "j4", -1), runner.calls[-1]
     assert app._q_drag is None
-    x, y, w, h = tv.bbox("j:j2", "#0")                            # the running picture cannot be dragged
+    x, y, w, h = tv.bbox("j:j2", "pic")                            # the running picture cannot be dragged
     app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
     assert app._q_drag is None
+    runner._jobs[2]["preplaced"] = True                            # nor one pre-placed at ComfyUI (19.11.)
+    app._queue_fill()
+    for _ in range(2):
+        app.root.update()
+    x, y, w, h = tv.bbox("j:j3", "pic")
+    app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
+    assert app._q_drag is None
+    x, y, w, h = tv.bbox("j:j4", "pic")                            # and nothing is dropped on its place
+    app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
+    assert app._q_drag and app._q_drag["iid"] == "j:j4"
+    x, y, w, h = tv.bbox("j:j3", "pic")
+    before = tv.get_children("")
+    app._queue_motion(type("E", (), {"x": x + 5, "y": y + h // 2})())
+    assert tv.get_children("") == before and not app._q_drag["moved"]
+    n = len(runner.calls)
+    app._queue_release(None)
+    assert len(runner.calls) == n, runner.calls[n:]
+    runner._jobs[2].pop("preplaced")
+    app._queue_fill()
 
-    # the columns always fill the list (user 13.11.): a column made very wide gives the room back, the symbols stay
-    tv.column("status", width=app._px(900))
+    # the columns always fill the list (user 13.11.): a column set very wide gives the room back, the symbols stay
+    cols = tuple(tv.cget("columns"))
+    F = gui_batch.Q_FILLER
+
+    def widths():
+        return {c: int(tv.column(c, "width")) for c in cols}
+
+    def fills():
+        return abs(sum(widths().values()) - (tv.winfo_width() - gui_batch.Q_TREE_INSET)) <= 1
+    want0 = dict(app._q_want)
+    app._q_want["status"] = app._px(900)
     app._queue_fit_cols()
-    cols = ("#0",) + tuple(tv.cget("columns"))
-    total = sum(int(tv.column(c, "width")) for c in cols)
-    assert total <= tv.winfo_width() - 2 + 1, (total, tv.winfo_width())
-    assert int(tv.column("#0", "width")) >= app._px(gui_batch.Q_PICTURE_MIN)
-    assert all(int(tv.column(c, "width")) == app._px(24) for c in app.Q_ACT_COLS)
-    tv.column("status", width=app._px(80))
+    assert sum(widths().values()) <= tv.winfo_width() - gui_batch.Q_TREE_INSET + 1, (widths(), tv.winfo_width())
+    assert widths()[F] >= app._px(gui_batch.Q_PICTURE_MIN)
+    assert all(widths()[c] == app._px(24) for c in app.Q_ACT_COLS)
+    app._q_want.update(want0)
     app._queue_fit_cols()
-    total = sum(int(tv.column(c, "width")) for c in cols)
-    assert abs(total - (tv.winfo_width() - 2)) <= 1, (total, tv.winfo_width())    # no gap: Picture takes the rest
+    assert fills() and widths()["status"] == want0["status"], widths()    # no gap, and the set width is back
+    before = widths()
+    for _ in range(3):
+        app.root.update()
+    assert widths() == before, (before, widths())        # Tk leaves them as they are: nothing squeezed, nothing jumps
+    # a heading line dragged (user 19.11.: the columns jumped): PxC drags it, the column gets exactly the width set, the
+    # neighbour on the right gives way, nothing jumps on release
+    w0 = widths()
+    edge = sum(w0[c] for c in ("idx", "who", "pic", "status"))
+    assert app._queue_sep_col(edge + 2) == "status" and app._queue_sep_col(edge - 2) == "status"
+    app._q_coldrag = {"col": "status", "x": edge, "w": w0}
+    assert app._queue_motion(type("E", (), {"x": edge + 20, "y": 5})()) == "break"     # Tk's own column drag stays out
+    w1 = widths()
+    assert w1["status"] == w0["status"] + 20 and w1["prog"] == w0["prog"] - 20, (w0, w1)
+    assert all(w1[c] == w0[c] for c in ("idx", "who", "pic", "fn", "time")), (w0, w1)
+    app._queue_release(None)
+    assert widths() == w1 and app._q_coldrag is None, "release changes nothing"
+    # far to the right: the neighbours give way down to their minimum, then the line stops
+    app._q_coldrag = {"col": "status", "x": edge, "w": widths()}
+    app._queue_motion(type("E", (), {"x": edge + 2000, "y": 5})())
+    app._queue_release(None)
+    w2 = widths()
+    assert w2["prog"] == app._q_min("prog") and w2["fn"] == app._q_min("fn") and w2["time"] == app._q_min("time") and fills(), w2
+    assert all(w2[c] == app._px(24) for c in app.Q_ACT_COLS)
+    # narrower again: the neighbour on the right takes the room
+    edge = sum(w2[c] for c in ("idx", "who", "pic", "status"))
+    app._q_coldrag = {"col": "status", "x": edge, "w": w2}
+    app._queue_motion(type("E", (), {"x": edge - 30, "y": 5})())
+    app._queue_release(None)
+    w3 = widths()
+    assert w3["status"] == w2["status"] - 30 and w3["prog"] == w2["prog"] + 30 and w3[F] == w2[F], (w2, w3)
+    # "Sent by" wider: Picture, its neighbour, gives the room
+    edge = sum(w3[c] for c in ("idx", "who"))
+    app._q_coldrag = {"col": "who", "x": edge, "w": w3}
+    app._queue_motion(type("E", (), {"x": edge + 10, "y": 5})())
+    app._queue_release(None)
+    w3b = widths()
+    assert w3b["who"] == w3["who"] + 10 and w3b[F] == w3[F] - 10 and fills(), (w3, w3b)
+    # "Time" has the symbols on its right: Picture gives the room
+    edge = sum(w3b[c] for c in app.Q_TEXT_COLS)
+    assert app._queue_sep_col(edge) == "time"
+    app._q_coldrag = {"col": "time", "x": edge, "w": w3b}
+    app._queue_motion(type("E", (), {"x": edge + 15, "y": 5})())
+    app._queue_release(None)
+    w4 = widths()
+    assert w4["time"] == w3b["time"] + 15 and w4[F] == w3b[F] - 15 and fills(), (w3b, w4)
+    # the edge of a symbol column is no line to drag
+    assert app._queue_sep_col(sum(w4.values()) - app._px(24)) is None
+    # the widths set are kept for the next start, in px before the scaling (user 19.11.)
+    sc = app._q_scale()
+    assert app.state["queue_cols"] == {c: round(w4[c] / sc) for c in app.Q_TEXT_COLS if c != F}, app.state["queue_cols"]
+    # light lines between the columns, in the heading and in the rows (user 19.11.)
+    app.root.update()
+    placed = [ln for pair in app._q_lines for ln in pair if ln.winfo_manager() == "place"]
+    assert len(placed) == 2 * (len(cols) - len(app.Q_ACT_COLS)), len(placed)     # none between the symbols (user 19.11.)
+    hl, bl = app._q_lines[0]
+    assert int(hl.place_info()["x"]) == w4["idx"] - 1 and hl.cget("bg") == gui_batch.Q_GRID_HEAD
+    assert bl.cget("bg") == gui_batch.Q_GRID_BODY and int(bl.place_info()["y"]) == int(hl.place_info()["height"]) > 4
+    # a double-click on a heading: the column as wide as its longest text (user 19.11.)
+    tv.set("j:j1", "fn", "Upscale · batch 12/60 x")
+    import tkinter.font as tkfont
+    need = tkfont.Font(root=app.root, font=gui.font(9)).measure(tv.set("j:j1", "fn")) + app._px(14)
+    x_fn = sum(widths()[c] for c in ("idx", "who", "pic", "status", "prog")) + 5
+    hy = app._queue_head_h() // 2
+    if tv.identify_region(x_fn, hy) == "heading":
+        assert app._queue_double(type("E", (), {"x": x_fn, "y": hy})()) == "break"
+    else:
+        app._queue_autofit("fn")
+    assert widths()["fn"] == need and fills(), (widths()["fn"], need)
+    assert app._queue_double(type("E", (), {"x": x_fn, "y": tv.bbox("j:j3", "fn")[1] + 3})()) is None   # a row: no autofit
+    # right-click on a heading: Reset column widths (user 19.11.)
+    app._queue_reset_cols()
+    assert {c: widths()[c] for c in app.Q_TEXT_COLS if c != F} == {c: app._px(v) for c, v in gui_batch.Q_COL_DEFAULT.items()
+                                                                    if c != F}
+    assert "queue_cols" not in app.state and fills()
+    if tv.identify_region(x_fn, hy) == "heading":
+        assert app._queue_head_menu(type("E", (), {"x": x_fn, "y": hy, "x_root": 10, "y_root": 10})()) == "break"
+        assert [e.get("label") for e in app._q_menu.entries] == ["Reset column widths"]
+        app._q_menu.unpost() if hasattr(app._q_menu, "unpost") else None
+    # the window narrower: the text columns give way; wider again: they get the widths set back
+    set_w = {c: widths()[c] for c in app.Q_TEXT_COLS if c != F}
+    win_w = app._queue_win.winfo_width()
+    app._queue_win.geometry(f"{app._px(360)}x{app._queue_win.winfo_height()}")
+    for _ in range(3):
+        app.root.update()
+    app._queue_fit_cols()
+    assert widths()[F] == app._px(gui_batch.Q_PICTURE_MIN) and widths()["time"] < set_w["time"], widths()
+    app._queue_win.geometry(f"{win_w}x{app._queue_win.winfo_height()}")
+    for _ in range(3):
+        app.root.update()
+    app._queue_fit_cols()
+    assert {c: widths()[c] for c in app.Q_TEXT_COLS if c != F} == set_w and fills(), (widths(), set_w)
     # the separator of a symbol column can't be dragged
     app.root.update()
     x, y, w, h = tv.bbox("j:j3", "pr")
@@ -423,7 +609,7 @@ def main():
         assert app._queue_press(sep) == "break"
     # the heading of the lower list (user 13.11.)
     heads = [wd for wd in app.tv_comfy.master.winfo_children() if wd.winfo_class() == "TLabel"]
-    assert heads and heads[0].cget("text") == "All jobs at ComfyUI now"
+    assert heads and heads[0].cget("text") == "Participants"
     # Q opens the queue, but not while typing in a field
     app._queue_close()
     app.t_prompt.focus_force()
@@ -509,7 +695,15 @@ def main():
     assert bridge.comfy.reads == reads
     bridge.comfy.fail = True
     app.open_queue()
-    assert pump(app, lambda: app.tv_comfy.item(app.tv_comfy.get_children()[0], "text") == "ComfyUI not reachable.")
+    # no ComfyUI (user 19.11.): alone (address on this PC) the hint asks whether it runs, in a network where to set it
+    assert pump(app, lambda: app.tv_comfy.item(app.tv_comfy.get_children()[0], "text") == gui_batch.Q_NOT_CONNECTED_LOCAL)
+    assert gui_batch.Q_NOT_CONNECTED_LOCAL == "ComfyUI not connected. Is ComfyUI running?"
+    app._queue_close()
+    bridge.comfy.url = "http://192.168.1.20:8188"
+    app.open_queue()
+    assert pump(app, lambda: app.tv_comfy.item(app.tv_comfy.get_children()[0], "text") == gui_batch.Q_NOT_CONNECTED_NET)
+    assert gui_batch.Q_NOT_CONNECTED_NET == "ComfyUI not connected. Set its host address in: Settings › Other settings."
+    del bridge.comfy.url
     app._queue_close()
     bridge.comfy.fail = False
 
@@ -538,9 +732,13 @@ def main():
     app.save_image()
     assert app.worker is None and app.v_status.get() == gui_batch.BATCH_BUSY
     runner.busy = False
+    bridge.can_undo = lambda *a: True               # a run before the batch left something to undo
+    app._last_step = None
     app._batch_sync()
     assert str(app.b_go.cget("state")) == "normal"
-    assert str(app.b_undo.cget("state")) == "normal" and str(app.b_redo.cget("state")) == "normal"
+    # back after the batch, by their own rule (decision 2a, 18.11.): Undo blue, Redo grey until an Undo
+    assert str(app.b_undo.cget("state")) == "normal" and str(app.b_redo.cget("state")) == "disabled"
+    del bridge.can_undo
 
     # ---- the hint at the bar: "Batch 3 of 12 · ~4 min", " · N jobs of others ahead" ----
     app._batch_event("queue-job", job("j2", "running"))

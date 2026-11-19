@@ -1,6 +1,8 @@
 """A run: build the request, generate, undo/redo, stop, poll, progress and status line. (moved out of gui.py unchanged; see PLAN.md, phase 0)."""
 from __future__ import annotations
 
+import contextlib
+
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 from . import icons
@@ -158,6 +160,7 @@ class RunMixin:
         except (TypeError, ValueError, tk.TclError):
             n = 1
         self.w_variants.configure(text=f"×{n} ▾")
+        self._fit_go_row()          # its natural width may change with the number
 
     def _variants_menu(self):
         """A click on the piece beside Generate: the choice 1 to 8, opening under it."""
@@ -203,8 +206,7 @@ class RunMixin:
         self._run_label = self._model_label()           # the bar names the model of this run, not one picked meanwhile (window test E)
         self.b_go.configure(state="disabled")
         self.w_variants.configure(state="disabled")     # part of Generate: grey with it while a run is on
-        self.b_undo.configure(state="disabled")
-        self.b_redo.configure(state="disabled")
+        self._sync_history_buttons()
         self.b_stop.configure(state="normal")
         self.bridge.reset_cancel_all()
         self._reset_progress()
@@ -222,7 +224,14 @@ class RunMixin:
         if len(runs) > 1 or (req.mode in SCALE_MODES and int(req.variants) > 1):
             self._show_stop_all(True)
 
+        clicked = time.time()       # ComfyUI's `number` of every job of this Generate (decision 18.11.): its click
+
         def work():
+            order = getattr(self.bridge.comfy, "order", None)
+            with (order(clicked) if callable(order) else contextlib.nullcontext()):
+                generate_work()
+
+        def generate_work():
             try:
                 total = docs = 0
                 res = None
@@ -269,12 +278,15 @@ class RunMixin:
     def _history_step(self, fn):
         if (self.worker and self.worker.is_alive()) or self._blocked_by_batch():
             return
-        self.b_undo.configure(state="disabled")
-        self.b_redo.configure(state="disabled")
+        self._history_busy = True
+        self._sync_history_buttons()
+        step = "undo" if fn == self.bridge.undo_last else "redo"
 
         def work():
             try:
-                self.events.put(("note", fn()))
+                note = fn()
+                self._last_step = step          # only after a step that worked: a failed one ("note-error") leaves it
+                self.events.put(("note", note))
             except (BridgeError, PhotoCraftError) as e:
                 self.events.put(("note-error", f"Error: {e}"))
             except Exception as e:
@@ -458,8 +470,7 @@ class RunMixin:
         self._running = True
         self.b_go.configure(state="disabled")
         self.w_variants.configure(state="disabled")
-        self.b_undo.configure(state="disabled")
-        self.b_redo.configure(state="disabled")
+        self._sync_history_buttons()
         self.b_stop.configure(state="normal")
         self.bridge.reset_cancel_all()
         self._reset_progress()
@@ -500,12 +511,99 @@ class RunMixin:
             self._status("Cancelling…")
 
     def _show_stop_all(self, on: bool):
-        """"Stop all" beside "Stop": Stop gets a little narrower while it is shown, so the row (with Undo and Redo) still fits the window."""
-        self.b_stop.configure(width=STOP_W_WITH_ALL if on else STOP_W)
+        """"Stop all" beside "Stop"; the row shares out its width anew, so it still fits the window with Undo and Redo."""
         if on:
-            self.b_stop_all.pack(side="left", fill="y", padx=(6, 0), after=self.b_stop)
+            self.b_stop_all.grid(row=0, column=GO_COL_STOP_ALL, sticky="nsew", padx=(self._keep(6), 0))
         else:
-            self.b_stop_all.pack_forget()
+            self.b_stop_all.grid_forget()
+        self._fit_go_row()
+
+    def _fit_go_row(self):
+        """The Generate row over the full width (user 18.11., decisions 1a and 3): Generate and the variants piece together
+        are as wide as the tab "Edit canvas" under the prompt (half the row less the tabs' padding; user 18.11.), the
+        variants piece at VARIANTS_GROW_MAX of its natural width, Generate the rest; Stop grows up to STOP_GROW_MAX; what is
+        left goes to the empty column before Undo. Undo and Redo are squares as high as Generate. Where the row is short
+        ("Stop all" shown, a large scale), Stop, then Generate, then the variants piece give room back, down to their
+        natural width."""
+        bf = getattr(self, "f_go", None)
+        if bf is None or not hasattr(self, "b_redo"):
+            return
+
+        def pad(w) -> int:
+            """The padding a button has in its grid cell (both sides): a column's minsize includes it, and spacing.py may
+            have scaled a gap given at build time, so it is read back rather than worked out."""
+            v = w.grid_info().get("padx", 0)
+            v = v if isinstance(v, (tuple, list)) else str(v).split() or [0]
+            return sum(int(float(str(x))) for x in v) if len(v) > 1 else 2 * int(float(str(v[0])))
+
+        try:
+            total = int(bf.winfo_width())
+            side = int(self.b_go.winfo_reqheight())
+            n_go, n_var, n_stop = (int(w.winfo_reqwidth()) for w in (self.b_go, self.w_variants, self.b_stop))
+            p_go, p_var, p_stop = (pad(w) for w in (self.b_go, self.w_variants, self.b_stop))
+            tabs = getattr(self, "rb_edtabs", None)          # the tabs' padding (refslots.py), read back once they exist
+            p_tab = pad(tabs["edit"]) if tabs and tabs["edit"].winfo_manager() == "grid" else 2 * EDTAB_PADX
+            tab_w = 0           # the tab "Edit canvas" as it really is on screen (user 19.11.: the pair was a little narrower)
+            if tabs and tabs["edit"].winfo_ismapped() and tabs["edit"].winfo_width() > 1:
+                tab_w = int(tabs["edit"].winfo_width())
+                if not getattr(tabs["edit"], "_pcc_go_bound", False):        # the tab changes its width: the row follows
+                    tabs["edit"].bind("<Configure>", lambda e: self._fit_go_row(), add="+")
+                    tabs["edit"]._pcc_go_bound = True
+            pair = pad(self.b_redo)
+            fixed = p_stop + self._px(GO_GAP_MIN_PX) + 2 * side + pair      # beside Generate and the variants piece
+            if self.b_stop_all.winfo_manager() == "grid":
+                fixed += pad(self.b_stop_all) + int(self.b_stop_all.winfo_reqwidth())
+        except (tk.TclError, AttributeError, ValueError, KeyError, TypeError):      # TypeError: no real Tk (the test stubs)
+            return
+        key = (total, side, n_go, n_var, n_stop, p_tab, tab_w, fixed)
+        if total <= 1 or key == getattr(self, "_go_row_key", None):
+            return
+        self._go_row_key = key
+        var = n_var + int(n_var * (VARIANTS_GROW_MAX - 1)) + p_var       # the variants column (its padding included)
+        go = max(n_go + p_go, (tab_w or (total - 2 * p_tab) // 2) - var)  # Generate + variants = the tab "Edit canvas"
+        rest = total - fixed - go - var                                    # what Stop may take
+        stop = max(n_stop, min(rest, n_stop + int(n_stop * (STOP_GROW_MAX - 1))))
+        short = max(0, stop - rest)                                        # the row is too short: Generate, then variants give back
+        cut = min(short, go - n_go - p_go)
+        go, short = go - cut, short - cut
+        var -= min(short, var - n_var - p_var)
+        bf.grid_columnconfigure(0, minsize=go)
+        bf.grid_columnconfigure(1, minsize=var)
+        bf.grid_columnconfigure(2, minsize=stop + p_stop)
+        bf.grid_columnconfigure(GO_COL_GAP, minsize=self._px(GO_GAP_MIN_PX))
+        bf.grid_columnconfigure(GO_COL_UNDO, minsize=side)
+        bf.grid_columnconfigure(GO_COL_UNDO + 1, minsize=side + pair)
+        bf.grid_rowconfigure(0, minsize=side)
+
+    def _sync_history_buttons(self):
+        """Undo and Redo (user 18.11., decision 2a): grey while a run, an Undo/Redo step or a batch is on; otherwise one of
+        them is blue at a time: after a run Undo, after Undo Redo, after Redo Undo again; at the start both grey. The bridge
+        has to agree too (can_undo / can_redo): undo_last keeps its snapshot and redo_last its redo, so those alone do not
+        say which one comes next."""
+        if not hasattr(self, "b_redo"):
+            return
+        # flags, not worker.is_alive(): the worker may still be ending when its last event ("done", "note") is read here
+        busy = getattr(self, "_running", False) or getattr(self, "_history_busy", False)
+        try:
+            busy = busy or self._batch_busy()
+        except Exception:
+            pass
+        undo = redo = False
+        if not busy:
+            last = getattr(self, "_last_step", None)
+            bridge = getattr(self, "bridge", None)
+            try:
+                if last == "undo":
+                    redo = bool(bridge and bridge.can_redo())
+                else:
+                    undo = bool(bridge and bridge.can_undo())
+            except Exception:
+                undo = redo = False
+        try:
+            self.b_undo.configure(state="normal" if undo else "disabled")
+            self.b_redo.configure(state="normal" if redo else "disabled")
+        except tk.TclError:
+            pass
 
     def stop_all(self):
         """Stop all: the run that is on and every variant / comparison run still to come."""
@@ -530,8 +628,8 @@ class RunMixin:
                         self._status("")
                 elif kind in ("note", "note-error"):
                     self._status(data, error=(kind == "note-error"))
-                    self.b_undo.configure(state="normal")
-                    self.b_redo.configure(state="normal")
+                    self._history_busy = False
+                    self._sync_history_buttons()
                     self._batch_sync()          # a batch that started meanwhile keeps Undo and Redo grey
                 elif kind == "done":
                     frame = None
@@ -544,8 +642,9 @@ class RunMixin:
                     self._running = False
                     self.b_go.configure(state="normal")
                     self.w_variants.configure(state="normal")
-                    self.b_undo.configure(state="normal")
-                    self.b_redo.configure(state="normal")
+                    if ok:
+                        self._last_step = None      # a new result: Undo is the blue one again (decision 2a, 18.11.)
+                    self._sync_history_buttons()
                     self.b_stop.configure(state="disabled")
                     self._show_stop_all(False)
                     self._history_end(ok)

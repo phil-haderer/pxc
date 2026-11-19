@@ -6,6 +6,31 @@ entry here.
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-19
+
+### Added
+- **Queue window for the whole network:** it lists every run at ComfyUI, your own and those of other PCs, in the
+  order they run, with the columns #, Sent by, Picture, Status, Progress, Function and Time. Generate tells every queue
+  window how many variants it makes.
+- **Progress column:** a text bar for your own running run, the time since start for a run of another PC.
+- Orders of different PCs on one ComfyUI run one after the other. When others have jobs waiting, PxC places your next
+  batch picture early ("Sent"); Pause and ✕ take it back out.
+- Queue window comforts: a double-click on a heading fits the column to its longest text, a right-click on a heading
+  resets the widths, widths and window size stay after a restart, Time shows "starts in ~3 min", Delete cancels and
+  Space pauses or resumes the selected row, and a clear hint when ComfyUI is not connected.
+
+### Changed
+- The Generate row fills the full width: Generate and the variants piece are as wide as the tab "Edit canvas".
+- Undo and Redo are square buttons; the one you can use is blue.
+
+### Removed
+- The short LICENSE file again: GitHub showed the licence as "Other" with it. The licence stays MIT or Apache-2.0
+  (LICENSE-MIT, LICENSE-APACHE).
+
+### Fixed
+- Queue columns no longer jump when you drag a column border.
+- The queue window opens on Linux (it stopped with a cursor error).
+
 ## [1.0.5] - 2026-11-18
 
 ### Added

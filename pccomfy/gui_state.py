@@ -310,4 +310,5 @@ class StateMixin:
             "runs": dict(self.state.get("runs", {})),
             "model_by_mode": dict(getattr(self, "_mode_model", None) or self.state.get("model_by_mode") or {}),
             "win_pos": list(getattr(self, "_win_pos", None) or self.state.get("win_pos") or []) or None,
+            "queue_cols": self.state.get("queue_cols"), "queue_size": self.state.get("queue_size"),   # the queue window (19.11.)
         })

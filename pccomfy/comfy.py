@@ -6,7 +6,7 @@ Endpoints used:
   POST /prompt                               – queue an API-format graph
   WS   /ws?clientId=…                        – progress and live preview frames (optional, needs websocket-client)
   GET  /history/<prompt_id>, /view           – fetch results
-  POST /interrupt, /queue                    – cancel
+  POST /interrupt, /queue                    – cancel; /queue {"delete": [...]} also takes a pre-placed batch picture back
   GET  /queue                                – what ComfyUI is running and has waiting (also other users' jobs)
 """
 
@@ -125,6 +125,8 @@ class ComfyUI:
         self.owner: str | None = None
         self.last_prompt_id: str | None = None      # the prompt id of the last job queued (any thread)
         self._job_ctx = threading.local()
+        self._run_info = threading.local()       # run_info() of the calling thread: pictures per job, "k/n"
+        self._order = threading.local()          # order() of the calling thread: ComfyUI's `number` for its jobs
 
     LOG_MAX_BYTES = 200_000
 
@@ -346,15 +348,46 @@ class ComfyUI:
     # ---------- execution ----------
 
     OWNER_KEY = "pcc_owner"      # our key in a job's extra_data (ComfyUI keeps unknown keys and shows them in /queue, /history)
+    BATCH_KEY = "pcc_batch"      # the batch a job belongs to: other PCs show the jobs of one batch as one group (18.11.)
+    IMAGES_KEY = "pcc_images"    # how many pictures one job makes (Generate with variants), shown in every queue window
+    VARIANT_KEY = "pcc_variant"  # "k/n": variant k of n that run one after the other (Upscale, Refine), same purpose
 
     @contextlib.contextmanager
-    def job_context(self, owner: str | None = None, on_queued: Callable[[str, dict], None] | None = None):
+    def run_info(self, images: int = 1, variant: tuple[int, int] | None = None):
+        """For the jobs the CALLING THREAD queues inside the block: how many pictures each makes (extra_data["pcc_images"],
+        sent from 2 on) and, for variants that run one after the other, variant = (k from 1, n) (extra_data["pcc_variant"]
+        = "k/n"). Only sent along with an owner's name. Other threads are not affected."""
+        old = getattr(self._run_info, "value", None)
+        self._run_info.value = {"images": int(images or 1), "variant": f"{int(variant[0])}/{int(variant[1])}" if variant else ""}
+        try:
+            yield
+        finally:
+            self._run_info.value = old
+
+    @contextlib.contextmanager
+    def order(self, number: float):
+        """For the jobs the CALLING THREAD queues inside the block: ComfyUI's `number` (its priority in POST /prompt, the
+        smaller runs first) is `number`, the start time of the order (Generate click, batch start plus the picture's index;
+        decision 18.11. evening, "Vorrangnummer"): orders of different participants run one after the other. Without
+        one, every job gets the time it is queued."""
+        old = getattr(self._order, "value", None)
+        self._order.value = float(number)
+        try:
+            yield
+        finally:
+            self._order.value = old
+
+    @contextlib.contextmanager
+    def job_context(self, owner: str | None = None, on_queued: Callable[[str, dict], None] | None = None,
+                    batch: str | None = None, events: Callable[[], bool] | None = None):
         """For the jobs the CALLING THREAD queues inside the block: `owner` goes into extra_data["pcc_owner"] (instead of
-        self.owner) and on_queued(prompt_id, graph) is called right after ComfyUI accepted each job (the batch queue keeps
-        the prompt id at once, so it can cancel exactly that job and pick its result up after a crash). Other threads are
-        not affected."""
+        self.owner), `batch` into extra_data["pcc_batch"], and on_queued(prompt_id, graph) is called right after ComfyUI
+        accepted each job (the batch queue keeps the prompt id at once, so it can cancel exactly that job and pick its
+        result up after a crash). `events`: while it returns False no websocket is opened (a batch picture placed at
+        ComfyUI ahead of time: a second socket with our client id would take the running job's progress away);
+        wait() opens one as soon as it returns True. Other threads are not affected."""
         old = getattr(self._job_ctx, "value", None)
-        self._job_ctx.value = {"owner": owner, "on_queued": on_queued}
+        self._job_ctx.value = {"owner": owner, "on_queued": on_queued, "batch": batch, "events": events}
         try:
             yield
         finally:
@@ -367,17 +400,28 @@ class ComfyUI:
     def queue(self, graph: dict, preview: str | None = None) -> str:
         """preview: ComfyUI's preview method for this prompt only ("taesd" uses the TAESD file of the model when it is in
         models/vae_approx and falls back to the coarse latent2rgb colours; "none"); None = ComfyUI's start setting.
+        run_info() of the calling thread adds the number of pictures / the variant (every queue window shows them).
+        `number` (ComfyUI's priority) is the order() of the calling thread, else the time now.
         The owner's name (job_context, else self.owner) goes along in extra_data; without one the payload is as it always was."""
         if self.name_fixer is not None:
             self.name_fixer(graph)
         ctx = getattr(self._job_ctx, "value", None) or {}
         owner = ctx.get("owner") or self.owner
         payload = {"prompt": graph, "client_id": self.client_id}
+        number = getattr(self._order, "value", None)
+        payload["number"] = float(number) if number is not None else time.time()
         extra = {}
         if preview:
             extra["preview_method"] = preview
         if owner:
             extra[self.OWNER_KEY] = str(owner)
+        if ctx.get("batch"):
+            extra[self.BATCH_KEY] = str(ctx["batch"])
+        info = getattr(self._run_info, "value", None) or {}
+        if owner and info.get("images", 1) > 1:
+            extra[self.IMAGES_KEY] = info["images"]
+        if owner and info.get("variant"):
+            extra[self.VARIANT_KEY] = info["variant"]
         if extra:
             payload["extra_data"] = extra
         j = self._json("/prompt", payload)
@@ -392,8 +436,10 @@ class ComfyUI:
 
     def queue_entries(self) -> list[dict]:
         """ComfyUI's queue (GET /queue): the running job(s) first, then the waiting ones in ComfyUI's order. Each entry:
-        {"prompt_id", "number", "client_id", "owner", "running"}; owner is extra_data["pcc_owner"] or "" (a job of a
-        plain ComfyUI user). Raises ComfyError when ComfyUI cannot be reached."""
+        {"prompt_id", "number", "client_id", "owner", "batch", "kind", "running", "images", "variant"}; images is
+        extra_data["pcc_images"] or 1, variant extra_data["pcc_variant"] ("k/n") or ""; owner is extra_data["pcc_owner"] or "" (a
+        job of a plain ComfyUI user), batch is extra_data["pcc_batch"] or "", kind is "batch", "generate" (a PxC job
+        without a batch) or "" (not from PxC). Raises ComfyError when ComfyUI cannot be reached."""
         j = self._json("/queue") or {}
         out = []
         for key, running in (("queue_running", True), ("queue_pending", False)):
@@ -406,8 +452,16 @@ class ComfyUI:
                     number = float(item[0])
                 except (TypeError, ValueError):
                     number = 0.0
+                batch = str(extra.get(self.BATCH_KEY) or "")
+                kind = "batch" if batch else ("generate" if extra.get(self.OWNER_KEY) else "")
+                try:
+                    images = max(1, int(extra.get(self.IMAGES_KEY) or 1))
+                except (TypeError, ValueError):
+                    images = 1
                 items.append({"prompt_id": str(item[1]), "number": number, "client_id": str(extra.get("client_id") or ""),
-                              "owner": str(extra.get(self.OWNER_KEY) or ""), "running": running})
+                              "owner": str(extra.get(self.OWNER_KEY) or ""), "batch": batch, "kind": kind,
+                              "running": running, "images": images,
+                              "variant": str(extra.get(self.VARIANT_KEY) or "")})
             out += sorted(items, key=lambda e: e["number"])
         return out
 
@@ -430,6 +484,11 @@ class ComfyUI:
                 n += 1
         return 0
 
+    def delete_queued(self, prompt_id: str) -> None:
+        """Take a job that still waits at ComfyUI out of its queue (POST /queue {"delete": [...]}). A job ComfyUI already
+        runs is not touched (check queue_entries() afterwards). Raises ComfyError when ComfyUI cannot be reached."""
+        self._json("/queue", {"delete": [prompt_id]})
+
     def interrupt(self, prompt_id: str | None = None) -> None:
         try:
             if prompt_id:
@@ -448,6 +507,9 @@ class ComfyUI:
         asyncio accept). Afterwards recv() times out after 1 s: the heartbeat of wait()."""
         if websocket is None or real_comfy_blocked(self._host, self._port):
             return None
+        events = (getattr(self._job_ctx, "value", None) or {}).get("events")
+        if events is not None and not events():
+            return None              # a picture placed ahead of time: no socket until it is the job that runs
         ws = None
         t0 = time.monotonic()
         try:
@@ -488,11 +550,15 @@ class ComfyUI:
             ws = self.open_events()
         t_wait = time.monotonic()
         self._log("wait_start", prompt=prompt_id[:8], ws="yes" if ws is not None else "no (polling)", own=own)
+        events = (getattr(self._job_ctx, "value", None) or {}).get("events")
         try:
             while time.monotonic() < deadline:
                 if cancelled():
                     self.interrupt(prompt_id)
                     raise Cancelled()
+                if ws is None and own and events is not None and events():
+                    ws = self.open_events()      # the picture placed ahead of time is now the job that runs: live progress
+                    events = None
                 if ws is not None:
                     try:
                         msg = ws.recv()

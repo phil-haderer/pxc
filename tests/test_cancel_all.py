@@ -61,6 +61,37 @@ def bridge_tests():
     assert not b.cancel_all_requested()
 
 
+def row_checks(app, gui, stop_all=False):
+    """The Generate row (user 18.11., decisions 1a, 2a and 3): over the full width with no room left but the gap before
+    Undo; Generate + the variants piece exactly as wide as the tab "Edit canvas"; the variants piece and Stop within their
+    caps (natural width up to 1.2x); Undo and Redo squares as high as Generate at the right edge."""
+    row = app.f_go.winfo_width()
+    go, var, stop, undo, redo = app.b_go, app.w_variants, app.b_stop, app.b_undo, app.b_redo
+    tab = app.rb_edtabs["edit"]
+    assert tab.winfo_ismapped()
+    pair_w = var.winfo_x() + var.winfo_width() - go.winfo_x()
+    if stop_all:        # the row may be short then (100 %: 7 px): Generate gives that back, never more than the tab
+        assert tab.winfo_width() - app._px(12) <= pair_w <= tab.winfo_width(), (pair_w, tab.winfo_width())
+    else:
+        assert pair_w == tab.winfo_width(), (go.winfo_width(), var.winfo_width(), tab.winfo_width())
+    assert go.winfo_x() == 0 and redo.winfo_x() + redo.winfo_width() == row, (redo.winfo_x(), redo.winfo_width(), row)
+    for w, cap in ((var, gui.VARIANTS_GROW_MAX), (stop, gui.STOP_GROW_MAX)):
+        assert w.winfo_reqwidth() <= w.winfo_width() <= w.winfo_reqwidth() * cap + 1, (w, w.winfo_width(), w.winfo_reqwidth())
+    assert go.winfo_width() >= go.winfo_reqwidth()
+    assert go.winfo_width() > go.winfo_reqwidth() * 1.2              # it did grow: the row is not packed to the left any more
+    assert var.winfo_x() == go.winfo_x() + go.winfo_width() + 1 and stop.winfo_x() == var.winfo_x() + var.winfo_width() + 1
+    side = go.winfo_height()
+    for b in (undo, redo):
+        assert b.winfo_width() == b.winfo_height() == side, (b.winfo_width(), b.winfo_height(), side)
+        assert str(b.cget("style")) == "Square.TButton" and b.cget("image")
+    assert 0 < redo.winfo_x() - (undo.winfo_x() + undo.winfo_width()) <= app._px(gui.GO_PAIR_GAP_PX) + 2
+    last = app.b_stop_all if stop_all else stop
+    gap = undo.winfo_x() - (last.winfo_x() + last.winfo_width())
+    assert gap >= app._px(gui.GO_GAP_MIN_PX), gap                    # the only free room: before Undo
+    if stop_all:
+        assert app.b_stop_all.winfo_width() >= app.b_stop_all.winfo_reqwidth()
+
+
 def window_tests():
     try:
         import tkinter
@@ -80,23 +111,24 @@ def window_tests():
         app.root.update()
         time.sleep(0.02)
     assert not app.b_stop_all.winfo_manager()                       # not shown at rest
-    # Undo and Redo (user 17.11.): right after Stop, close together, 90 % of the small flat icons
-    stop_end = app.b_stop.winfo_x() + app.b_stop.winfo_width()
-    assert stop_end < app.b_undo.winfo_x() <= stop_end + app._px(gui.UNDO_GAP_PX) + 2, (stop_end, app.b_undo.winfo_x())
-    undo_end = app.b_undo.winfo_x() + app.b_undo.winfo_width()
-    assert undo_end < app.b_redo.winfo_x() <= undo_end + app._px(gui.UNDO_PAIR_GAP_PX) + 2, (undo_end, app.b_redo.winfo_x())
-    assert app.b_undo.pack_info()["side"] == app.b_redo.pack_info()["side"] == "left"    # no longer at the right edge
-    assert gui.UNDO_ICON_SCALE == 0.9 and gui.UNDO_PAIR_GAP_PX < 8
+    from pccomfy import models
+    names = sorted({w for m in models.MODELS for w in m.workflows()})
+    app.cb_workflow["values"] = [gui.BUILTIN] + names
+    app.v_model.set("flux3")
+    app.v_mode.set("edit")                  # the tabs under the prompt are there: Generate + variants = "Edit canvas"
+    app._on_model()
+    app.root.deiconify()                    # shown for the row checks: a withdrawn window does not give the body its full width
+    for _ in range(25):
+        app.root.update()
+        time.sleep(0.02)
+    row_checks(app, gui)
     app._show_stop_all(True)
     app.root.update()
+    assert app.b_stop_all.winfo_manager() == "grid"
     assert app.b_stop.winfo_x() < app.b_stop_all.winfo_x() < app.b_undo.winfo_x()     # "Stop all" sits between Stop and Undo
-    assert app.b_stop_all.winfo_manager() == "pack"
-    assert app.b_stop_all.winfo_x() > app.b_stop.winfo_x()          # right of Stop
-    assert int(str(app.b_stop.cget("width"))) == gui.STOP_W_WITH_ALL   # Stop is narrower meanwhile (user 12.11.)
     from tkinter import font as tkfont
     assert app.b_stop_all.winfo_width() >= tkfont.Font(root=app.root, font=gui.font(9)).measure("Stop all") + 10   # the whole text shows
-    used = app.b_redo.winfo_x() + app.b_redo.winfo_width()
-    assert used <= app.f_go.winfo_width(), (used, app.f_go.winfo_width())    # the row still fits the window with Undo and Redo
+    row_checks(app, gui, stop_all=True)
     calls = []
     app.bridge.cancel_all = lambda: calls.append("all")
     app.bridge.cancel = lambda: calls.append("one")
@@ -108,6 +140,8 @@ def window_tests():
     app._show_stop_all(False)
     app.root.update()
     assert not app.b_stop_all.winfo_manager()
+    row_checks(app, gui)                    # back as before
+    app.root.withdraw()
     assert int(str(app.b_stop.cget("width"))) == gui.STOP_W      # as wide as its text, not 9 any more (user 12.11.)
     assert str(app.b_stop.cget("text")) == "Stop" and str(app.b_stop_all.cget("text")) == "Stop all"
     app.root.destroy()

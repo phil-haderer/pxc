@@ -52,6 +52,8 @@ class Fake:
         self.foreign_running, self.foreign_pending = [], []   # [(number, prompt id, client id, owner)]
         self.deletes, self.interrupts = [], []
         self.n = 0
+        self.client_of = {}           # prompt id -> the client id it was queued with (our entries in /queue)
+        self.running_ours = set()     # our prompt ids ComfyUI runs now: /queue lists them as running, a delete leaves them
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -94,8 +96,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, buf.getvalue(), "image/png")
         elif self.path == "/queue":
             with f.lock:
-                ours = [[100 + i, pid, {}, {"client_id": "me"}, []] for i, pid in enumerate(sorted(f.inflight))]
+                ours = [[100 + i, pid, {}, {"client_id": f.client_of.get(pid, "me")}, []]
+                        for i, pid in enumerate(sorted(f.inflight - f.running_ours))]
                 run = [[n, pid, {}, {"client_id": c, "pcc_owner": o}, []] for n, pid, c, o in f.foreign_running]
+                run += [[99, pid, {}, {"client_id": f.client_of.get(pid, "me")}, []] for pid in sorted(f.running_ours & f.inflight)]
                 pend = [[n, pid, {}, {"client_id": c, "pcc_owner": o}, []] for n, pid, c, o in f.foreign_pending]
             self._json({"queue_running": run, "queue_pending": pend + ours})
         elif self.path.startswith("/object_info/"):
@@ -117,6 +121,7 @@ class Handler(BaseHTTPRequestHandler):
                     f.n += 1
                     pid = f"p{f.n}"
                     f.inflight.add(pid)
+                    f.client_of[pid] = f.payloads[-1].get("client_id") or ""
                     f.max_inflight = max(f.max_inflight, len(f.inflight))
             if code == 400:
                 self._json({"error": {"message": "Prompt outputs failed validation"}, "node_errors": {}}, 400)
@@ -128,7 +133,8 @@ class Handler(BaseHTTPRequestHandler):
             with f.lock:
                 f.deletes.append(json.loads(body))
                 for pid in json.loads(body).get("delete", []):
-                    f.inflight.discard(pid)
+                    if pid not in f.running_ours:
+                        f.inflight.discard(pid)
             self._json({})
         elif self.path == "/interrupt":
             with f.lock:
@@ -313,6 +319,7 @@ def test_jobs_ahead():
         entries = c.queue_entries()
         assert [e["prompt_id"] for e in entries] == ["f1", "f2", "f3", "mine"], entries
         assert entries[0]["running"] and entries[0]["owner"] == "anna" and entries[3]["client_id"] == "me"
+        assert entries[0]["kind"] == "generate" and entries[2]["kind"] == "" and entries[0]["batch"] == ""   # "": not from PxC
         assert c.jobs_ahead("mine") == 3 and c.jobs_ahead("f2") == 1 and c.jobs_ahead("gone") == 0 and c.jobs_ahead(None) == 0
         # our own jobs ahead do not count
         fake.foreign_pending = [(2, "mine0", "me", "phil")] + fake.foreign_pending
@@ -337,6 +344,32 @@ def test_owner_in_extra_data():
         assert "extra_data" not in p[0] and p[1]["extra_data"] == {"preview_method": "taesd"}
         assert p[2]["extra_data"] == {"pcc_owner": "phil"} and seen == [pid] and c.last_prompt_id == "p4"
         assert p[3]["extra_data"] == {"preview_method": "taesd", "pcc_owner": "anna"}
+        # a batch job carries its batch, so other PCs show the pictures of one batch as one group (18.11.)
+        with c.job_context(owner="phil", batch="bb"):
+            c.queue({"1": {}})
+        assert fake.payloads[4]["extra_data"] == {"pcc_owner": "phil", "pcc_batch": "bb"}
+        real_json = c._json
+        c._json = lambda path, *a, **k: {"queue_running": [], "queue_pending": [
+            [7, "q1", {}, {"client_id": "o", "pcc_owner": "ben", "pcc_batch": "bb"}, []]]}
+        e = c.queue_entries()[0]
+        assert (e["owner"], e["batch"], e["kind"], e["running"]) == ("ben", "bb", "batch", False), e
+        assert (e["images"], e["variant"]) == (1, ""), e
+        # Generate with variants: the number of pictures, or "variant k of n", goes along for every queue window (18.11.)
+        c._json = real_json
+        n = len(fake.payloads)
+        with c.run_info(images=2):
+            c.queue({"1": {}})
+        with c.run_info(variant=(1, 3)):
+            c.queue({"1": {}})
+        with c.run_info(images=1):
+            c.queue({"1": {}})
+        assert fake.payloads[n]["extra_data"] == {"pcc_owner": "anna", "pcc_images": 2}, fake.payloads[n]
+        assert fake.payloads[n + 1]["extra_data"] == {"pcc_owner": "anna", "pcc_variant": "1/3"}
+        assert fake.payloads[n + 2]["extra_data"] == {"pcc_owner": "anna"}
+        c._json = lambda path, *a, **k: {"queue_running": [], "queue_pending": [
+            [8, "q2", {}, {"pcc_owner": "ben", "pcc_images": 2}, []], [9, "q3", {}, {"pcc_owner": "ben", "pcc_variant": "2/2"}, []]]}
+        e2, e3 = c.queue_entries()
+        assert (e2["images"], e2["variant"], e3["images"], e3["variant"]) == (2, "", 1, "2/2"), (e2, e3)
     finally:
         srv.shutdown()
         srv.server_close()
@@ -364,6 +397,7 @@ def test_folder_batch_dry_run():
         assert sorted(p.name for p in (Path(tmp) / "out").iterdir()) == ["a_refined.png", "b_refined.png", "c_refined.png"]
         assert fake.max_inflight == 1, "one job at a time at ComfyUI"
         assert all(p["extra_data"]["pcc_owner"] == "phil" and p["client_id"] == b.comfy.client_id for p in fake.payloads)
+        assert all(p["extra_data"]["pcc_batch"] == bid for p in fake.payloads)
         jobs = r.jobs(bid)
         assert [j["status"] for j in jobs] == [JQ.DONE] * 3 and all(j["prompt_id"] and j["out_node"] == "out" or j["out_node"] for j in jobs)
         assert all(not j["input_png"] for j in jobs) and not list((Path(tmp) / "queue").glob("*.png")), "inputs cleaned up"
@@ -592,7 +626,7 @@ def test_crash_recovery():
         qdir = Path(tmp) / "queue"
         store = JQ.JobStore(Path(tmp) / "queue.json", qdir)
         with fake.lock:
-            fake.done.update({"77": True, "78": True, "79": True})
+            fake.done.update({"77": True, "78": True, "79": True, "80": True})
         old_settings = config.get_setting(savefile.SAVE_FOLDER_KEY)
         config.set_setting(savefile.SAVE_FOLDER_KEY, str(Path(tmp) / "out"))     # a rescued result uses the saved settings
 
@@ -606,7 +640,9 @@ def test_crash_recovery():
                       job("gone", JQ.RUNNING, "88", source={"kind": "folder", "path": "x.png", "size": [T.W, T.H]}),
                       job("doc-ok", JQ.RUNNING, "78", source={"kind": "open", "name": "second.png", "index": 1, "size": [T.W, T.H]}),
                       job("doc-closed", JQ.RUNNING, "79", source={"kind": "open", "name": "closed.png", "index": 5, "size": [T.W, T.H]}),
-                      job("wait", JQ.WAITING), job("held", JQ.PAUSED)]
+                      job("wait", JQ.WAITING), job("held", JQ.PAUSED),
+                      # placed at ComfyUI ahead of time (19.11.): it is there, so its result is picked up too
+                      job("ahead", JQ.WAITING, "80", preplaced=True, source={"kind": "folder", "path": str(Path(tmp) / "dune.png"), "size": [T.W, T.H]})]
         (qdir / "stray.png").write_bytes(b"x")
         store.save()
         r, got, b = runner(url, pc=pc, tmp=tmp)
@@ -620,6 +656,8 @@ def test_crash_recovery():
         assert st["doc-closed"]["status"] == JQ.DONE and st["doc-closed"]["placed"] == "file"
         assert Path(st["doc-closed"]["results"][0]).name == "closed_refined.png" and len(pc.docs) == 3, [d.name for d in pc.docs]
         assert st["wait"]["status"] == JQ.CANCELLED and st["held"]["status"] == JQ.CANCELLED
+        assert st["ahead"]["status"] == JQ.DONE and not st["ahead"]["preplaced"]
+        assert Path(st["ahead"]["results"][0]).name == "dune_refined.png"
         assert list(qdir.glob("*.png")) == [], list(qdir.glob("*.png"))
         assert r.batch("b")["state"] == JQ.B_DONE
         assert not r.retry("gone"), "after a restart the settings are gone: no retry"
@@ -871,8 +909,185 @@ def test_owner_name():
     assert JQ.queue_file() == Path(HOME) / "queue.json" and JQ.queue_dir() == Path(HOME) / "queue"
 
 
+# ---------- orders one after the other (Netzwerk-Queue Paket 2, decisions 18.11. and 19.11.) ----------
+
+def batch_of(r, names, tmp, **kw):
+    src = pictures(Path(tmp) / f"in-{uuid_hex()}", names)
+    return r.start_batch(JQ.BatchSpec(refine_request(), JQ.SOURCE_FOLDER, folder=str(src), dry_run=False,
+                                      save_settings=settings(tmp), **kw))
+
+
+def uuid_hex():
+    import uuid
+    return uuid.uuid4().hex[:6]
+
+
+def test_order_number():
+    """Every run goes to ComfyUI with the start of its order as `number`; batch pictures add their index (18.11.)."""
+    srv, fake = server()
+    try:
+        c = ComfyUI(f"http://127.0.0.1:{srv.server_port}")
+        t0 = time.time()
+        c.queue({"1": {}})
+        assert t0 <= fake.payloads[0]["number"] <= time.time(), "without an order: the time it is queued"
+        other = []
+        with c.order(1234.5):
+            c.queue({"1": {}})
+            c.queue({"1": {}})
+            th = threading.Thread(target=lambda: other.append(c.queue({"1": {}})))
+            th.start()
+            th.join()
+        c.queue({"1": {}})
+        nums = [p["number"] for p in fake.payloads]
+        assert nums[1] == nums[2] == 1234.5, nums                        # every job of one Generate: its click
+        assert nums[3] != 1234.5 and nums[4] != 1234.5, "another thread and later jobs are not affected"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    srv, fake = server()
+    try:
+        tmp = tempfile.mkdtemp()
+        r, got, b = runner(f"http://127.0.0.1:{srv.server_port}", tmp=tmp)
+        bid = batch_of(r, ["a.png", "b.png", "c.png"], tmp)
+        wait_until(lambda: any(k == "batch-done" for k, _ in got), what="batch over")
+        start = r.batch(bid)["created"]
+        nums = [p["number"] for p in fake.payloads]
+        assert len(nums) == 3 and all(abs(n - (start + k * JQ.ORDER_STEP)) < 1e-6 for k, n in enumerate(nums)), (start, nums)
+        assert [j["index"] for j in r.jobs(bid)] == [0, 1, 2]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_alone_one_at_a_time():
+    """Alone at ComfyUI (no job of another client id): nothing is placed ahead of time, one job at a time (19.11.)."""
+    srv, fake = server()
+    try:
+        tmp = tempfile.mkdtemp()
+        fake.hold.clear()
+        r, got, b = runner(f"http://127.0.0.1:{srv.server_port}", tmp=tmp)
+        bid = batch_of(r, ["a.png", "b.png"], tmp)
+        wait_until(lambda: any(j["status"] == JQ.RUNNING and j["prompt_id"] for j in r.jobs(bid)), what="a at ComfyUI")
+        time.sleep(0.8)                    # several polls of /queue (QUEUE_POLL_S 0.1)
+        assert len(fake.payloads) == 1 and not any(j["preplaced"] for j in r.jobs(bid)), r.jobs(bid)
+        fake.hold.set()
+        wait_until(lambda: any(k == "batch-done" for k, _ in got), what="batch over")
+        assert fake.max_inflight == 1 and [j["status"] for j in r.jobs(bid)] == [JQ.DONE, JQ.DONE]
+    finally:
+        fake.hold.set()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_preplace_with_others():
+    """Another participant has a job at ComfyUI: the next picture goes there while the current one runs (at most two of
+    ours), it is fixed in the line, and the results still arrive in order (18.11./19.11.)."""
+    srv, fake = server()
+    try:
+        tmp = tempfile.mkdtemp()
+        fake.foreign_pending = [(1.0, "f1", "other", "anna")]
+        fake.hold.clear()
+        r, got, b = runner(f"http://127.0.0.1:{srv.server_port}", tmp=tmp)
+        bid = batch_of(r, ["a.png", "b.png", "c.png"], tmp)
+        wait_until(lambda: len(fake.payloads) == 2, what="b pre-placed")
+        a, bb, c = r.jobs(bid)
+        wait_until(lambda: r.job(bb["id"])["prompt_id"], what="b's prompt id")
+        a, bb, c = r.jobs(bid)
+        assert a["status"] == JQ.RUNNING and bb["status"] == JQ.WAITING and bb["preplaced"] and bb["prompt_id"] == "p2", (a, bb)
+        assert not c["preplaced"] and r.running_job["id"] == a["id"]
+        time.sleep(0.6)
+        assert len(fake.payloads) == 2, "at most two of ours at ComfyUI"
+        assert abs(fake.payloads[1]["number"] - fake.payloads[0]["number"] - JQ.ORDER_STEP) < 1e-6
+        # fixed: a pre-placed picture is not moved, and nothing jumps over it
+        assert not r.move(bb["id"], 1) and not r.move(c["id"], -1)
+        assert [j["id"] for j in r.jobs(bid)] == [a["id"], bb["id"], c["id"]]
+        # its steps do not move the bar of the job that runs: no "batch-step" before its turn
+        steps = len([1 for k, _ in got if k == "batch-step"])
+        fake.hold.set()
+        wait_until(lambda: any(k == "batch-done" for k, _ in got), what="batch over")
+        assert [j["status"] for j in r.jobs(bid)] == [JQ.DONE] * 3 and not any(j["preplaced"] for j in r.jobs(bid))
+        done = [d["id"] for k, d in got if k == "queue-job" and d["status"] == JQ.DONE]
+        assert done == [a["id"], bb["id"], c["id"]], "results in order"
+        assert fake.max_inflight == 2 and steps > 0
+        assert not any(i.get("prompt_id") in ("p2", "p3") for i in fake.interrupts)
+    finally:
+        fake.hold.set()
+        srv.shutdown()
+        srv.server_close()
+
+
+def _preplaced(r, bid, k):
+    wait_until(lambda: len(r.jobs(bid)) > k and r.jobs(bid)[k]["preplaced"] and r.jobs(bid)[k]["prompt_id"],
+               what=f"picture {k} pre-placed")
+    return r.jobs(bid)[k]
+
+
+def test_preplaced_pause_and_cancel():
+    """Pause and ✕ take a pre-placed picture back out of ComfyUI's queue (POST /queue delete, no /interrupt)."""
+    srv, fake = server()
+    try:
+        tmp = tempfile.mkdtemp()
+        fake.foreign_pending = [(1.0, "f1", "other", "anna")]
+        fake.hold.clear()
+        r, got, b = runner(f"http://127.0.0.1:{srv.server_port}", tmp=tmp)
+        bid = batch_of(r, ["a.png", "b.png", "c.png", "d.png"], tmp)
+        x = _preplaced(r, bid, 1)
+        assert r.pause(x["id"])
+        wait_until(lambda: r.job(x["id"])["status"] == JQ.PAUSED, what="b taken back and paused")
+        y = r.job(x["id"])
+        assert {"delete": [x["prompt_id"]]} in fake.deletes and not y["prompt_id"] and not y["preplaced"]
+        assert x["prompt_id"] not in fake.inflight
+        assert not any(i.get("prompt_id") == x["prompt_id"] for i in fake.interrupts), "no /interrupt for a waiting one"
+        z = _preplaced(r, bid, 2)                  # the next one takes its place
+        assert r.cancel(z["id"])
+        wait_until(lambda: r.job(z["id"])["status"] == JQ.CANCELLED, what="c taken back and cancelled")
+        assert {"delete": [z["prompt_id"]]} in fake.deletes and not r.job(z["id"])["preplaced"]
+        fake.hold.set()
+        wait_until(lambda: r.jobs(bid)[3]["status"] == JQ.DONE and not r.busy, what="a and d done")
+        assert [j["status"] for j in r.jobs(bid)] == [JQ.DONE, JQ.PAUSED, JQ.CANCELLED, JQ.DONE]
+        assert r.resume(x["id"])                   # sent again from the start
+        wait_until(lambda: r.job(x["id"])["status"] == JQ.DONE, what="b after resume")
+    finally:
+        fake.hold.set()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_preplaced_already_started():
+    """The race: ComfyUI has just started the pre-placed picture when Pause comes: it counts as running (not paused); ✕
+    then stops exactly that job by its prompt id."""
+    srv, fake = server()
+    try:
+        tmp = tempfile.mkdtemp()
+        fake.foreign_pending = [(1.0, "f1", "other", "anna")]
+        fake.hold.clear()
+        r, got, b = runner(f"http://127.0.0.1:{srv.server_port}", tmp=tmp)
+        bid = batch_of(r, ["a.png", "b.png", "c.png"], tmp)
+        x = _preplaced(r, bid, 1)
+        with fake.lock:
+            fake.running_ours.add(x["prompt_id"])
+        assert r.pause(x["id"])
+        wait_until(lambda: {"delete": [x["prompt_id"]]} in fake.deletes, what="asked to take it back")
+        time.sleep(0.8)
+        y = r.job(x["id"])
+        assert y["status"] == JQ.WAITING and y["preplaced"] and y["prompt_id"] == x["prompt_id"], y
+        assert not any(i.get("prompt_id") == x["prompt_id"] for i in fake.interrupts)
+        assert r.cancel(x["id"])
+        wait_until(lambda: r.job(x["id"])["status"] == JQ.CANCELLED, what="cancelled as running")
+        wait_until(lambda: {"prompt_id": x["prompt_id"]} in fake.interrupts, what="exactly that job interrupted")
+        with fake.lock:
+            fake.running_ours.clear()
+        fake.hold.set()
+        wait_until(lambda: any(k == "batch-done" for k, _ in got), what="batch over")
+        assert [j["status"] for j in r.jobs(bid)] == [JQ.DONE, JQ.CANCELLED, JQ.DONE]
+    finally:
+        fake.hold.set()
+        srv.shutdown()
+        srv.server_close()
+
+
 def main():
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    tests =[v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for t in tests:
         t0 = time.monotonic()
         t()

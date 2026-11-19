@@ -40,6 +40,11 @@ def main():
     else:
         assert hostos.ROOT_KW == {"className": "pccomfy"} and hostos.TOP_KW == {"class_": "Pccomfy"}
         assert hostos.GRIP_CURSOR == "bottom_right_corner"
+    # Windows-only cursor names only through hostos: the queue window had "size_nw_se" itself and stopped opening on
+    # Linux before its "All jobs at ComfyUI now" list was read (laptop 18.11.)
+    for f in sorted((ROOT / "pccomfy").glob("*.py")):
+        if f.name != "hostos.py":
+            assert "size_nw_se" not in f.read_text(encoding="utf-8"), f"{f.name}: use hostos.GRIP_CURSOR"
 
     if hostos.IS_WINDOWS:
         assert config._config_dir() == ROOT / "data"

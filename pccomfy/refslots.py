@@ -326,6 +326,9 @@ def preview_position(win: tuple[int, int, int, int], size: tuple[int, int], scre
 # The window part (Tk): one hook in gui.py puts RefSlotsMixin in front of the window's other mixins
 # ======================================================================================================================
 
+EDTAB_PADX = 2      # px left and right of each tab under the prompt; the Generate row reads it (gui_run._fit_go_row, user 18.11.)
+
+
 def edtab_rows(needs: list[int], room: int) -> list[list[int]]:
     """The tabs under Edit in rows (indices into ``needs``): as few rows as fit, the tabs shared out evenly with the larger
     rows first (four tabs that do not fit one row: 2 + 2, three: 2 + 1), so the first row always uses the full width and no
@@ -701,7 +704,7 @@ class RefSlotsMixin:
         for k, _l in self.EDIT_TABS:
             if k in shown:
                 r = next(i for i, row in enumerate(rows) if k in row)
-                self.rb_edtabs[k].grid(in_=self.f_edtab_rows[r], row=0, column=rows[r].index(k), sticky="ew", padx=2, pady=2)
+                self.rb_edtabs[k].grid(in_=self.f_edtab_rows[r], row=0, column=rows[r].index(k), sticky="ew", padx=EDTAB_PADX, pady=2)
             else:
                 self.rb_edtabs[k].grid_remove()
         for k in ("sketch", "scribble", "refscribble"):

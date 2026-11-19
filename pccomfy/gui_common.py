@@ -822,10 +822,15 @@ def sign_font() -> tuple:
 
 HEADER_GAP = 3           # px between the letters and the sign (5, then 4, now 3: 20 % less again; user 12.11.)
 STOP_W = 5               # the Stop button: as wide as its text, in characters (was 9 for "Cancel"; user 12.11.)
-STOP_W_WITH_ALL = 4      # ... while "Stop all" is beside it (was 6)
-UNDO_ICON_SCALE = 0.9   # Undo and Redo: 90 % of SMALL_ICON_PX (user 17.11.)
-UNDO_GAP_PX = 6          # px from Stop (or "Stop all") to Undo, before the display scaling (user 17.11.: right after Stop)
-UNDO_PAIR_GAP_PX = 3     # px between Undo and Redo (was 8; user 17.11.: closer together)
+# the Generate row fills the window's width (user 18.11., decisions 1a and 3): Generate and the variants piece together are as
+# wide as the tab "Edit canvas" (user 18.11., replaces Generate's cap of 1.5), the variants piece and Stop grow from their
+# natural width to these factors; what is left stays as a gap before Undo and Redo, two squares at the right edge
+VARIANTS_GROW_MAX = 1.2
+STOP_GROW_MAX = 1.2
+GO_COL_STOP_ALL, GO_COL_GAP, GO_COL_UNDO = 3, 4, 5     # the grid columns of the row: 0 Generate, 1 variants, 2 Stop, then these (Redo: 6)
+GO_GAP_MIN_PX = 6        # px at least between Stop (or "Stop all") and Undo, before the display scaling
+GO_PAIR_GAP_PX = 3       # px between the Undo and Redo squares, before the display scaling
+from .refslots import EDTAB_PADX  # noqa: E402  (the tabs under the prompt; Generate and the variants piece are as wide as one)
 ERR_BADGE_PX = 16        # the red error circle in the status line before the display scaling (90 % of the old 18 px badge; user 12.11.)
 CLIP_DEFAULT = "(workflow default)"
 
@@ -933,10 +938,14 @@ __all__ = [
     "HEADER_GAP",
     "sign_font",
     "STOP_W",
-    "UNDO_ICON_SCALE",
-    "UNDO_GAP_PX",
-    "UNDO_PAIR_GAP_PX",
-    "STOP_W_WITH_ALL",
+    "VARIANTS_GROW_MAX",
+    "STOP_GROW_MAX",
+    "GO_COL_STOP_ALL",
+    "GO_COL_GAP",
+    "GO_COL_UNDO",
+    "GO_GAP_MIN_PX",
+    "GO_PAIR_GAP_PX",
+    "EDTAB_PADX",
     "ERR_BADGE_PX",
     "GEN_MP_TIP",
     "DOWNSIZE_TIP",

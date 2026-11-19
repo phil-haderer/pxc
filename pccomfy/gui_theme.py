@@ -195,6 +195,11 @@ class ThemeMixin:
         s.map("Field.Link.TButton", background=[("active", PANEL)])
         s.configure("Fit.TButton", padding=(5, 6), width=0)     # "Cancel all": as wide as its text (a fixed width cut the last letter)
         s.configure("Split.Accent.TButton", padding=(6, 6))     # the narrow "×2 ▾" piece on the right of Generate
+        # Undo and Redo (user 18.11., decision 2a): squares in the Generate row, blue like Generate while they can be used,
+        # exactly the greyed-out Stop button otherwise (TButton's face, DISABLED for the icon); no padding, so the square is
+        # set by the row's height (_fit_go_row) and the icon sits in its middle
+        s.configure("Square.TButton", background=ACCENT, foreground=ON_ACCENT, padding=0, width=0, anchor="center")
+        s.map("Square.TButton", background=[("disabled", PANEL), ("active", "#5ba3f5")], foreground=[("disabled", DISABLED)])
         s.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=FG, arrowcolor=FG)
         s.map("TCombobox", fieldbackground=[("readonly", PANEL)], foreground=[("readonly", FG)],
               selectbackground=[("readonly", PANEL)], selectforeground=[("readonly", FG)])
@@ -336,6 +341,17 @@ class ThemeMixin:
                 cache[(kind, c, px)] = icons.photo(self.root, kind, c, self._px(px))
             return cache[(kind, c, px)]
         return (img(color), "disabled", img(DISABLED), "active", img(ACCENT))
+
+    def _icon_on_accent(self, kind: str, px: int = SMALL_ICON_PX):
+        """An icon for a blue button (Square.TButton): white, grey while the button is greyed out (no hover colour: the
+        button's face changes under the mouse instead)."""
+        cache = self.__dict__.setdefault("_icon_cache", {})
+
+        def img(c):
+            if (kind, c, px) not in cache:
+                cache[(kind, c, px)] = icons.photo(self.root, kind, c, self._px(px))
+            return cache[(kind, c, px)]
+        return (img(ON_ACCENT), "disabled", img(DISABLED))
 
     def _function_icon(self, key: str):
         """The symbol of a function button: the user's picture pccomfy/assets/functions/<key>.png when it is there, else the

@@ -624,6 +624,7 @@ class Processed:
 class Bridge:
     def __init__(self, pc: PhotoCraft, comfy: ComfyUI, exchange_dir: str | Path, keep_files: bool = False):
         self._seq_src = None     # (picture, mask) of the first variant while variants run one after the other
+        self._variant_no = None  # (k from 1, n) of the variant that runs now in that case; sent to ComfyUI (queue windows)
         self.pc = pc
         self.comfy = comfy
         try:     # the connection log (comfy.ComfyUI._log) lives next to runs.jsonl
@@ -638,6 +639,7 @@ class Bridge:
         self._scribble_layer = None      # Scribble on photo: the id of the scribble layer found on top (hidden after the run)
         self._cancel = threading.Event()
         self._cancel_all = threading.Event()    # "Cancel all": stops the variants and comparison runs that would follow too
+        self._cancel_tl = threading.local()     # cancel_check() of the calling thread (a batch picture placed ahead of time)
         self.on_preview = None                  # the window's callback for live preview frames (PIL images), see Request.preview
         self._tmp: list[Path] = []
         self._snap: dict | None = None          # history snapshot taken before the last generation (for "Undo AI edit")
@@ -657,6 +659,22 @@ class Bridge:
         """Cancel the run that is on now and every one that follows it."""
         self._cancel_all.set()
         self._cancel.set()
+
+    @contextlib.contextmanager
+    def cancel_check(self, check):
+        """For the runs the CALLING THREAD makes inside the block: check() instead of Cancel decides when the run is
+        cancelled (the batch picture placed at ComfyUI ahead of time, jobqueue.py: Stop of the job that runs must not end
+        it). Other threads are not affected."""
+        old = getattr(self._cancel_tl, "check", None)
+        self._cancel_tl.check = check
+        try:
+            yield
+        finally:
+            self._cancel_tl.check = old
+
+    def _cancelled(self) -> bool:
+        check = getattr(self._cancel_tl, "check", None)
+        return bool(check()) if check is not None else self._cancel.is_set()
 
     def cancel_all_requested(self) -> bool:
         return self._cancel_all.is_set()
@@ -748,6 +766,7 @@ class Bridge:
                 if v and orig_name:      # Upscale opened a new document: the next variant starts from the original one again
                     self._activate_doc(orig_name)
                 pv = dataclasses.replace(p, seed=(first_seed + 7919 * v) % (2**31), batch=1)
+                self._variant_no = (v + 1, n)    # "variant k of n" in every queue window (process_image sends it)
                 try:
                     res = self._run(dataclasses.replace(req, variants=1), pv, f"{tag}{v}", sub, seq=(v, n))
                 except Cancelled:
@@ -761,6 +780,7 @@ class Bridge:
                 layers = list(res["layers"]) + layers
         finally:
             self._seq_src = None
+            self._variant_no = None
             group = None
             if len(layers) > 1 and req.mode == "refine":
                 group = self._group(layers, req.group_name or "AI refine variants")
@@ -887,7 +907,7 @@ class Bridge:
         kw = {"on_preview": on_preview} if on_preview is not None else {}
         if ws is not None:
             kw["ws"] = ws
-        return self.comfy.wait(prompt_id, on_progress=on, cancelled=self._cancel.is_set, **kw)
+        return self.comfy.wait(prompt_id, on_progress=on, cancelled=self._cancelled, **kw)
 
     @staticmethod
     def _auto_stages(req: Request, wf: str, mp: float) -> Request:
@@ -1145,7 +1165,11 @@ class Bridge:
                 # "latent2rgb" for a model whose TAE file can break the run (MiniMax, models.Model.preview)
                 ws = self.comfy.open_events()      # before the job is queued: no early message is lost
                 try:
-                    prompt_id = self.comfy.queue(graph, preview=req.preview_method or "taesd") if live else self.comfy.queue(graph)
+                    # the number of pictures goes along: every queue window on the network shows it (18.11.)
+                    info = getattr(self.comfy, "run_info", None)
+                    with (info(images=int(gp.batch or 1), variant=getattr(self, "_variant_no", None)) if info
+                          else contextlib.nullcontext()):
+                        prompt_id = self.comfy.queue(graph, preview=req.preview_method or "taesd") if live else self.comfy.queue(graph)
                     self._last_models = graph_models(graph)
                     progress(start, f"Queued in ComfyUI ({self.pipeline}{suffix})" if not attempt
                              else f"Object still there, trying again ({attempt + 1}/{tries})", phase="prepare")
@@ -1193,9 +1217,9 @@ class Bridge:
         self._last_models = frozenset()
         self.freed += 1
         end = time.monotonic() + FREE_PAUSE_S
-        while time.monotonic() < end and not self._cancel.is_set():
+        while time.monotonic() < end and not self._cancelled():
             time.sleep(0.1)
-        if self._cancel.is_set():
+        if self._cancelled():
             raise Cancelled()
         return True
 

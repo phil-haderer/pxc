@@ -33,10 +33,11 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.workflows_dir, self._wf_dir_note = cfgmod.effective_workflows_dir(cc["workflows_dir"])
         self.events: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
-        # the batch queue (jobqueue.py, gui_batch.py): no batch job starts while the window's own worker runs; Generate does
-        # not send the owner's name (bridge.comfy.owner stays None), only batch jobs do (decision 12.11.)
+        # the batch queue (jobqueue.py, gui_batch.py): no batch job starts while the window's own worker runs; Generate sends
+        # the owner's name too, so the queue window of every PC shows who sent each run (decision 18.11., replaces 12.11.)
         self.runner = jobqueue.QueueRunner(self.bridge, events=self.events,
                                            gate=lambda: not (self.worker and self.worker.is_alive()))
+        self.comfy.owner = self.runner.owner
 
         _dpi_aware()   # without it Windows stretches the window as a bitmap on a scaled display: blurry text
         self.root = tk.Tk(**hostos.ROOT_KW)
@@ -674,37 +675,41 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         # packed right after the grip, so they always land above this row
         bf = self.f_go = ttk.Frame(r)
         bf.pack(fill="x", padx=10, pady=(6, 2), before=self.f_neg)
+        # one grid over the full width (user 18.11., decision 1a): Generate, the variants piece, Stop and (at times) "Stop all"
+        # on the left, an empty column that takes what is left, Undo and Redo as two squares at the right edge; the widths
+        # come from _fit_go_row
         self.b_go = ttk.Button(bf, text="Generate", width=9, style="Accent.TButton", command=self.generate)
-        self.b_go.pack(side="left", fill="y")
+        self.b_go.grid(row=0, column=0, sticky="nsew")
         Tooltip(self.b_go, "Generate (Ctrl+Enter)")
         # Variants are part of Generate (user 29.10.): a narrow accent-coloured piece on its right, like a split button; a click
         # opens the choice 1 to 8. It shows "×n ▾", also at 1
         self.w_variants = ttk.Button(bf, style="Split.Accent.TButton", width=0, command=self._variants_menu)
-        self.w_variants.pack(side="left", fill="y", padx=(1, 0))
+        self.w_variants.grid(row=0, column=1, sticky="nsew", padx=(1, 0))
         Tooltip(self.w_variants, "Variants: how many pictures one Generate makes (1 to 8).")
         self.m_variants = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
         for n in range(1, 9):
             self.m_variants.add_radiobutton(label=str(n), value=n, variable=self.v_variants)
         self.v_variants.trace_add("write", lambda *a: self._show_variants())
-        self._show_variants()
-        # Stop (was "Cancel", user 12.11.): the word on the usual grey button, only as wide as its text (STOP_W chars)
+        # Stop (was "Cancel", user 12.11.): the word on the usual grey button, STOP_W chars at its natural width
         self.b_stop = ttk.Button(bf, text="Stop", width=STOP_W, command=self.stop, state="disabled")
-        self.b_stop.pack(side="left", fill="y", padx=(1, 0))      # as close as Generate and the variants (user 6.11.)
+        self.b_stop.grid(row=0, column=2, sticky="nsew", padx=(1, 0))      # as close as Generate and the variants (user 6.11.)
         Tooltip(self.b_stop, "Stop the run (Esc or Ctrl+Alt+Enter). With several variants it ends only the one that is running.")
         # "Stop all" shows up only while several runs follow one another (variants of Upscale / Refine, a comparison)
         self.b_stop_all = ttk.Button(bf, text="Stop all", style="Fit.TButton", command=self.stop_all)
         Tooltip(self.b_stop_all, "Stop this run and all the variants that are still to come.")
-        # Undo and Redo: flat icons without a button face, 90 % of the Save icon over the prompt (user 17.11.; was 100 %, window
-        # test E, 11.11.), right after Stop and close together (user 17.11.; were at the right edge since 30.10.). "Stop all"
-        # packs itself after Stop, so it lands between Stop and Undo while it is shown
-        undo_px = round(SMALL_ICON_PX * UNDO_ICON_SCALE)
-        self._icons.update({"undo": self._icon("undo", px=undo_px), "redo": self._icon("redo", px=undo_px)})
-        self.b_undo = ttk.Button(bf, image=self._icons["undo"], style="Link.TButton", command=self.undo_edit)
-        self.b_redo = ttk.Button(bf, image=self._icons["redo"], style="Link.TButton", command=self.redo_edit)
-        self.b_undo.pack(side="left", padx=(self._px(UNDO_GAP_PX), 0))
-        self.b_redo.pack(side="left", padx=(self._px(UNDO_PAIR_GAP_PX), 0))
+        bf.grid_columnconfigure(GO_COL_GAP, weight=1)
+        # Undo and Redo (user 18.11., decision 2a): squares as high as Generate, blue like it with a white icon while they
+        # can be used, grey like the greyed-out Stop otherwise; one of them is blue at a time (_sync_history_buttons)
+        self.b_undo = ttk.Button(bf, image=self._icon_on_accent("undo"), style="Square.TButton", command=self.undo_edit)
+        self.b_redo = ttk.Button(bf, image=self._icon_on_accent("redo"), style="Square.TButton", command=self.redo_edit)
+        self.b_undo.grid(row=0, column=GO_COL_UNDO, sticky="nsew")
+        self.b_redo.grid(row=0, column=GO_COL_UNDO + 1, sticky="nsew", padx=(self._keep(GO_PAIR_GAP_PX), 0))
         Tooltip(self.b_redo, "Brings the AI edit back after an Undo.")
         Tooltip(self.b_undo, "Back to the state before the last generation.")
+        self._last_step = None              # None, "undo" or "redo": which of the two was used last (decides the blue one)
+        self._show_variants()
+        self._sync_history_buttons()
+        bf.bind("<Configure>", lambda e: self._fit_go_row(), add="+")
 
         # one bar for the whole run (prompt, then image) with the current step written next to it
         self.v_pl = tk.StringVar(value="")

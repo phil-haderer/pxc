@@ -903,7 +903,7 @@ class SettingsMixin(DownloadMixin):
     # ---- the name on the batch jobs (the queue, jobqueue.py; 12.11.) ----
 
     def _owner_name_row(self, parent):
-        """"Name in the queue": the name other PCs on the same ComfyUI see on this plugin's batch jobs (setting owner_name);
+        """"Name in the queue": the name other PCs on the same ComfyUI see on this plugin's runs, batch and Generate (setting owner_name);
         empty = the login name."""
         box = ttk.Frame(parent)
         box.pack(side="top", fill="x", padx=14, pady=(10, 0))
@@ -927,6 +927,9 @@ class SettingsMixin(DownloadMixin):
         runner = getattr(self, "runner", None)
         if runner is not None:
             runner.owner = jobqueue.owner_name()      # the next batch carries it
+        comfy = getattr(getattr(self, "bridge", None), "comfy", None)
+        if comfy is not None:
+            comfy.owner = jobqueue.owner_name()       # and the next Generate run (18.11.)
         self._owner_name_hint()
 
     def _owner_name_hint(self):
