@@ -11,9 +11,23 @@ only needs its own key under "modes". A broken file means no styles, never a cra
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 FILE = Path(__file__).resolve().parent / "assets" / "styles.json"
+THUMBS = Path(__file__).resolve().parent / "assets" / "style-thumbs"      # <slug>.png, square, one per style name in
+# every mode: the same name has the same look in Text to image, Edit canvas and Sketch to image (user 20.11., "A")
+
+
+def slug(name: str) -> str:
+    """The file name of a style's thumbnail: "Studio & product" -> "studio-product"."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "style"
+
+
+def thumb_path(name: str, folder: Path | str | None = None) -> Path | None:
+    """The square picture of a style in the style picker (stylegrid.py), or None while it has none; shared by all modes."""
+    p = Path(folder or THUMBS) / f"{slug(name)}.png"
+    return p if p.is_file() else None
 
 
 def load(path: Path | str | None = None) -> dict[str, list[dict]]:
@@ -41,7 +55,7 @@ def load(path: Path | str | None = None) -> dict[str, list[dict]]:
 
 def subject_of(text: str, templates, mark: str) -> str | None:
     """What stands at the place of ``mark`` in ``text`` when ``text`` is one of ``templates`` with the mark filled in (plan B,
-    10.11.: a new style keeps what was typed for <WHAT IT SHOWS>); the mark itself when it is still there; None for any
+    10.11.: a new style keeps what was typed for SUBJECT); the mark itself when it is still there; None for any
     other text."""
     text = text.strip()
     for tpl in templates:

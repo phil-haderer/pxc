@@ -6,7 +6,7 @@ Endpoints used:
   POST /prompt                               – queue an API-format graph
   WS   /ws?clientId=…                        – progress and live preview frames (optional, needs websocket-client)
   GET  /history/<prompt_id>, /view           – fetch results
-  POST /interrupt, /queue                    – cancel; /queue {"delete": [...]} also takes a pre-placed batch picture back
+  POST /interrupt, /queue                    – cancel
   GET  /queue                                – what ComfyUI is running and has waiting (also other users' jobs)
 """
 
@@ -118,6 +118,7 @@ class ComfyUI:
         self._cache_lock = threading.RLock()       # held only for the dict and the address, never across a network request
         self._fetch_lock = threading.Lock()        # one reader of a cached list at a time; a new one per address (set_url)
         self.client_id = uuid.uuid4().hex
+        self.upload_hashes: dict[str, str] = {}    # uploaded name -> sha256 of its PNG: the written-prompt key sees the picture, not its name
         self.name_fixer: Callable[[dict], object] | None = None   # called with every graph before it is queued (see inventory.apply_names)
         self.log_file: Path | None = None    # connection log (set by the Bridge: exchange/comfy-net.log); None = no log
         # the owner's name sent with every job in extra_data["pcc_owner"] (other PCs see whose job it is in /queue); None =
@@ -126,7 +127,6 @@ class ComfyUI:
         self.last_prompt_id: str | None = None      # the prompt id of the last job queued (any thread)
         self._job_ctx = threading.local()
         self._run_info = threading.local()       # run_info() of the calling thread: pictures per job, "k/n"
-        self._order = threading.local()          # order() of the calling thread: ComfyUI's `number` for its jobs
 
     LOG_MAX_BYTES = 200_000
 
@@ -339,7 +339,12 @@ class ComfyUI:
         parts.append(f"--{boundary}--\r\n".encode())
         raw = self._request("/upload/image", b"".join(parts), {"Content-Type": f"multipart/form-data; boundary={boundary}"})
         j = json.loads(raw)
-        return f"{j['subfolder']}/{j['name']}" if j.get("subfolder") else j["name"]
+        out = f"{j['subfolder']}/{j['name']}" if j.get("subfolder") else j["name"]
+        if len(self.upload_hashes) > 200:
+            self.upload_hashes.clear()
+        import hashlib
+        self.upload_hashes[out] = hashlib.sha256(buf.getvalue()).hexdigest()
+        return out
 
     def view(self, filename: str, subfolder: str = "", type_: str = "output") -> Image.Image:
         q = urllib.parse.urlencode({"filename": filename, "subfolder": subfolder, "type": type_})
@@ -365,29 +370,14 @@ class ComfyUI:
             self._run_info.value = old
 
     @contextlib.contextmanager
-    def order(self, number: float):
-        """For the jobs the CALLING THREAD queues inside the block: ComfyUI's `number` (its priority in POST /prompt, the
-        smaller runs first) is `number`, the start time of the order (Generate click, batch start plus the picture's index;
-        decision 18.11. evening, "Vorrangnummer"): orders of different participants run one after the other. Without
-        one, every job gets the time it is queued."""
-        old = getattr(self._order, "value", None)
-        self._order.value = float(number)
-        try:
-            yield
-        finally:
-            self._order.value = old
-
-    @contextlib.contextmanager
     def job_context(self, owner: str | None = None, on_queued: Callable[[str, dict], None] | None = None,
-                    batch: str | None = None, events: Callable[[], bool] | None = None):
+                    batch: str | None = None):
         """For the jobs the CALLING THREAD queues inside the block: `owner` goes into extra_data["pcc_owner"] (instead of
         self.owner), `batch` into extra_data["pcc_batch"], and on_queued(prompt_id, graph) is called right after ComfyUI
         accepted each job (the batch queue keeps the prompt id at once, so it can cancel exactly that job and pick its
-        result up after a crash). `events`: while it returns False no websocket is opened (a batch picture placed at
-        ComfyUI ahead of time: a second socket with our client id would take the running job's progress away);
-        wait() opens one as soon as it returns True. Other threads are not affected."""
+        result up after a crash). Other threads are not affected."""
         old = getattr(self._job_ctx, "value", None)
-        self._job_ctx.value = {"owner": owner, "on_queued": on_queued, "batch": batch, "events": events}
+        self._job_ctx.value = {"owner": owner, "on_queued": on_queued, "batch": batch}
         try:
             yield
         finally:
@@ -401,15 +391,13 @@ class ComfyUI:
         """preview: ComfyUI's preview method for this prompt only ("taesd" uses the TAESD file of the model when it is in
         models/vae_approx and falls back to the coarse latent2rgb colours; "none"); None = ComfyUI's start setting.
         run_info() of the calling thread adds the number of pictures / the variant (every queue window shows them).
-        `number` (ComfyUI's priority) is the order() of the calling thread, else the time now.
+        No `number` is sent (user 21.11.): ComfyUI runs the jobs in the order they come in, so the participants take turns.
         The owner's name (job_context, else self.owner) goes along in extra_data; without one the payload is as it always was."""
         if self.name_fixer is not None:
             self.name_fixer(graph)
         ctx = getattr(self._job_ctx, "value", None) or {}
         owner = ctx.get("owner") or self.owner
         payload = {"prompt": graph, "client_id": self.client_id}
-        number = getattr(self._order, "value", None)
-        payload["number"] = float(number) if number is not None else time.time()
         extra = {}
         if preview:
             extra["preview_method"] = preview
@@ -484,11 +472,6 @@ class ComfyUI:
                 n += 1
         return 0
 
-    def delete_queued(self, prompt_id: str) -> None:
-        """Take a job that still waits at ComfyUI out of its queue (POST /queue {"delete": [...]}). A job ComfyUI already
-        runs is not touched (check queue_entries() afterwards). Raises ComfyError when ComfyUI cannot be reached."""
-        self._json("/queue", {"delete": [prompt_id]})
-
     def interrupt(self, prompt_id: str | None = None) -> None:
         try:
             if prompt_id:
@@ -507,9 +490,6 @@ class ComfyUI:
         asyncio accept). Afterwards recv() times out after 1 s: the heartbeat of wait()."""
         if websocket is None or real_comfy_blocked(self._host, self._port):
             return None
-        events = (getattr(self._job_ctx, "value", None) or {}).get("events")
-        if events is not None and not events():
-            return None              # a picture placed ahead of time: no socket until it is the job that runs
         ws = None
         t0 = time.monotonic()
         try:
@@ -550,15 +530,11 @@ class ComfyUI:
             ws = self.open_events()
         t_wait = time.monotonic()
         self._log("wait_start", prompt=prompt_id[:8], ws="yes" if ws is not None else "no (polling)", own=own)
-        events = (getattr(self._job_ctx, "value", None) or {}).get("events")
         try:
             while time.monotonic() < deadline:
                 if cancelled():
                     self.interrupt(prompt_id)
                     raise Cancelled()
-                if ws is None and own and events is not None and events():
-                    ws = self.open_events()      # the picture placed ahead of time is now the job that runs: live progress
-                    events = None
                 if ws is not None:
                     try:
                         msg = ws.recv()

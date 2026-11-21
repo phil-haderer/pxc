@@ -62,30 +62,35 @@ def bridge_tests():
 
 
 def row_checks(app, gui, stop_all=False):
-    """The Generate row (user 18.11., decisions 1a, 2a and 3): over the full width with no room left but the gap before
-    Undo; Generate + the variants piece exactly as wide as the tab "Edit canvas"; the variants piece and Stop within their
-    caps (natural width up to 1.2x); Undo and Redo squares as high as Generate at the right edge."""
+    """The Generate row (user 18.11., decisions 1a, 2a and 3; no Stop button since 20.11.): over the full width with no
+    room left but the gap before Undo; Generate + the variants piece half the row (the Edit tabs are a list since 20.11.);
+    the variants piece within its cap (natural width up to 1.2x); Undo and Redo squares as high as Generate at the right
+    edge."""
     row = app.f_go.winfo_width()
-    go, var, stop, undo, redo = app.b_go, app.w_variants, app.b_stop, app.b_undo, app.b_redo
-    tab = app.rb_edtabs["edit"]
-    assert tab.winfo_ismapped()
+    go, var, undo, redo = app.b_go, app.w_variants, app.b_undo, app.b_redo
+    assert app.b_edtab.winfo_ismapped()
+    half = (row - 2 * 2 * gui.EDTAB_PADX) // 2
+    if not var.winfo_manager():     # during a run the variants piece is gone (user 20.11.): Generate takes its room
+        assert go.winfo_x() == 0 and redo.winfo_x() + redo.winfo_width() == row
+        assert half - app._px(40) <= go.winfo_width() <= half + 1, (go.winfo_width(), half)
+        last = app.b_stop_all if stop_all else go
+        assert undo.winfo_x() - (last.winfo_x() + last.winfo_width()) >= app._px(gui.GO_GAP_MIN_PX)
+        return
     pair_w = var.winfo_x() + var.winfo_width() - go.winfo_x()
-    if stop_all:        # the row may be short then (100 %: 7 px): Generate gives that back, never more than the tab
-        assert tab.winfo_width() - app._px(12) <= pair_w <= tab.winfo_width(), (pair_w, tab.winfo_width())
+    if stop_all:        # the row may be short then: Generate gives that back, never more than half the row
+        assert half - app._px(40) <= pair_w <= half + 1, (pair_w, half)
     else:
-        assert pair_w == tab.winfo_width(), (go.winfo_width(), var.winfo_width(), tab.winfo_width())
+        assert abs(pair_w - half) <= 1, (go.winfo_width(), var.winfo_width(), half)
     assert go.winfo_x() == 0 and redo.winfo_x() + redo.winfo_width() == row, (redo.winfo_x(), redo.winfo_width(), row)
-    for w, cap in ((var, gui.VARIANTS_GROW_MAX), (stop, gui.STOP_GROW_MAX)):
-        assert w.winfo_reqwidth() <= w.winfo_width() <= w.winfo_reqwidth() * cap + 1, (w, w.winfo_width(), w.winfo_reqwidth())
+    assert var.winfo_reqwidth() <= var.winfo_width() <= var.winfo_reqwidth() * gui.VARIANTS_GROW_MAX + 1
     assert go.winfo_width() >= go.winfo_reqwidth()
-    assert go.winfo_width() > go.winfo_reqwidth() * 1.2              # it did grow: the row is not packed to the left any more
-    assert var.winfo_x() == go.winfo_x() + go.winfo_width() + 1 and stop.winfo_x() == var.winfo_x() + var.winfo_width() + 1
+    assert var.winfo_x() == go.winfo_x() + go.winfo_width() + 1
     side = go.winfo_height()
     for b in (undo, redo):
         assert b.winfo_width() == b.winfo_height() == side, (b.winfo_width(), b.winfo_height(), side)
         assert str(b.cget("style")) == "Square.TButton" and b.cget("image")
     assert 0 < redo.winfo_x() - (undo.winfo_x() + undo.winfo_width()) <= app._px(gui.GO_PAIR_GAP_PX) + 2
-    last = app.b_stop_all if stop_all else stop
+    last = app.b_stop_all if stop_all else var
     gap = undo.winfo_x() - (last.winfo_x() + last.winfo_width())
     assert gap >= app._px(gui.GO_GAP_MIN_PX), gap                    # the only free room: before Undo
     if stop_all:
@@ -122,28 +127,90 @@ def window_tests():
         app.root.update()
         time.sleep(0.02)
     row_checks(app, gui)
+    assert not hasattr(app, "b_stop")                               # no Stop button since 20.11. (user)
+    assert str(app.b_go.cget("text")) == "Generate" and str(app.b_go.cget("style")) == "Accent.TButton"
+    # a run: Generate is the grey "Stop"; several runs one after another: "Stop run" and "Stop batch" beside it
+    app._running = True
+    app._go_stop(True)
+    app.root.update()
+    assert str(app.b_go.cget("text")) == gui.GO_STOP_TEXT and str(app.b_go.cget("style")) == "GoStop.TButton"
+    assert str(app.b_go.cget("state")) == "normal" and app.tt_go.text == gui.GO_STOP_TIP
+    assert not app.w_variants.winfo_manager(), "the variants piece is gone while a run is on (user 20.11.)"
+    row_checks(app, gui)
     app._show_stop_all(True)
     app.root.update()
-    assert app.b_stop_all.winfo_manager() == "grid"
-    assert app.b_stop.winfo_x() < app.b_stop_all.winfo_x() < app.b_undo.winfo_x()     # "Stop all" sits between Stop and Undo
+    assert app.b_stop_all.winfo_manager() == "grid" and str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT
+    assert str(app.b_stop_all.cget("text")) == gui.STOP_BATCH_TEXT == "Stop batch"
+    assert app.b_go.winfo_x() < app.b_stop_all.winfo_x() < app.b_undo.winfo_x()     # "Stop batch" between Generate and Undo
     from tkinter import font as tkfont
-    assert app.b_stop_all.winfo_width() >= tkfont.Font(root=app.root, font=gui.font(9)).measure("Stop all") + 10   # the whole text shows
+    assert app.b_stop_all.winfo_width() >= tkfont.Font(root=app.root, font=gui.font(9)).measure("Stop batch") + 10   # the whole text shows
     row_checks(app, gui, stop_all=True)
     calls = []
     app.bridge.cancel_all = lambda: calls.append("all")
     app.bridge.cancel = lambda: calls.append("one")
     app.worker = type("W", (), {"is_alive": lambda self: True})()
-    app.stop()
-    app.stop_all()
+    app.b_go.invoke()                       # a double click on Generate: the second click comes right after the start
+    app.b_stop_all.invoke()
+    assert calls == [], "a click within STOP_GUARD_S of the start stops nothing (user 20.11.)"
+    app.stop()                              # the keys (Ctrl+Alt+Enter) stop at once
+    assert calls == ["one"], calls
+    calls.clear()
+    app._stop_armed -= gui.STOP_GUARD_S     # later on, a click stops
+    app.b_go.invoke()                       # "Stop run": the run that is on
+    app.b_stop_all.invoke()                 # "Stop batch": it and the ones still to come
     assert calls == ["one", "all"], calls
+    app._go_stop(False)                     # still running: it stays "Stop run"
+    assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT
     app.worker = None
+    app._running = False
     app._show_stop_all(False)
+    app._go_stop(False)
     app.root.update()
     assert not app.b_stop_all.winfo_manager()
+    assert str(app.b_go.cget("text")) == "Generate" and str(app.b_go.cget("style")) == "Accent.TButton"
+    assert app.tt_go.text == gui.GO_TIP
+    assert app.w_variants.winfo_manager() == "grid"                 # the variants piece is back
     row_checks(app, gui)                    # back as before
+    # a batch of the ⋯ menu (user 20.11.): Generate is "Stop run" with "Stop batch" beside it; Stop run cancels the picture
+    # at ComfyUI, Stop batch only the batch of that picture (21.11.); afterwards Generate comes back
+    done = []
+
+    class Runner:
+        busy = True
+        running_job = {"id": "j1", "batch_id": "b2"}
+
+        def jobs(self):
+            return [{"id": "j3", "status": "waiting", "batch_id": "b1"}]
+
+        def cancel(self, jid):
+            done.append(("job", jid))
+
+        def batches(self):
+            return [{"id": "b0", "state": "done"}, {"id": "b1", "state": "running"}, {"id": "b2", "state": "running"}]
+
+        def cancel_batch(self, bid):
+            done.append(("batch", bid))
+    real_runner, app.runner = app.runner, Runner()
+    app._batch_sync()
+    app.root.update()
+    assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    assert str(app.b_go.cget("state")) == "normal" and not app.w_variants.winfo_manager()
+    app._go_stop(False)                     # a Describe ends while the batch is on: it stays "Stop run" (review 21.11.)
+    assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    app._stop_armed -= gui.STOP_GUARD_S
+    app.b_go.invoke()
+    app.b_stop_all.invoke()
+    assert done == [("job", "j1"), ("batch", "b2")], done     # only the batch of the running picture (user 21.11.)
+    Runner.running_job = None               # between two pictures: the batch of the next one in the line
+    app.stop_all()
+    assert done[-1] == ("batch", "b1"), done
+    Runner.busy = False
+    app._batch_sync()
+    app.root.update()
+    assert str(app.b_go.cget("text")) == "Generate" and not app.b_stop_all.winfo_manager()
+    assert app.w_variants.winfo_manager() == "grid"
+    app.runner = real_runner
     app.root.withdraw()
-    assert int(str(app.b_stop.cget("width"))) == gui.STOP_W      # as wide as its text, not 9 any more (user 12.11.)
-    assert str(app.b_stop.cget("text")) == "Stop" and str(app.b_stop_all.cget("text")) == "Stop all"
     app.root.destroy()
 
 

@@ -2,6 +2,7 @@
 
     python tests/test_models_json.py
 """
+import dataclasses
 import json
 import sys
 import tempfile
@@ -28,7 +29,9 @@ def bad(doc, text):
 def main():
     assert manifest.MODELS_JSON.is_file() and manifest.MODELS_JSON.parent == ROOT / "pccomfy"
     files = manifest.load_files()
-    assert files == manifest._LIST and len(files) == len(manifest.FILES) == 33, len(files)      # + the three MiniMax H3 Image files (PLAN 2.0b)
+    # the manifest adds the known model variants as aliases (pccomfy/variants.py, 20.11.); otherwise the same list
+    assert [dataclasses.replace(f, aliases=()) for f in files] == [dataclasses.replace(f, aliases=()) for f in manifest._LIST]
+    assert len(files) == len(manifest.FILES) == 33, len(files)      # + the three MiniMax H3 Image files (PLAN 2.0b)
     for f in files:
         assert f.kind in manifest.KINDS, f
         assert f.url == "" or f.url.startswith("https://"), f

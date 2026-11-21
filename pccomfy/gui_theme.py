@@ -17,6 +17,17 @@ STYLES_ICON_GAP = 5                    # room between the palette and "Styles" (
 HEADER_H = round((ICON_PX + 12) * 0.85)   # the header bar of the plugin: 85 % of a function button (32 px -> 27; user 12.11.). The Settings window copies it
 SMALL_ICON_PX = round(ICON_PX * 0.85)   # flat header icons, the bin and the Styles button: 85 % of the usual icon (user 1.11.)
 THIN_BAR_ARROW = 5  # the run bar under the prompt: 9 px instead of 18 (user 16.11.)
+
+
+def flat_edge(colour: str) -> dict:
+    """clam draws a button with a 1 px border (bordercolor) and a ring inside it (light/darkcolor): in the button's own colour
+    neither shows, so a blue button has no outline (user 21.11.)."""
+    return {"bordercolor": colour, "lightcolor": colour, "darkcolor": colour}
+
+
+def flat_edge_map(states: list) -> dict:
+    """The same for the states of s.map: border and ring follow the face colour."""
+    return {k: list(states) for k in ("background", "bordercolor", "lightcolor", "darkcolor")}
 HINT_ICON_PX = 14  # the info icon in front of the tip under the prompt: about one text line high
 HINT_TEXT_DROP = 1  # px (before the display scaling) the first line of the tip is lower than the top of its icon, so the text sits level with the icon (user 13.11.: 3 px, then 2 px back up)
 FN_GAP = 8         # room between a function symbol and its text (ttk has no gap option: the symbol gets it on its right)
@@ -108,8 +119,9 @@ class ThemeMixin:
         s.configure("SetText.TCheckbutton", font=font(9))
         s.configure("SetSmall.TButton", padding=(8, 2), width=0, font=font(9))      # Undo and Reset: small, not stretched
         # Model Links (user 19.11.): the one blue button of a page ("Download missing files") and the small grey section names
-        s.configure("SetAccent.TButton", padding=(10, 3), width=0, font=font(9, bold=True), background=ACCENT, foreground=ON_ACCENT)
-        s.map("SetAccent.TButton", background=[("active", "#5ba3f5"), ("disabled", "#5a6678")], foreground=[("disabled", MUTED)])
+        s.configure("SetAccent.TButton", padding=(10, 3), width=0, font=font(9, bold=True), background=ACCENT, foreground=ON_ACCENT,
+                    **flat_edge(ACCENT))
+        s.map("SetAccent.TButton", foreground=[("disabled", MUTED)], **flat_edge_map([("active", "#5ba3f5"), ("disabled", "#5a6678")]))
         s.configure("SetSection.TLabel", foreground=MUTED, font=font(9, bold=True))
         # a text link in the settings (the GGUF line): the size of the text round it, the blue of the other links (user 6.11.)
         s.configure("SetLink.TButton", background=BG, foreground=ACCENT_TEXT, padding=0, borderwidth=0, relief="flat", width=0, font=font(9))
@@ -143,7 +155,8 @@ class ThemeMixin:
         s.configure("Icon.TButton", padding=(6, 4))
         # the light black outline of Generate and Variants (window test 11.11.) also on the chosen function button and the chosen
         # model chip: Generate's border (clam's outer line and the dark ring inside it, Generate's colours) and its raised relief
-        outline = {k: s.lookup("TButton", k) or PANEL for k in ("bordercolor", "lightcolor", "darkcolor")}
+        # since 21.11. (user: "remove all outlines on blue buttons"): a chosen (blue) button or chip has no outline either
+        outline = flat_edge(ACCENT)
         # the function buttons: the text as big as Generate (10 pt, bold when chosen), the button itself unchanged (user 6.11.).
         # Their border is always there (clam: 2 px a side, taken off the padding, so the size stays), in the fill colour while
         # not chosen, so only the chosen one shows the outline
@@ -164,6 +177,10 @@ class ThemeMixin:
         # "Advanced settings" (closed row): without the 2 px above and below, 20 % less room around its text (user 12.11.,
         # the first try only trimmed the outer gaps, which was not visible)
         s.configure("Adv.Link.TButton", padding=(0, 0))
+        # Advanced settings in groups (user 20.11.): small grey headings, "Reset" in blue text in the head row
+        s.configure("Group.TLabel", foreground=MUTED, font=font(8, bold=True))
+        s.configure("AdvReset.Link.TButton", foreground=ACCENT_TEXT, padding=(0, 0))
+        s.map("AdvReset.Link.TButton", foreground=[("active", FG)], background=[("active", BG)])
         s.configure("Copy.Link.TButton", padding=(0, 0))     # the copy icon beside "Enhance my Prompt with LLM": no 2 px above and below, or at 150 % it is taller than the checkbox and the row leaves a larger gap than two LoRA rows (user 13.11.)
         s.configure("Llm.TButton", padding=(4, 1), width=0, font=font(9))     # the "LLM" button at the prompt: short, not stretched
         s.configure("Narrow.TButton", padding=(3, 2), width=0, font=font(9))     # "Reset page": as narrow as its text (user 6.11.), the footer is tight
@@ -183,7 +200,7 @@ class ThemeMixin:
         s.configure("Chip.Toolbutton", background=BG, foreground=FG, padding=(CHIP_PAD_X, 3), anchor="center", relief="solid",
                     borderwidth=1, bordercolor=BG, lightcolor=BG, darkcolor=BG, font=font(9))
         # no gaps between the chips (11.12.): the grey grid lines are drawn by a grey backdrop frame behind each chip (gui_modes.py
-        # _grid_chip), so the chip's own border is invisible (fill colour) until it is chosen (then Generate's dark outline)
+        # _grid_chip, gone since the head has two list chips, 20.11.; the settings window keeps its own backdrop), so the chip's own border is invisible (fill colour) until it is chosen (then Generate's dark outline)
         # clam draws an inner ring in light/darkcolor inside the border. A chosen chip has Generate's border (window test 11.11.):
         # its outer line and dark ring, raised like Generate, not a blue border around a dark ring (the "double outline" of 10.11.)
         chip_fill = [("disabled", BG), ("selected", ACCENT), ("active", "#5f5f5f")]
@@ -192,18 +209,25 @@ class ThemeMixin:
               bordercolor=[("disabled", BG), ("selected", outline["bordercolor"])], background=chip_fill, **ring,
               relief=[("selected", "raised"), ("!selected", "solid")], font=[("selected", font(9, bold=True))])
         s.configure("Missing.Chip.Toolbutton", foreground=NA_RED)
-        s.configure("Accent.TButton", background=ACCENT, foreground=ON_ACCENT, font=font(10, bold=True))
-        s.map("Accent.TButton", background=[("active", "#5ba3f5"), ("disabled", "#5a6678")])
+        # the function chip and the model chip of the head (user 20.11.): grey like the function buttons were, the text as big
+        # as Generate, left-aligned; the arrow comes with the text (gui_modes._pick_text)
+        s.configure("Pick.TButton", background=PANEL, foreground=FG, padding=(PICK_PAD_X, 4), anchor="w", width=0, font=font(10))
+        s.map("Pick.TButton", background=[("disabled", PANEL), ("active", "#5f5f5f")], foreground=[("disabled", DISABLED)])
+        s.configure("Accent.TButton", background=ACCENT, foreground=ON_ACCENT, font=font(10, bold=True), **flat_edge(ACCENT))
+        s.map("Accent.TButton", **flat_edge_map([("active", "#5ba3f5"), ("disabled", "#5a6678")]))
+        # Generate while it stops the run (user 20.11.): grey like the other buttons, the text as big and bold as Generate's
+        s.configure("GoStop.TButton", font=font(10, bold=True))
         # the bin inside the prompt field (P5, 10.11.): flat like Link.TButton, on the field's colour
         s.configure("Field.Link.TButton", background=PANEL, foreground=MUTED, padding=(1, 1), borderwidth=0, relief="flat", width=0)
         s.map("Field.Link.TButton", background=[("active", PANEL)])
-        s.configure("Fit.TButton", padding=(5, 6), width=0)     # "Cancel all": as wide as its text (a fixed width cut the last letter)
-        s.configure("Split.Accent.TButton", padding=(6, 6))     # the narrow "×2 ▾" piece on the right of Generate
+        s.configure("Fit.TButton", padding=(5, 6), width=0)     # "Stop batch": as wide as its text (a fixed width cut the last letter)
+        # the narrow "×2 ▾" piece on the right of Generate: grey like the function and model chips (user 20.11., was blue)
+        s.configure("Split.Pick.TButton", padding=(6, 6), anchor="center")
         # Undo and Redo (user 18.11., decision 2a): squares in the Generate row, blue like Generate while they can be used,
         # exactly the greyed-out Stop button otherwise (TButton's face, DISABLED for the icon); no padding, so the square is
         # set by the row's height (_fit_go_row) and the icon sits in its middle
-        s.configure("Square.TButton", background=ACCENT, foreground=ON_ACCENT, padding=0, width=0, anchor="center")
-        s.map("Square.TButton", background=[("disabled", PANEL), ("active", "#5ba3f5")], foreground=[("disabled", DISABLED)])
+        s.configure("Square.TButton", background=ACCENT, foreground=ON_ACCENT, padding=0, width=0, anchor="center", **flat_edge(ACCENT))
+        s.map("Square.TButton", foreground=[("disabled", DISABLED)], **flat_edge_map([("disabled", PANEL), ("active", "#5ba3f5")]))
         s.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=FG, arrowcolor=FG)
         s.map("TCombobox", fieldbackground=[("readonly", PANEL)], foreground=[("readonly", FG)],
               selectbackground=[("readonly", PANEL)], selectforeground=[("readonly", FG)])
@@ -213,7 +237,17 @@ class ThemeMixin:
         s.configure("Horizontal.TProgressbar", background=ACCENT)
         # the run bar of the main window half as high (user 16.11.): clam draws it arrowsize + 4 px high, 14 + 4 = 18 by
         # default, so 5 gives 9 px
-        s.configure("Thin.Horizontal.TProgressbar", background=ACCENT, arrowsize=THIN_BAR_ARROW)
+        # no dark frame round the bar (user 21.11.): clam's trough leaves 2 px of trough colour round the bar; the "default"
+        # theme's trough and bar have none, so the bar fills the full 9 px and the empty part is the plain trough colour
+        try:
+            s.element_create("Thin.Progressbar.trough", "from", "default")
+            s.element_create("Thin.Progressbar.pbar", "from", "default")
+        except tk.TclError:          # already made (a second window in the same Tk)
+            pass
+        s.layout("Thin.Horizontal.TProgressbar", [("Thin.Progressbar.trough", {"sticky": "nswe", "children": [
+            ("Thin.Progressbar.pbar", {"side": "left", "sticky": "ns"})]})])
+        s.configure("Thin.Horizontal.TProgressbar", background=ACCENT, arrowsize=THIN_BAR_ARROW, thickness=THIN_BAR_ARROW + 4,
+                    troughcolor=PANEL, troughrelief="flat", pbarrelief="flat", borderwidth=0)
         s.configure("Grip.TFrame", background="#454545")
         s.configure("Hint.TLabel", foreground=ACCENT_TEXT)
         s.configure("Sep.TFrame", background="#9a9a9a")
@@ -357,18 +391,19 @@ class ThemeMixin:
             return cache[(kind, c, px)]
         return (img(ON_ACCENT), "disabled", img(DISABLED))
 
-    def _function_icon(self, key: str):
+    def _function_icon(self, key: str, size: float = 1.0, gap: bool = True):
         """The symbol of a function button: the user's picture pccomfy/assets/functions/<key>.png when it is there, else the
         shape fn-<key> (icons.py), else a placeholder, with FN_GAP of room on its right. Light on the dark button, dark on the orange (selected) one, grey when
-        greyed out."""
+        greyed out. size: share of ICON_PX (the function list of the head: 0.9, user 20.11.); gap=False: no FN_GAP on the right
+        (the list keeps its own gap)."""
         from pathlib import Path
         path = Path(__file__).resolve().parent / "assets" / "functions" / f"{key}.png"
         cache = self.__dict__.setdefault("_icon_cache", {})
 
         def img(c):
-            k = ("fn", key, c)
+            k = ("fn", key if (size == 1.0 and gap) else f"{key}@{size}{'' if gap else '-nogap'}", c)   # 3 parts, as the other icons (tests read the cache)
             if k not in cache:
-                px = self._px(ICON_PX)
+                px = self._px(round(ICON_PX * size))
                 pic = None
                 if path.exists():
                     try:
@@ -377,7 +412,7 @@ class ThemeMixin:
                         pic = None
                 if pic is None:
                     pic = icons.render(f"fn-{key}" if f"fn-{key}" in icons.SHAPES else "placeholder", c, px)
-                wide = Image.new("RGBA", (px + self._px(FN_GAP), px), (0, 0, 0, 0))
+                wide = Image.new("RGBA", (px + (self._px(FN_GAP) if gap else 0), px), (0, 0, 0, 0))
                 wide.paste(pic, (0, 0))
                 cache[k] = icons.photo(self.root, None, c, px, image=wide)
             return cache[k]
@@ -405,6 +440,11 @@ class ThemeMixin:
         """Right-click on a label (error messages, hints) or on a link symbol: a menu with "Copy" / "Copy link". Text of its own
         wins (`copy_text`, set on link symbols); an empty or one-character label (dot, badge) shows nothing."""
         w = event.widget
+        try:      # the chips of the head and the Edit list (Pick.TButton): no Copy, it covered the model chip's own menu (user 20.11.)
+            if str(w.cget("style")) == "Pick.TButton":
+                return None
+        except (tk.TclError, AttributeError):
+            pass
         text = getattr(w, "copy_text", "")
         link = bool(text)
         if not text:
@@ -549,8 +589,9 @@ class ThemeMixin:
                     trace = line
                 except Exception as e:
                     trace = f"trace failed: {e!r}"
-        empty = bool(getattr(self, "start_state", lambda: "")())      # no model chosen: a small window (tabs, one sentence, footer)
-        w, h = self._px(MIN_W), max(self._px(80 if empty else 320), stack_height(self.root))
+        # exactly the content's height: a floor of 320 (560 px at 175 %) left a big gap between the status line and the footer
+        # in short pages like Expand (user 20.11.); 80 only guards against a window that is not laid out yet
+        w, h = self._px(MIN_W), max(self._px(80), stack_height(self.root))
         if lift:
             self._geom = (w, h)
             self.root.geometry(f"{w}x{h}+{int(self.root.winfo_rootx())}+{int(self.root.winfo_rooty()) - lift}")

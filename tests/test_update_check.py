@@ -48,6 +48,7 @@ def serve():
 def check_pure():
     assert update.is_newer("1.0.7", "1.0.6") and update.is_newer("v2.0", "1.9.9")
     assert not update.is_newer("1.0.6", "1.0.6") and not update.is_newer("1.0.5", "1.0.6") and not update.is_newer("x", "1.0")
+    assert update.is_dev("1.0.6-dev") and update.is_dev("1.0.8-DEV ") and not update.is_dev("1.0.7") and not update.is_dev("0.21-test")
     now = 1_000_000.0
     assert update.due(None, now) and update.due("x", now) and update.due(now - update.DAY_S, now)
     assert not update.due(now - 3600, now) and update.due(now + 60, now)          # the clock went back: check
@@ -60,8 +61,11 @@ def check_pure():
     for url in ("https://github.com/phil-haderer/pxc-dev.git", "https://github.com/phil-haderer/pxc-test",
                 "https://example.com/phil-haderer/pxc", "", "C:/repos/pxc"):
         assert not update.is_public_repo_url(url), url
-    # the working repo (remote private = pxc-dev, branch next) is never updated with git pull
-    assert update.install_kind(ROOT) == "zip"
+    # the working repo (remote private = pxc-dev, branch next) is never updated with git pull. A release folder can be a
+    # clone of pxc on main, where "git" is right (install matrix of pxc, red since 1.0.5): there only check_git_pull's
+    # own clones count. CLAUDE.md is never exported, so it marks the working repo; a folder without .git is a ZIP.
+    if (ROOT / "CLAUDE.md").exists() or not (ROOT / ".git").exists():
+        assert update.install_kind(ROOT) == "zip"
     assert set(update.UPDATE_STEPS) == {"zip", "git"}
 
 
@@ -178,7 +182,9 @@ def check_window(url):
         assert app.f_update_note.winfo_manager() == "pack"
         assert app.f_update_note.master.pack_slaves()[0] is app.f_update_note      # at the very top of Other settings
         assert str(app.b_update_news.cget("text")) == "What's new" and str(app.b_update_skip.cget("text")) == "Skip this version"
-        assert "unpack it over this folder" in str(app.lbl_update_steps.cget("text"))        # B1 in the working repo (zip)
+        # the steps for this folder: B1 "unpack it over this folder" in the working repo (zip, pinned in check_pure), git
+        # pull in a clone of pxc on main (install matrix of pxc)
+        assert str(app.lbl_update_steps.cget("text")) == update.UPDATE_STEPS[update.install_kind()]
         assert cfgmod.load_state()[update.KEY_FOUND]["version"] == "99.0.0"      # the dot survives a restart
         app._update_skip()
         assert cfgmod.get_setting(update.KEY_SKIP) == "99.0.0" and not app.lbl_update_dot.winfo_manager()
@@ -202,6 +208,14 @@ def check_window(url):
         app.state[update.KEY_LAST] = time.time()                            # checked today: no second check
         app._update_check_auto()
         assert not app._update_busy
+        real_version = update.__version__
+        try:                                                                # the working folder (user 21.11.): no start check
+            update.__version__ = "1.0.6-dev"
+            app.state[update.KEY_LAST] = 0
+            app._update_check_auto()
+            assert not app._update_busy
+        finally:
+            update.__version__ = real_version
         app._settings_close()
     finally:
         app.root.destroy()

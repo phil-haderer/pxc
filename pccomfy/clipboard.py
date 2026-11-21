@@ -29,7 +29,7 @@ DEFAULT_FORMATS = ("png", "dib")
 
 
 def available() -> bool:
-    return sys.platform == "win32" or _linux_backend() is not None
+    return sys.platform == "win32" or bool(_linux_backends())
 
 
 # What the window says when there is no clipboard to talk to.
@@ -198,15 +198,24 @@ LINUX_TIMEOUT = 5
 FILE_TARGETS = ("text/uri-list", "x-special/gnome-copied-files")      # files copied in a file manager
 
 
-def _linux_backend() -> str | None:
-    """"wl" on a Wayland session with wl-clipboard, "xclip" on X11 with xclip, else None (nothing to talk to)."""
+def _linux_backends() -> list[str]:
+    """The clipboard programs to try, in order: "xclip" when there is an X display (X11, or XWayland on a Wayland session:
+    PxC's window is an X11 client there, and wl-clipboard said "This seat has no keyboard" under Cinnamon-Wayland; choice A
+    19.11.), then "wl" on a Wayland session with wl-clipboard. Empty: nothing to talk to."""
     if not sys.platform.startswith("linux"):
-        return None
-    if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste") and shutil.which("wl-copy"):
-        return "wl"
+        return []
+    out = []
     if os.environ.get("DISPLAY") and shutil.which("xclip"):
-        return "xclip"
-    return None
+        out.append("xclip")
+    if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste") and shutil.which("wl-copy"):
+        out.append("wl")
+    return out
+
+
+def _linux_backend() -> str | None:
+    """The first clipboard program to try (_linux_backends), else None."""
+    found = _linux_backends()
+    return found[0] if found else None
 
 
 def pick_target(targets) -> tuple[str, str] | None:
@@ -260,7 +269,49 @@ def _linux_read_raw(backend: str, mime: str) -> bytes | None:
     return _linux_run(cmd)
 
 
+X11CLIP = Path(__file__).with_name("x11clip.py")      # our own X11 clipboard owner (decision 19.11., choice A)
+
+
+def _linux_write_backends() -> list[str]:
+    """The programs to copy a picture with, in order: our own X11 owner ("x11", wherever there is an X display: xclip
+    answers every request with the PNG and PhotoCraft stops at that), then the readers' order (_linux_backends)."""
+    if not sys.platform.startswith("linux"):
+        return []
+    own = ["x11"] if os.environ.get("DISPLAY") and X11CLIP.exists() else []
+    return own + _linux_backends()
+
+
+def _x11_own(png: bytes) -> bool:
+    """Start x11clip.py with the PNG; True once it holds the clipboard (it says "ready" and keeps serving on its own until
+    another program takes the clipboard)."""
+    import threading
+    try:
+        proc = subprocess.Popen([sys.executable, str(X11CLIP)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+    except (OSError, ValueError):
+        return False
+    said: list[bytes] = []
+    try:
+        proc.stdin.write(png)
+        proc.stdin.close()
+        t = threading.Thread(target=lambda: said.append(proc.stdout.readline()), daemon=True)
+        t.start()
+        t.join(LINUX_TIMEOUT)
+    except OSError:
+        pass
+    if said and said[0].strip() == b"ready":
+        proc.stdout.close()
+        return True
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    return False
+
+
 def _linux_write(backend: str, png: bytes) -> bool:
+    if backend == "x11":
+        return _x11_own(png)
     cmd = ["wl-copy", "--type", "image/png"] if backend == "wl" else ["xclip", "-selection", "clipboard", "-t", "image/png", "-i"]
     return _linux_run(cmd, png) is not None
 
@@ -289,12 +340,16 @@ def read_image(hwnd=0) -> Image.Image | None:
     """The picture on the clipboard (a copied image, a screenshot, or the first picture file copied in Explorer), else None."""
     if not available():
         return None
-    backend = _linux_backend()
-    if backend:
-        try:
-            return _linux_read_image(backend)
-        except Exception:
-            return None
+    backends = _linux_backends()
+    if backends:
+        for backend in backends:          # the next one when the first finds nothing or fails (choice A 19.11.)
+            try:
+                img = _linux_read_image(backend)
+            except Exception:
+                img = None
+            if img is not None:
+                return img
+        return None
     try:
         raw = _win_read_raw(hwnd)
         if raw:
@@ -316,14 +371,21 @@ def read_image(hwnd=0) -> Image.Image | None:
 
 def write_image(img: Image.Image, formats=DEFAULT_FORMATS, hwnd=0) -> bool:
     """Put the picture on the clipboard as "png" and/or "dib". False if there is no clipboard or nothing could be set."""
-    if not available():
+    backends = _linux_write_backends()
+    if not backends and not available():
         return False
-    backend = _linux_backend()
-    if backend:                          # Linux: PNG only (keeps transparency; there is no flat DIB there)
+    if backends:                         # Linux: PNG only (keeps transparency; there is no flat DIB there)
         try:
-            return _linux_write(backend, png_from_image(img))
+            png = png_from_image(img)
         except Exception:
             return False
+        for backend in backends:          # the next one when one fails (choices A 19.11.: own X11 owner, xclip, wl-clipboard)
+            try:
+                if _linux_write(backend, png):
+                    return True
+            except Exception:
+                pass
+        return False
     try:
         items = []
         for f in formats:

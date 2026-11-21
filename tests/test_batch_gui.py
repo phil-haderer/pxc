@@ -394,8 +394,7 @@ def main():
     assert val("j:j2")[4] == "▰▰▰▱▱ 60 %", val("j:j2")
     assert gui_batch.progress_text(1.0) == "▰▰▰▰▰ 100 %" and gui_batch.progress_text(None) == "▱▱▱▱▱ 0 %"
     assert gui_batch.running_text(42) == "running 0:42" and gui_batch.running_text(125.9) == "running 2:05"
-    # our own Generate that runs: its bar too; another's that runs: its time; a pre-placed picture (19.11.): "Sent", no bar,
-    # fixed (not draggable), pause and ✕ still there
+    # our own Generate that runs: its bar too; another's that runs: its time (no pre-placed pictures since 21.11.)
     saved_entries, app._running = app._q_entries, True
     app._q_seen = {"o1": time.time() - 42}
     app._queue_comfy_show([
@@ -403,20 +402,27 @@ def main():
         {"prompt_id": "o1", "number": 2, "client_id": "other", "owner": "Anna", "kind": "generate", "batch": "", "running": True}])
     assert val("c:g1")[3:5] == ("Running", "▰▰▰▱▱ 60 %") and val("c:o1")[4] == "running 0:42", (val("c:g1"), val("c:o1"))
     app._running = False
-    runner._jobs[2].update(preplaced=True, prompt_id="pp")
-    app._queue_comfy_show([{"prompt_id": "pp", "number": 1, "client_id": "me", "owner": "tester", "kind": "batch",
-                            "batch": "b1", "running": False}])
-    assert val("j:j3")[3:5] == ("Sent", ""), val("j:j3")
-    assert tv.item("j:j3", "values")[7:] == ("⏸", "", "✕")
-    app._queue_comfy_show([{"prompt_id": "pp", "number": 1, "client_id": "me", "owner": "tester", "kind": "batch",
-                            "batch": "b1", "running": True}])
-    assert val("j:j3")[3] == "Running", val("j:j3")              # ComfyUI has started it before its turn
-    assert not app._q_movable(app._q_jobs["j3"]) and app._q_movable(app._q_jobs["j4"])
-    runner._jobs[2].pop("preplaced")
-    runner._jobs[2].pop("prompt_id")
+    assert app._q_movable(app._q_jobs["j3"]) and app._q_movable(app._q_jobs["j4"])
     app._bar_value = 0.0
     app._queue_comfy_show(saved_entries)
     runner._jobs[1].pop("prompt_id")
+    # Paket 3 (user 19.11., choice A): a run of another that PxC saw running stays as "Done" with the time since PxC saw it
+    # start, read-only, on top with the finished ones; not our own Generate (g1), not one only seen waiting (y), nothing
+    # noted when ComfyUI could not be read
+    assert [d["prompt_id"] for d in app._q_foreign_done] == ["x", "o1"], app._q_foreign_done
+    assert val("d:x")[1:4] == ("Anna", "Generate · 2 variants", "Done"), val("d:x")
+    assert val("d:o1") == ("", "Anna", gui_batch.generate_label({}), "Done", "", "", "42 s"), val("d:o1")
+    assert tv.item("d:o1", "tags") == ("other",) and all(v == "" for v in tv.item("d:o1", "values")[7:])
+    top = tv.get_children("")
+    assert top.index("d:x") < top.index("d:o1") < top.index("j:j2"), top     # through: on top, in the order they ended
+    app._queue_comfy_show(None)
+    app._queue_comfy_show([])                      # after a failed read nothing is said about what ended
+    app._queue_note_foreign_done([{"prompt_id": "b9", "client_id": "ben", "owner": "Ben", "kind": "batch", "running": True}], [])
+    assert [d["prompt_id"] for d in app._q_foreign_done] == ["x", "o1", "b9"] and app._foreign_what(app._q_foreign_done[2]) == "Batch"
+    app._q_foreign_done.pop()
+    app._queue_note_foreign_done([], [{"prompt_id": "x", "running": True}])     # back at ComfyUI: not through after all
+    assert [d["prompt_id"] for d in app._q_foreign_done] == ["o1"], app._q_foreign_done
+    app._queue_comfy_show(saved_entries)
     state = lambda: {k: str(b.cget("state")) == "normal" for k, b in app.q_buttons.items()}   # noqa: E731
     assert set(app.q_buttons) == {"pause_batch", "resume_batch", "cancel_batch", "clear"}, set(app.q_buttons)
     # what a row can do sits in the row (user 13.11.): ⏸ / ▶, ↻, ✕ in the last three columns
@@ -471,25 +477,6 @@ def main():
     x, y, w, h = tv.bbox("j:j2", "pic")                            # the running picture cannot be dragged
     app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
     assert app._q_drag is None
-    runner._jobs[2]["preplaced"] = True                            # nor one pre-placed at ComfyUI (19.11.)
-    app._queue_fill()
-    for _ in range(2):
-        app.root.update()
-    x, y, w, h = tv.bbox("j:j3", "pic")
-    app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
-    assert app._q_drag is None
-    x, y, w, h = tv.bbox("j:j4", "pic")                            # and nothing is dropped on its place
-    app._queue_press(type("E", (), {"x": x + 5, "y": y + h // 2})())
-    assert app._q_drag and app._q_drag["iid"] == "j:j4"
-    x, y, w, h = tv.bbox("j:j3", "pic")
-    before = tv.get_children("")
-    app._queue_motion(type("E", (), {"x": x + 5, "y": y + h // 2})())
-    assert tv.get_children("") == before and not app._q_drag["moved"]
-    n = len(runner.calls)
-    app._queue_release(None)
-    assert len(runner.calls) == n, runner.calls[n:]
-    runner._jobs[2].pop("preplaced")
-    app._queue_fill()
 
     # the columns always fill the list (user 13.11.): a column set very wide gives the room back, the symbols stay
     cols = tuple(tv.cget("columns"))
@@ -626,6 +613,11 @@ def main():
     assert app._queue_key() is None and app._alive(app._queue_win), "typing a q into the prompt does not toggle the queue"
     assert app.root.bind("<Escape>") and app.root.bind("<KeyPress-q>") and app._queue_win.bind("<KeyPress-q>")
     assert app._escape_key() == "break" and app._queue_win is None, "Escape closes the queue instead of stopping a run"
+    # Escape never stops a run (user 20.11.): with no queue and no settings window open it does nothing
+    stopped = []
+    app.stop, app.stop_all = (lambda: stopped.append("stop")), (lambda: stopped.append("all"))
+    assert app._escape_key() is None and not stopped, "Escape must not stop a run"
+    del app.stop, app.stop_all
     # Q many times in a row (user 13.11.: after a few rounds Q did nothing): the queue takes the focus when it opens, and
     # closing it gives the focus back to the plugin window, never into a field (here the prompt had it before)
     app.t_prompt.focus_force()
@@ -684,6 +676,15 @@ def main():
     app.root.withdraw()
     app.q_buttons["clear"].invoke()
     assert runner.calls[-1] == ("clear",)
+    # "Clear finished" removes the finished runs of others too (user 19.11.); with only those, it can be pressed
+    assert app._q_foreign_done == [] and not any(i.startswith("d:") for i in tv.get_children("")), tv.get_children("")
+    app._q_foreign_done = [{"prompt_id": "q", "owner": "Ben", "kind": "batch", "started": None, "finished": 1.0}]
+    saved_jobs, runner._jobs = runner._jobs, []
+    app._queue_fill()
+    assert tv.item("d:q", "values")[:7] == ("", "Ben", "Batch", "Done", "", "", "") and str(app.q_buttons["clear"].cget("state")) == "normal"
+    app.q_buttons["clear"].invoke()
+    assert app._q_foreign_done == [] and str(app.q_buttons["clear"].cget("state")) == "disabled"
+    runner._jobs = saved_jobs
     app.open_queue()                               # a second time: the same window, in front
     assert app._queue_win is win
     reads = bridge.comfy.reads
@@ -707,10 +708,10 @@ def main():
     app._queue_close()
     bridge.comfy.fail = False
 
-    # ---- Generate (and Save, Copy) locked while a batch is on ----
+    # ---- Generate (and Save, Copy) locked while a batch is on: Generate is the grey "Stop run" with "Stop batch" (20.11.) ----
     runner.busy = True
     app._batch_sync()
-    assert str(app.b_go.cget("state")) == "disabled"
+    assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT and app.b_stop_all.winfo_manager() == "grid"
     # Undo and Redo are grey with Generate (a step back would take a batch layer); a finished Copy or Save (event "note")
     # does not bring them back while the batch is on
     assert str(app.b_undo.cget("state")) == "disabled" and str(app.b_redo.cget("state")) == "disabled"
@@ -735,7 +736,8 @@ def main():
     bridge.can_undo = lambda *a: True               # a run before the batch left something to undo
     app._last_step = None
     app._batch_sync()
-    assert str(app.b_go.cget("state")) == "normal"
+    assert str(app.b_go.cget("state")) == "normal" and str(app.b_go.cget("text")) == "Generate"
+    assert not app.b_stop_all.winfo_manager()
     # back after the batch, by their own rule (decision 2a, 18.11.): Undo blue, Redo grey until an Undo
     assert str(app.b_undo.cget("state")) == "normal" and str(app.b_redo.cget("state")) == "disabled"
     del bridge.can_undo
@@ -816,17 +818,19 @@ def main():
     app.v_owner_name.set("  ")
     assert cfgmod.get_setting(jobqueue.OWNER_SETTING) is None and runner.owner == jobqueue.owner_name()
     assert "_owner_name_row" in ui_settings.SettingsMixin._other_settings.__code__.co_names
-    # order of "Other settings" (13.11.): Save image between two lines, the queue name right below, Interface scale,
-    # and the tips tick at the very bottom (user 13.11.)
+    # order of "Other settings" (sections since 20.11.): the update line and the answer of Check now on top, Connection
+    # (address, queue name), Save image, Appearance (scale, tips), Maintenance, one line between two sections; "Check for
+    # updates" sits in the chip row (user 20.11.)
     import inspect
     src = inspect.getsource(ui_settings.SettingsMixin._other_settings)
-    seq = [ln.strip() for ln in src.splitlines() if ln.strip().startswith("self._") and "(parent)" in ln]
-    # the update line at the very top and "Check for updates" above the tips tick (user 19.11.)
-    assert [c.split("#")[0].strip() for c in seq] == ["self._update_note_row(parent)", "self._comfy_address_row(parent)",
-                                                  "self._other_sep(parent)", "self._save_image_row(parent)", "self._other_sep(parent)",
-                                                  "self._owner_name_row(parent)", "self._ui_scale_row(parent)",
-                                                  "self._update_check_row(parent)", "self._tips_setting_row(parent)"], seq
-    assert src.index("Copy report") < src.index("_ui_scale_row")
+    seq = [ln.strip().split("#")[0].strip() for ln in src.splitlines() if ln.strip().startswith("self._") and "(parent" in ln]
+    assert seq == ["self._update_note_row(parent)", "self._update_status_row(parent)",
+                   'self._other_head(parent, "Connection", first=True)', "self._comfy_address_row(parent)",
+                   "self._owner_name_row(parent)", "self._other_sep(parent)", "self._save_image_row(parent)",
+                   "self._other_sep(parent)", 'self._other_head(parent, "Appearance")', "self._ui_scale_row(parent)",
+                   "self._tips_setting_row(parent, pady=(10, 0))", "self._other_sep(parent)",
+                   'self._other_head(parent, "Maintenance")', "self._maintenance_row(parent)"], seq
+    assert not any("_update_check_row" in c for c in seq) and [m[0] for m in ui_settings.SettingsMixin.MAINTENANCE][-1] == "Copy report"
 
     # ---- closing the window stops the runner; a batch job at ComfyUI is not cancelled ----
     runner.running_job = {"id": "j2"}

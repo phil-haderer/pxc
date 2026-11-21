@@ -11,6 +11,9 @@ model and idea the two pictures as "Variante A / B" (text under the picture); th
     python tests\\live_writer_short_long.py viewer --serve    blind rating page (gut / mittel / schlecht, fault cross)
     python tests\\live_writer_short_long.py report            words, times, ratings resolved by the key
     --cases qwen,moss,fibo picks models.
+    21.11. (MOSS short and English): --run moss-en --cases moss_en --ideas std+de (own folder, three German ideas extra).
+    Since 21.11. (user 6A) the MOSS workflow has the short English text itself: the cases moss and moss_en stop with
+    "length passage not found"; to repeat them, run against the workflow of commit 6ca06b4.
 
 Output: data\\writer-short-long\\ (texts.json, pictures\\, key.json, bewertung.json, fehler.json, report.md) and
 data\\schreiber-kurz-lang.html. Nothing in the plugin changes.
@@ -39,7 +42,8 @@ OUT = DATA / "writer-short-long"
 PICS = OUT / "pictures"
 PAGE = "schreiber-kurz-lang.html"
 CASES = {"qwen": ("Qwen Image 2.1", "qwen-image-21-t2i.json"), "moss": ("MOSS", "moss-image-t2i.json"),
-         "fibo": ("Fibo", "fibo2-t2i.json")}
+         "fibo": ("Fibo", "fibo2-t2i.json"),
+         "moss_en": ("MOSS, kurz + Englisch", "moss-image-t2i.json")}     # 21.11., run moss-en: "kurz" = short AND not Chinese
 LABELS = ("lang", "kurz")
 WRITER_SEED = 7
 PICTURE_SEED = 101
@@ -74,6 +78,20 @@ SHORT = {
          "A detailed description of the imagined object, 40 words maximum."),
     ],
 }
+# MOSS short and for requests in English or German instead of Chinese (docs/plan/promptschreiber.md V2, user 21.11.)
+SHORT["moss_en"] = SHORT["moss"] + [
+    ("The user sends a short, rough request in Chinese, sometimes",
+     "The user sends a short, rough request, usually in English or German, sometimes"),
+    ("exclusions, and any Chinese copy they quote.", "exclusions, and any copy they quote."),
+    ("Keep the user's wording verbatim in its original language (Chinese stays Chinese)",
+     "Keep the user's wording verbatim in its original language (German stays German)"),
+]
+# German ideas for --ideas de (users write English or German; the third checks verbatim German copy)
+GERMAN = [("kurz", "ein roter Fuchs im Schnee"),
+          ("kurz", "Altstadtgasse in Wien am Abend, Regen, warme Laternen"),
+          ("lang", "Plakat für ein Dorffest: oben in großer roter Schrift „Sommerfest 2027“, darunter kleiner "
+                   "„Samstag, 12. Juni · Musik · Grillen · Kinderprogramm“, unten eine Wiese mit Lampions und Holzbänken")]
+IDEAS: list[tuple[str, str]] = []       # set in main(): the plain list or the German one
 
 
 def graph(case: str, idea: str, label: str) -> tuple[dict, str]:
@@ -101,7 +119,7 @@ def picked(a) -> list[str]:
 def cmd_write(a):
     cases = picked(a)
     jobs = [(case, i, kind, idea, lab, *graph(case, idea, lab)) for case in cases
-            for i, (kind, idea) in enumerate(ideas(False)) for lab in LABELS]
+            for i, (kind, idea) in enumerate(IDEAS) for lab in LABELS]
     if a.dry:
         print(f"ok: {len(jobs)} writer graphs; short passages found in {', '.join(cases)}")
         return
@@ -110,7 +128,7 @@ def cmd_write(a):
     OUT.mkdir(parents=True, exist_ok=True)
     f = OUT / "texts.json"
     res = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"texts": {}}
-    res.update({"when": time.strftime("%Y-%m-%d %H:%M"), "comfy": info, "ideas": [x for _, x in ideas(False)]})
+    res.update({"when": time.strftime("%Y-%m-%d %H:%M"), "comfy": info, "ideas": [x for _, x in IDEAS]})
     print(f"ComfyUI {info['version']}, {info['gpu']}, start options {' '.join(info['argv'][1:])}")
     for case, i, kind, idea, lab, g, node in jobs:
         t0 = time.time()
@@ -197,7 +215,7 @@ def build_page(rate: bool) -> Path:
 
 
 def row0_idea(row: dict) -> str:
-    return [x for _, x in ideas(False)][row["idea"] - 1]
+    return [x for _, x in IDEAS][row["idea"] - 1]
 
 
 def save_rating(rid: str, wahl: str = "", fehler=None) -> None:
@@ -320,7 +338,15 @@ def main():
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--port", type=int, default=8772)
     ap.add_argument("--no-open", action="store_true")
+    ap.add_argument("--run", default="", help="own output folder data/writer-short-long-<run> (e.g. moss-en)")
+    ap.add_argument("--ideas", choices=("std", "de", "std+de"), default="std", help="de: three German ideas")
     a = ap.parse_args()
+    global OUT, PICS, PAGE
+    if a.run:
+        OUT = DATA / f"writer-short-long-{a.run}"
+        PICS = OUT / "pictures"
+        PAGE = f"schreiber-kurz-lang-{a.run}.html"
+    IDEAS[:] = (ideas(False) if "std" in a.ideas else []) + (GERMAN if "de" in a.ideas else [])
     {"write": cmd_write, "render": cmd_render, "viewer": cmd_viewer, "report": cmd_report}[a.cmd](a)
 
 

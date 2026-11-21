@@ -114,11 +114,13 @@ def window():
     rl, rr = app.root.winfo_rootx(), app.root.winfo_rootx() + app.root.winfo_width()
     if sw - rr >= 308 or rl >= 308:
         assert x >= rr or x + 300 <= rl
-    btn = max(rb.winfo_reqheight() for rb in app.rb_modes.values())
+    btn = app.b_mode.winfo_reqheight()       # the function chip (was the function buttons, 20.11.)
     assert app._tip_gap() >= max(btn, 8) > 0                 # the room between plugin and popup: as high as a function button (user 4.11.)
     if sw - rr >= 300 + app._tip_gap():
         assert x - rr >= btn
-    assert bool(win.attributes("-topmost")) == (bool(app.v_top.get()) and not gui_tips.winlink.available())   # like the plugin
+    if win.tk.call("tk", "windowingsystem") != "x11":
+        # X11 reports -topmost only for windows its window manager handles; the popup has no title bar (Mint laptop 19.11.)
+        assert bool(win.attributes("-topmost")) == (bool(app.v_top.get()) and not gui_tips.winlink.available())   # like the plugin
     shown = cfgmod.get_setting(gui_tips.SHOWN_KEY)
     assert isinstance(shown, list) and len(shown) == 1
     # owned by the plugin via winlink.own where winlink is available (user 13.11.), not owned where it is not

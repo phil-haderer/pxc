@@ -788,6 +788,7 @@ def enhance_tip(model: str, name: str, reroll: bool) -> str:
 
 ENHANCE_REROLL_TIP = "Reroll prompt: the next run writes a new prompt."     # only where the button exists (review 18.11.)
 LORA_TIP = "The workflow's own LoRA: on/off, and its strength."
+STEPS_FIXED_TIP = "Fixed by the Turbo file's sigma schedule"      # a model variant with its own schedule (variants.py, user 20.11.)
 STAGE_TIP = "A stage of the workflow you can switch off."
 FONT = "Inter" if fonts.load() else ("Segoe UI" if hostos.IS_WINDOWS else "Sans")   # Inter = PhotoCraft's font (fonts.py)
 
@@ -821,14 +822,19 @@ def sign_font() -> tuple:
 
 
 HEADER_GAP = 3           # px between the letters and the sign (5, then 4, now 3: 20 % less again; user 12.11.)
-STOP_W = 5               # the Stop button: as wide as its text, in characters (was 9 for "Cancel"; user 12.11.)
 # the Generate row fills the window's width (user 18.11., decisions 1a and 3): Generate and the variants piece together are as
-# wide as the tab "Edit canvas" (user 18.11., replaces Generate's cap of 1.5), the variants piece and Stop grow from their
-# natural width to these factors; what is left stays as a gap before Undo and Redo, two squares at the right edge
+# wide as the tab "Edit canvas" (user 18.11., replaces Generate's cap of 1.5), the variants piece grows from its natural width
+# to this factor; what is left stays as a gap before Undo and Redo, two squares at the right edge. No Stop button since
+# 20.11. (user): Generate itself turns into "Stop" during a run (_go_stop)
 VARIANTS_GROW_MAX = 1.2
-STOP_GROW_MAX = 1.2
-GO_COL_STOP_ALL, GO_COL_GAP, GO_COL_UNDO = 3, 4, 5     # the grid columns of the row: 0 Generate, 1 variants, 2 Stop, then these (Redo: 6)
-GO_GAP_MIN_PX = 6        # px at least between Stop (or "Stop all") and Undo, before the display scaling
+GO_COL_STOP_ALL, GO_COL_GAP, GO_COL_UNDO = 2, 3, 4     # the grid columns of the row: 0 Generate, 1 variants, then these (Redo: 5)
+GO_GAP_MIN_PX = 6        # px at least between the variants piece (or "Stop batch") and Undo, before the display scaling
+GO_STOP_TEXT, GO_STOP_RUN_TEXT, STOP_BATCH_TEXT = "Stop", "Stop run", "Stop batch"   # Generate during a run (user 20.11.)
+GO_TIP = "Generate (Ctrl+Enter)"
+GO_STOP_TIP = "Stop the run (Ctrl+Alt+Enter)."
+GO_STOP_RUN_TIP = ("Stop the run that is on (Ctrl+Alt+Enter); the variants still to come go on. "
+                   "\"Stop batch\" stops them too.")
+STOP_GUARD_S = 0.5       # s after Generate turned into Stop in which a click on Stop is ignored (a double click, user 20.11.)
 GO_PAIR_GAP_PX = 3       # px between the Undo and Redo squares, before the display scaling
 from .refslots import EDTAB_PADX  # noqa: E402  (the tabs under the prompt; Generate and the variants piece are as wide as one)
 ERR_BADGE_PX = 16        # the red error circle in the status line before the display scaling (90 % of the old 18 px badge; user 12.11.)
@@ -922,7 +928,37 @@ def sweep_requests(req: Request, res_list: list, ctx_list: list) -> list[Request
 
 PREVIEW_MAX_H = 210  # the live preview is at most this high before the display scaling, landscape too (a tall picture gets narrower; user 30.10.: 300 was too high, now 70 %)
 CHIP_LINE = "#686868"     # the grey grid lines between the model chips (11.12.: no gaps, adjacent chips share one 1 px line)
-CHIP_PAD_X = 0           # inner side padding of a model chip: "Fibo 2.0 Edit Turbo" must fit at MIN_W (tests/test_chip_grid.py)
+CHIP_PAD_X = 0           # inner side padding of a chip (Chip.Toolbutton; the settings window's tabs since the head has two list chips, 20.11.)
+PICK_ARROW = " ▾"  # (thin space: at 100 % "Fibo 2.0 Edit Turbo" fits half the window, 20.11.) the arrow of the function and model chips in the head, as on the variants piece of Generate
+PICK_GAP = 3                # px between the function chip and the model chip (user 20.11.; 6 -> 3 narrower, 20.11.)
+PICK_PAD_X = 4              # inner side padding of the two head chips (20.11.)
+PICK_ICON = 0.9             # the symbols in the function list: 90 % of the chip's, so the rows have a little room between them (user 20.11.)
+PICK_ICON_GAP = 6           # px between a symbol and its text in the function list (user 20.11.: the room was too wide)
+PICK_CHOSEN = "#5ba3f5"     # the chosen entry of the function / model list: light blue (not bold) instead of a dot (user 20.11.)
+MODEL_PICK_EMPTY = "Choose a model"     # the model chip while no model is chosen
+
+
+class PickItem:
+    """One entry of the function or model chip's list in the head (user 20.11.: two chips with a list instead of the function
+    buttons and the model chips). It keeps what the buttons had: the text, "normal" / "disabled", whether it is listed at all
+    (shown) and, for a model, whether its files are missing (red, ui_settings._update_tabs). rb["state"] and
+    rb.cget("state") answer like the former radio buttons did."""
+
+    def __init__(self, text: str):
+        self.text, self.state, self.shown, self.missing = text, "normal", True, False
+        self.dim = False      # grey but clickable: it does not fit the other chip, a click switches that one too (user 20.11.)
+
+    def configure(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, str(v) if k == "state" else v)
+
+    config = configure
+
+    def cget(self, key: str):
+        return getattr(self, key)
+
+    __getitem__ = cget
+
 MIN_W = 333  # the window's fixed width (it cannot be resized; the height follows the content); 380 until 6.11. (now: the model chips, 3 columns of "Fibo 2.0 Edit Turbo", need 555 px at 175 %)
 
 
@@ -937,14 +973,19 @@ __all__ = [
     "HEADER_PT",
     "HEADER_GAP",
     "sign_font",
-    "STOP_W",
     "VARIANTS_GROW_MAX",
-    "STOP_GROW_MAX",
+    "GO_STOP_TEXT",
+    "GO_STOP_RUN_TEXT",
+    "STOP_BATCH_TEXT",
+    "GO_TIP",
+    "GO_STOP_TIP",
+    "GO_STOP_RUN_TIP",
     "GO_COL_STOP_ALL",
     "GO_COL_GAP",
     "GO_COL_UNDO",
     "GO_GAP_MIN_PX",
     "GO_PAIR_GAP_PX",
+    "STOP_GUARD_S",
     "EDTAB_PADX",
     "ERR_BADGE_PX",
     "GEN_MP_TIP",
@@ -1043,6 +1084,7 @@ __all__ = [
     "enhance_tip",
     "ENHANCE_REROLL_TIP",
     "LORA_TIP",
+    "STEPS_FIXED_TIP",
     "STAGE_TIP",
     "FONT",
     "font",
@@ -1085,4 +1127,12 @@ __all__ = [
     "MIN_W",
     "CHIP_LINE",
     "CHIP_PAD_X",
+    "PICK_ARROW",
+    "PICK_GAP",
+    "PICK_PAD_X",
+    "PICK_ICON",
+    "PICK_ICON_GAP",
+    "PICK_CHOSEN",
+    "MODEL_PICK_EMPTY",
+    "PickItem",
 ]

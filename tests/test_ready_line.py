@@ -1,4 +1,4 @@
-"""The idle line at the bottom (user 3.11.): "Ready" only when the chosen model and function can run; else it says what to get.
+"""The idle line at the bottom (user 3.11.): empty (no "Ready" since 21.11.) when the chosen model and function can run; else it says what to get.
 A custom node pack that the workflow needs (ComfyUI-KJNodes for Flux 3 Upscale) is named, and Generate stops with the same hint.
 Hidden Tk window.
 
@@ -43,14 +43,14 @@ def main():
     app._on_model()
     app.inv = inventory.Inventory(full_lists(), nodes=nodes)
     assert app.v_workflow.get().endswith("flux3-klein-upscale.json"), app.v_workflow.get()
-    assert app._ready_text() == "Ready", app._ready_text()
+    assert app._ready_text() == "", app._ready_text()
 
     app.inv = inventory.Inventory(full_lists(), nodes=nodes - {"ColorMatch"})          # KJNodes is not installed
     text = app._ready_text()
     assert text.startswith("You need to install ComfyUI-KJNodes in ComfyUI") and text.endswith("to run with these options"), text
     assert any("ComfyUI-KJNodes" in l and "github.com/kijai" in l for l in app._preflight()), app._preflight()   # Generate says so too
     app.inv = inventory.Inventory(full_lists(), nodes=None)                           # nodes not read: no false alarm
-    assert app._ready_text() == "Ready" and app._pack_lines(app.inv) == []
+    assert app._ready_text() == "" and app._pack_lines(app.inv) == []
 
     lists = full_lists()                                                              # a model file is missing
     lists["unet"] = [n for n in lists["unet"] if "flux3" not in n]

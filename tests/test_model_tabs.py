@@ -40,7 +40,18 @@ def main():
     app._on_model()
     assert app.v_workflow.get() == "qwen-image-21-edit.json" and app.v_res.get() == 1024 and app.v_turbo.get() is False    # Qwen: Turbo off by default (27.10.)
     assert app.rb_modes["edit"]["state"] == "normal" and app.rb_modes["upscale"]["state"] == "normal"     # functions: never grey
-    assert [k for k, rb in app.rb_tabs.items() if rb["state"] == "normal"] == ["flux3", "flux2", "qwen", "fibo"]          # models that can fill (Flux 2 since 10.11., Flux 3 since 11.11.)
+    assert [k for k, rb in app.rb_tabs.items() if not rb.dim] == ["flux3", "flux2", "qwen", "fibo"]          # models that can fill (Flux 2 since 10.11., Flux 3 since 11.11.)
+    assert all(rb["state"] == "normal" for rb in app.rb_tabs.values())       # the others grey but clickable (user 20.11., A)
+    # a grey function: the chosen model (Qwen) cannot do Text to image? it can; MOSS cannot Fill: grey in the function list
+    assert not app._fn_dim("inpaint") and not app._fn_dim("edit")
+    app.v_model.set("moss"); app._on_model()           # a grey model clicked: it takes the model and one of its functions
+    assert app.v_model.get() == "moss" and app.v_mode.get() in models.MOSS.modes
+    assert app._fn_dim("inpaint") and not app._fn_dim("txt2img")
+    app.v_mode.set("inpaint"); app._on_mode()          # a grey function clicked: back to the model last used for it
+    assert app.v_model.get() == "qwen" and app.v_mode.get() == "inpaint"
+    app.v_model.set("moss"); app._on_model()           # MOSS again: its last function (Text to image), not its first
+    assert app.v_mode.get() == app._model_mode["moss"]
+    app.v_model.set("qwen"); app._on_model()
     app.v_mode.set("upscale"); app._on_mode()
     assert app.v_model.get() == "qwen" and app.v_workflow.get() == "qwen-image-21-upscale.json"      # Qwen can upscale: stays
     app.v_mode.set("refine"); app._on_mode()
@@ -204,7 +215,7 @@ def main():
     # Expand image: the prompt field turns orange with a hint
     app.v_mode.set("outpaint")
     app._on_model()
-    assert app.t_prompt["highlightbackground"] == gui.ACCENT
+    assert app.t_prompt["highlightbackground"] != gui.ACCENT      # no blue frame with a tip any more (user 20.11.)
     app.v_mode.set("edit")
     app._on_model()
     assert app._hint_text.startswith(models.EDIT_TIP)   # Edit Canvas: the tip under the prompt, also orange
@@ -214,7 +225,7 @@ def main():
     app.v_model.set("qwen")
     app.v_mode.set("inpaint")
     app._on_model()
-    assert app._hint_text == models.FILL_TIP + " " + models.QWEN_SMALL and app.t_prompt["highlightbackground"] == gui.ACCENT   # Fill: the tip under the prompt (28.10.)
+    assert app._hint_text == models.FILL_TIP + " " + models.QWEN_SMALL and app.t_prompt["highlightbackground"] != gui.ACCENT   # no blue frame (20.11.); Fill: the tip under the prompt (28.10.)
     app.v_model.set("flux2")
     app.v_mode.set("txt2img")
     app._on_model()

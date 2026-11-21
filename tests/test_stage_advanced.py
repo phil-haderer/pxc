@@ -28,6 +28,11 @@ def shown(w) -> bool:
     return bool(w.winfo_manager())
 
 
+def tab_shown(app, key) -> bool:
+    """An Edit / Fill tab is offered: the list chip is shown and has it (a list instead of tabs since 20.11.)."""
+    return getattr(app, "f_edtabs", None) is not None and shown(app.f_edtabs) and key in app._edtab_shown
+
+
 def pick(app, model, mode):
     app.v_model.set(model)
     app.v_mode.set(mode)
@@ -48,12 +53,25 @@ def main():
         time.sleep(0.02)
 
     pick(app, "moss", "txt2img")        # skip-layer guidance: a twin at the top of the Advanced settings, the UltraReal LoRA stays in the box
-    assert shown(app.stage_adv_cbs[1]) and app.stage_adv_cbs[1].grid_info()["row"] == 0 and int(app.f_post.grid_info()["row"]) == 1
+    assert shown(app.stage_adv_cbs[1]) and app.stage_adv_cbs[1].grid_info()["row"] == 3 and int(app.f_post.grid_info()["row"]) == 1   # under "Sampling" (20.11.)
     assert not shown(app.stage_cbs[1]) and shown(app.stage_cbs[0]) and not shown(app.stage_adv_cbs[0])
     app.stage_adv_cbs[1].invoke()
     assert app.v_stage2.get() and app._request().stages_off == []        # the twin switches the same stage
     app.stage_adv_cbs[1].invoke()
     assert not app.v_stage2.get()
+    # MOSS' Turbo LoRA alone at the top of the Advanced settings (finishing box), UltraReal stays under the prompt (user 20.11.)
+    assert app.f_turbo.winfo_manager() == "pack" and str(app.f_turbo.pack_info()["in"]) == str(app.f_samp), app.f_turbo.winfo_manager()
+    assert shown(app.f_opts) and app.f_opts.winfo_manager() == "pack" and getattr(app, "_opts_place", "") == ""
+    assert shown(app.f_samp) and shown(app.lbl_grp_samp) and shown(app.lbl_grp_fn)      # the groups (20.11., B)
+    assert int(app.f_samp.grid_info()["row"]) == 4 and str(app.lbl_grp_fn.cget("text")) == "TEXT TO IMAGE"
+    for model, mode in (("qwen", "inpaint"), ("moss", "txt2img"), ("qwen", "txt2img")):   # back in the switch box for Qwen, and above it
+        pick(app, model, mode)
+        if model == "qwen":
+            assert app.f_turbo.winfo_manager() == "grid" and str(app.f_turbo.grid_info()["in"]) == str(app.f_opts)
+        else:
+            assert app.f_turbo.winfo_manager() == "pack"
+    pick(app, "flux3", "edit")          # no LoRA of its own: no row anywhere
+    assert not shown(app.f_turbo)
 
     pick(app, "fibo", "upscale")        # two stages in the row of the Upscale / Refine box (8.11.), none in the box or the Advanced settings
     assert shown(app.stage_row_cbs[0]) and shown(app.stage_row_cbs[1]) and not shown(app.stage_cbs[0]) and not shown(app.stage_cbs[1])
@@ -66,16 +84,51 @@ def main():
     # the BBOX tick is a tab now (user 7.11.): no tick, no empty row; the tab only with Flux 3
     app._refs_update()
     app.root.update()
-    assert not shown(app.f_refhead2) and not shown(app.cb_bbox) and not shown(app.rb_edtabs["bbox"])
+    assert not shown(app.f_refhead2) and not shown(app.cb_bbox) and not tab_shown(app, "bbox")
     pick(app, "flux3", "multi_edit")
     app._refs_update()
     app.root.update()
-    assert not shown(app.f_refhead2) and not shown(app.cb_bbox) and not shown(app.rb_edtabs["bbox"])   # under Fill since 11.11.
+    assert not shown(app.f_refhead2) and not shown(app.cb_bbox) and not tab_shown(app, "bbox")   # under Fill since 11.11.
     pick(app, "flux3", "inpaint")
     app._refs_update()
     app.root.update()
-    assert shown(app.rb_edtabs["bbox"]) and shown(app.rb_edtabs["fill"])
-    print("ALL OK (stage in Advanced, Fibo stages, reference row)")
+    assert tab_shown(app, "bbox") and tab_shown(app, "fill")
+
+    # Advanced settings (user 20.11.): A the head row names model and function, C a blue dot beside a changed value and
+    # "Reset" in the head row (also closed); Reset keeps the prompt and the switches under the prompt
+    def settle():
+        for _ in range(8):
+            app.root.update()
+            time.sleep(0.02)
+    if not app.v_adv_open.get():
+        app._toggle_advanced()
+    pick(app, "qwen", "inpaint")
+    settle()
+    assert "Fill" in str(app.lbl_adv_ctx.cget("text")) and str(app.lbl_grp_fn.cget("text")) == "FILL SELECTION"
+    dots = lambda: [w for w, d in getattr(app, "_dot_w", {}).items() if d.winfo_manager()]     # noqa: E731
+    assert not dots() and not shown(app.b_adv_reset), "startup values: no dot, no Reset"
+    app.t_prompt.delete("1.0", "end")
+    app.t_prompt.insert("1.0", "a red flower")
+    app.v_context.set(0.7)
+    settle()
+    assert dots() == [app._adv_anchor["context"]] and shown(app.b_adv_reset), dots()
+    app._toggle_advanced()
+    settle()
+    assert shown(app.b_adv_reset), "Reset stays in the closed head row"
+    app._toggle_advanced()
+    app._reset_advanced()
+    settle()
+    assert abs(app.v_context.get() - 0.4) < 1e-6 and app.t_prompt.get("1.0", "end").strip() == "a red flower"
+    assert not dots() and not shown(app.b_adv_reset)
+    pick(app, "moss", "txt2img")       # UltraReal sits under the prompt: switching it is no change of the Advanced settings
+    settle()
+    app.v_stage.set(not app.v_stage.get())
+    settle()
+    assert not shown(app.b_adv_reset) and not dots()
+    app.v_turbo.set(not app.v_turbo.get())       # MOSS' Turbo LoRA is in the Advanced settings
+    settle()
+    assert app.cb_turbo in dots() and shown(app.b_adv_reset), dots()
+    print("ALL OK (stage in Advanced, Fibo stages, reference row, Advanced head row and changed dots)")
 
 
 if __name__ == "__main__":

@@ -77,11 +77,11 @@ def main():
     assert text() == "make it night", text()
     go("edit")
 
-    # 4. Remove object keeps the field usable (the name of the object, every model since remove_text); its text counts as
-    # your own: Upscale's stock text wins, the text comes back later
+    # 4. Remove object keeps the field usable (the name of the object, every model since remove_text) but empty (user
+    # 21.11.): your text waits aside through Remove and Upscale and comes back later
     put("a red bicycle")
     go("remove")
-    assert str(t.cget("state")) == "normal" and text() == "a red bicycle", text()
+    assert str(t.cget("state")) == "normal" and text() == "", text()
     go("upscale")
     assert text() == up, text()
     go("edit")
@@ -110,6 +110,22 @@ def main():
     # 7. Expand still empties the field and the own text comes back
     go("outpaint")
     assert text() == "", text()
+    go("edit")
+    assert text() == "a red bicycle", text()
+
+    # 8. Remove with a named object (user 21.11.): picking it always empties the field (the grey "Name what to remove"
+    # shows), the object typed there is dropped on the way out, and the own text comes back
+    assert models.FLUX2.modes["remove"].remove_text
+    go("remove")
+    assert text() == "" and str(t.cget("state")) == "normal", text()
+    put("car")
+    go("edit")
+    assert text() == "a red bicycle", text()
+    go("remove")
+    assert text() == "", text()
+    put("car")
+    go("upscale")
+    assert text() == up, text()
     go("edit")
     assert text() == "a red bicycle", text()
     app.root.destroy()

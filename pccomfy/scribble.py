@@ -296,6 +296,36 @@ def object_mask(photo: Image.Image, layer: Image.Image, found: Found, reg: imagi
     return full
 
 
+def change_mask(photo: Image.Image, result: Image.Image, sel: imaging.Box, reg: imaging.Box, canvas: tuple[int, int],
+                base: Image.Image) -> Image.Image:
+    """Fill with Qwen (user 21.11.: it often drew the object larger than the selection and the layer mask cut it off): the
+    layer mask `base` (crop size) plus, opaque, wherever `result` changed `photo` clearly in an area that reaches into the
+    selection box `sel` (canvas coordinates), fading out to the crop's sides like base (fillmask.crop_fade). `photo` and
+    `result` are the crop (`reg`) before and after. Unchanged when nothing changed or the whole crop was redrawn."""
+    a = np.asarray(photo.convert("RGB").resize((reg.w, reg.h))).astype(np.int16)
+    b = np.asarray(result.convert("RGB").resize((reg.w, reg.h))).astype(np.int16)
+    side = min(reg.w, reg.h)
+    diff = Image.fromarray(np.abs(a - b).max(axis=2).astype(np.uint8))
+    diff = np.asarray(diff.filter(ImageFilter.GaussianBlur(max(1.0, side * CHANGE_BLUR))))
+    hit = diff > CHANGE_LEVEL
+    if not hit.any() or hit.mean() > CHANGE_MAX:
+        return base
+    bx, by = sel.x - reg.x, sel.y - reg.y
+    obj = _areas_touching(hit, (bx, by, bx + sel.w, by + sel.h))
+    if not obj.any():
+        return base
+    grow = min(max(3, round(side * CHANGE_GROW)) | 1, 31)
+    hard = Image.fromarray((_grow_square(obj, grow) * 255).astype("uint8"))
+    W, H = canvas
+    inner = (reg.x > 0, reg.y > 0, reg.x + reg.w < W, reg.y + reg.h < H)
+    if any(inner):
+        soft = fillmask.crop_fade(hard, max(1, round(side * CHANGE_SOFT)), inner)
+    else:
+        soft = whole_canvas_fade(hard, max(2, round(side * CHANGE_SOFT * 4)))
+    out = np.maximum(np.asarray(base.convert("L").resize((reg.w, reg.h))), np.asarray(soft))
+    return Image.fromarray(out.astype(np.uint8))
+
+
 def put_back(photo: Image.Image, result: Image.Image, found: Found, reg: imaging.Box) -> tuple[Image.Image, Image.Image]:
     """The new layer (canvas size: the photo with the model's crop pasted at `reg`, colour matched) and its layer mask
     (fade_mask). Where the mask is 0 the layer shows the photo unchanged."""

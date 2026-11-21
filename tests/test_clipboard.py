@@ -39,13 +39,16 @@ tmp = Path(tempfile.mkdtemp())
 assert cb.pick_image_file([tmp / "note.txt", tmp / "dir.png", tmp / "missing.png", tmp / "a.PNG", tmp / "b.jpg"]) == tmp / "a.PNG"
 assert cb.pick_image_file([tmp / "note.txt"]) is None and cb.pick_image_file([]) is None and cb.pick_image_file(None) is None
 
-# no Windows: nothing happens, nothing raises
+# no Windows: nothing happens, nothing raises (no Linux clipboard program either, also not our own X11 owner)
 cb.available = lambda: False
+cb._linux_write_backends = lambda: []
 assert cb.read_image() is None and cb.write_image(img) is False
 
 # Windows path with fake backends (on Linux with xclip or wl-clipboard installed the real clipboard would be used otherwise)
 cb.available = lambda: True
 cb._linux_backend = lambda: None
+cb._linux_backends = lambda: []
+cb._linux_write_backends = lambda: []
 calls = []
 cb._win_write = lambda items, hwnd=0: calls.append((items, hwnd)) or True
 assert cb.write_image(img, hwnd=77) is True

@@ -49,6 +49,16 @@ def main():
         assert app.pb.winfo_reqheight() * 2 == plain.winfo_reqheight(), (app.pb.winfo_reqheight(), plain.winfo_reqheight())
         plain.destroy()
         assert gui_theme.THIN_BAR_ARROW == 5
+        # no dark frame round the bar (user 21.11.): the "default" trough and bar, flat, the bar as high as the widget
+        st = ttk.Style(app.root)
+        assert "Thin.Progressbar.trough" in str(st.layout("Thin.Horizontal.TProgressbar"))
+        assert int(st.lookup("Thin.Horizontal.TProgressbar", "thickness")) == app.pb.winfo_reqheight()
+        # blue buttons without an outline (user 21.11.): border and ring in the face colour, in every state
+        for name in ("Accent.TButton", "Square.TButton", "SetAccent.TButton"):
+            face = st.lookup(name, "background")
+            assert all(st.lookup(name, k) == face for k in ("bordercolor", "lightcolor", "darkcolor")), name
+            for state in ("active", "disabled"):
+                assert st.lookup(name, "bordercolor", [state]) == st.lookup(name, "background", [state]), (name, state)
         # no "Reset page" button in the footer any more
         assert not hasattr(app, "b_reset")
         assert not any(str(w.cget("text")) == "Reset page" for w in app.f_foot.winfo_children() if "text" in w.keys())

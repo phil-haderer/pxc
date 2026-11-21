@@ -1,12 +1,8 @@
 """The local job queue that serves Batch (docs/plan/speichern-queue-batch.md, steps 3 and 4; decisions of 12.11.).
 
 Variant A: the queue lives on this PC only (``data/queue.json`` plus the input pictures as PNG in ``data/queue/``), ComfyUI
-stays as it is, and one job of this plugin runs at a time (one runner thread that waits for each job). Every job goes to
-ComfyUI with the start of its order as ``number`` (ComfyUI's priority: the batch's start plus the picture's index, decision
-18.11. "Vorrangnummer"), so the orders of several PCs on one ComfyUI run one after the other. While other participants have
-jobs at ComfyUI (19.11.), the next picture is placed there ahead of time while the current one runs ("pre-placed", at most
-two per PxC; ``_maybe_preplace``); alone, one job at a time with PLACE_GAP_S between them, as before. Pause and cancel take
-a pre-placed picture back out of ComfyUI's queue; when ComfyUI has just started it, it counts as running. Only Batch uses the queue; Generate does not go through it and stays locked while
+stays as it is, and at most ONE job of this plugin is at ComfyUI at a time (one runner thread that waits for each job), so
+several PCs on one ComfyUI take turns. Only Batch uses the queue; Generate does not go through it and stays locked while
 the runner is ``busy`` (and the runner does not start a job while the window's own worker runs: ``gate``).
 
 One job per picture. A job runs ``Bridge.begin`` + ``Bridge.process_image`` on its own copy of the batch's
@@ -33,7 +29,6 @@ Job dicts and batch dicts are plain copies (``Job.to_dict``, ``Batch.to_dict``),
 """
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import getpass
 import itertools
@@ -71,7 +66,6 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 MAX_AUTO_RETRIES = 2          # network / server errors and GPU out-of-memory (is_oom) only; never another graph error
 OOM_RETRY_DELAY_S = 5.0       # after a GPU out-of-memory error: wait this long times the retry's number (VRAM must be free)
 PLACE_GAP_S = 2.0             # after a result was handed over (layer / new document / file) the next job waits this long
-ORDER_STEP = 0.001            # ComfyUI's `number` of a batch picture: the batch's start plus its index times this (seconds)
 OOM_MARKS = ("out of memory", "outofmemory", "allocation on device")   # lower case, in ComfyUI's node error text
 RETRY_DELAY_S = 3.0           # an automatic retry waits this long times the retry's number (ComfyUI may be starting up)
 QUEUE_POLL_S = 2.0            # GET /queue while our job is at ComfyUI (decisions 12.11.: "etwa alle 2 s")
@@ -130,14 +124,6 @@ def atomic_write_json(path: Path, data) -> None:
             tmp.unlink()
         except OSError:
             pass
-
-
-class _Stopped(Exception):
-    """The window closes while a pre-placed picture waits: it stays at ComfyUI, recover() picks its result up."""
-
-
-class _TakenBack(Exception):
-    """A pre-placed picture was taken out of ComfyUI's queue (pause or cancel before it started)."""
 
 
 def is_transient(exc: BaseException) -> bool:
@@ -241,8 +227,6 @@ class Job:
     detail: float = 1.0                        # the request's Detail mix (a result picked up after a restart gets it too)
     also_save: bool = False                    # open-images batch: write the file too
     seed: int | None = None
-    index: int = 0                             # its place in the batch when it was made (ComfyUI's `number`: ORDER_STEP)
-    preplaced: bool = False                    # waiting, but already placed at ComfyUI ahead of time (fixed in the line)
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
@@ -439,7 +423,6 @@ class QueueRunner:
         self._shots: dict[str, dict] = {}         # batch id -> {"done": Event, "items": [...], "error": str}: the canvases at send time
         self._current: Job | None = None
         self._cancel_running = False
-        self._ahead: dict | None = None           # the picture pre-placed at ComfyUI: {"job", "go", "state", "req", "thread"}
         self._stop = threading.Event()
         self._ids = itertools.count(1)
 
@@ -560,15 +543,11 @@ class QueueRunner:
         return self.cancel_batch(batch_id)
 
     def pause(self, job_id: str) -> bool:
-        """A waiting job is held back (status paused). A running job cannot be paused (cancel it instead). A picture
-        pre-placed at ComfyUI is taken back out of ComfyUI's queue by its own thread (paused a moment later); when ComfyUI
-        has just started it, it counts as running and is not paused."""
+        """A waiting job is held back (status paused). A running job cannot be paused (cancel it instead)."""
         with self._lock:
             j = self._job(job_id)
             if j is None or j.status != WAITING:
                 return False
-            if j.preplaced:
-                return self._request_back(j, "pause")
             self._set(j, status=PAUSED)
             return True
 
@@ -592,14 +571,11 @@ class QueueRunner:
             self._emit("batch-dry-over", {"batch": batch_id})
 
     def pause_batch(self, batch_id: str) -> int:
-        """Every waiting job of the batch paused (the running one finishes; a pre-placed one as in pause()). Returns how many."""
+        """Every waiting job of the batch paused (the running one finishes). Returns how many."""
         with self._lock:
             jobs = [j for j in self.store.jobs if j.batch_id == batch_id and j.status == WAITING]
             for j in jobs:
-                if j.preplaced:
-                    self._request_back(j, "pause")
-                else:
-                    self._set(j, status=PAUSED)
+                self._set(j, status=PAUSED)
             return len(jobs)
 
     def resume_batch(self, batch_id: str) -> int:
@@ -625,8 +601,6 @@ class QueueRunner:
                 self._cancel_running = True
                 self.bridge.cancel()         # Bridge._wait -> ComfyUI.interrupt(prompt_id)
                 return True
-            if j.preplaced:
-                return self._request_back(j, "cancel")
             self._set(j, status=CANCELLED, finished=time.time())
             self._check_batch(j.batch_id)
             return True
@@ -646,21 +620,18 @@ class QueueRunner:
                 if j.status == RUNNING:
                     self._cancel_running = True
                     self.bridge.cancel()
-                elif j.preplaced:
-                    self._request_back(j, "cancel")
                 else:
                     self._set(j, status=CANCELLED, finished=time.time())
             self._check_batch(batch_id, force=True)
             return True
 
     def move(self, job_id: str, delta: int) -> bool:
-        """Move a waiting or paused job up (delta < 0) or down (delta > 0) among the waiting and paused jobs. A picture
-        already pre-placed at ComfyUI stays where it is and does not count in the line (19.11.)."""
+        """Move a waiting or paused job up (delta < 0) or down (delta > 0) among the waiting and paused jobs."""
         with self._lock:
             j = self._job(job_id)
-            if j is None or j.status not in (WAITING, PAUSED) or j.preplaced or not delta:
+            if j is None or j.status not in (WAITING, PAUSED) or not delta:
                 return False
-            line = [x for x in self._ordered() if x.status in (WAITING, PAUSED) and not x.preplaced]
+            line = [x for x in self._ordered() if x.status in (WAITING, PAUSED)]
             i = line.index(j)
             k = max(0, min(len(line) - 1, i + (1 if delta > 0 else -1) * abs(int(delta))))
             if k == i:
@@ -834,7 +805,7 @@ class QueueRunner:
 
     def _next_job(self) -> Job | None:
         for j in self._ordered():
-            if j.status != WAITING or j.preplaced:
+            if j.status != WAITING:
                 continue
             b = self.store.batches.get(j.batch_id)
             if b is not None and b.state != B_RUNNING:
@@ -855,14 +826,9 @@ class QueueRunner:
                 except Exception as e:      # a step of the runner itself: report it, go on
                     self._emit("batch-error", {"batch": "", "job": "", "message": f"{type(e).__name__}: {e}"})
                 continue
-            with self._lock:
-                ahead = self._ahead
-            if ahead is not None:
-                self._take_turn(ahead)        # the picture placed ahead of time is next (or was taken back meanwhile)
-                continue
             if self.gate is not None and not self.gate():
                 with self._lock:
-                    if self._next_job() is None and not self._tasks and self._ahead is None:
+                    if self._next_job() is None and not self._tasks:
                         if self._thread is me:
                             self._thread = None
                         return
@@ -890,9 +856,7 @@ class QueueRunner:
             finally:
                 with self._lock:
                     self._current = None
-            with self._lock:
-                gap = job.status == DONE and self._ahead is None     # the next picture is at ComfyUI already: no gap
-            if gap:
+            if job.status == DONE:
                 self._place_gap()
         with self._lock:
             if self._thread is me:
@@ -945,14 +909,14 @@ class QueueRunner:
                 return
             from .bridge import MAX_SCALE_MP
             order = self._next_order()
-            for index, (src, pic, err) in enumerate(items):
+            for src, pic, err in items:
                 jid = f"{time.strftime('%Y%m%d%H%M%S')}-{next(self._ids):03d}-{uuid.uuid4().hex[:6]}"
                 size = src.get("size") or [0, 0]
                 mp = result_megapixels(req.mode, size, req) if pic is not None else 0.0
                 job = Job(id=jid, batch_id=batch_id, mode=req.mode, order=order, owner=self.owner,
                           client_id=getattr(self.bridge.comfy, "client_id", ""), workflow=b.workflow, source=src,
                           created=time.time(), mp=round(mp, 3), detail=float(getattr(req, "detail", 1.0)),
-                          also_save=b.also_save, index=index)
+                          also_save=b.also_save)
                 order += 1
                 too_big = req.mode in ("upscale", "refine") and mp > MAX_SCALE_MP + 1e-9
                 if err or pic is None:
@@ -1043,10 +1007,7 @@ class QueueRunner:
 
     # ----- internals: one job -----
 
-    def _execute(self, job: Job, ahead: dict | None = None) -> None:
-        """One job, from its picture to the result placed. `ahead`: the job is pre-placed at ComfyUI (_run_ahead): no bar,
-        no websocket and no "jobs ahead" until it is its turn (ahead["go"]), and its result waits for that turn too."""
-        turn = ahead["go"].is_set if ahead is not None else (lambda: True)
+    def _execute(self, job: Job) -> None:
         with self._lock:
             req0 = self._requests.get(job.batch_id)
             b = self.store.batches.get(job.batch_id)
@@ -1074,28 +1035,21 @@ class QueueRunner:
                 job.prompt_id, job.out_node = str(pid), str(out_node)
                 self.store.save()
                 self._emit("queue-job", job.to_dict())
-            threading.Thread(target=self._watch, args=(job, str(pid), watch_stop, marks, turn), daemon=True,
+            threading.Thread(target=self._watch, args=(job, str(pid), watch_stop, marks), daemon=True,
                              name="pcc-batch-watch").start()
 
         def progress(f, msg, phase="", phase_fraction=-1.0, elapsed=0.0, **kw):
             if phase == "prompt" and elapsed:
                 marks["prompt"] = max(marks["prompt"], float(elapsed))
-            if turn():                  # a pre-placed picture's steps would move the bar of the job that runs
-                self._emit("batch-step", (f, msg, phase, phase_fraction, elapsed))
+            self._emit("batch-step", (f, msg, phase, phase_fraction, elapsed))
 
         try:
             req = copy_request(req0)
             req, p, tag = self.bridge.begin(req)
             job.seed = p.seed
-            order = getattr(comfy, "order", None)
-            with comfy.job_context(owner=self.owner, on_queued=on_queued, batch=job.batch_id,
-                                   events=None if ahead is None else turn), \
-                    (order(self._order_number(job)) if callable(order) else contextlib.nullcontext()):
+            with comfy.job_context(owner=self.owner, on_queued=on_queued, batch=job.batch_id):
                 out = self.bridge.process_image(req, p, pic, tag=tag, progress=progress)
             marks["fetched"] = time.monotonic()
-            if ahead is not None and not self._await_turn(ahead):
-                watch_stop.set()
-                return                  # stopped, or cancelled before its turn (its result is dropped)
             watch_stop.set()
             with self._lock:
                 cancelled = self._cancel_running
@@ -1110,29 +1064,13 @@ class QueueRunner:
                 self.store.drop_input(job)
                 self._refresh_etas(job.workflow)
                 self._after_job(job, shown)
-        except (_Stopped, _TakenBack):
-            watch_stop.set()            # the window closes (recover() picks it up), or it was taken back (_ahead_check)
         except Cancelled:
             watch_stop.set()
-            if ahead is not None and ahead["state"] == "back":
-                return                  # cancelled before its turn: _back() did the bookkeeping
             with self._lock:
                 self._set(job, status=CANCELLED, finished=time.time())
                 self._after_job(job, None)
         except Exception as e:
             watch_stop.set()
-            if ahead is not None:
-                with self._lock:
-                    early = ahead["state"] in ("placed", "taking")
-                    if early:           # failed before its turn: no longer pre-placed, the runner goes on without it
-                        ahead["state"] = "failed"
-                        if self._ahead is ahead:
-                            self._ahead = None
-                        job.preplaced = False
-                if early:
-                    msg = str(e) or type(e).__name__
-                    self._fail(job, msg, transient=is_transient(e), oom=is_oom(msg))
-                    return
             with self._lock:
                 cancelled = self._cancel_running
             if cancelled:
@@ -1144,11 +1082,10 @@ class QueueRunner:
                 self._fail(job, msg, transient=is_transient(e), oom=is_oom(msg))
         finally:
             watch_stop.set()
-            if turn():                  # before its turn the job that runs may still need the bridge's files
-                try:
-                    self.bridge._cleanup()
-                except Exception:
-                    pass
+            try:
+                self.bridge._cleanup()
+            except Exception:
+                pass
 
     def _fail(self, job: Job, message: str, transient: bool, oom: bool = False) -> None:
         with self._lock:
@@ -1190,218 +1127,24 @@ class QueueRunner:
             if j.workflow == workflow and j.status in (WAITING, PAUSED):
                 j.eta = self.timings.estimate(workflow, j.mp)
 
-    def _watch(self, job: Job, pid: str, stop: threading.Event, marks: dict, turn=lambda: True) -> None:
+    def _watch(self, job: Job, pid: str, stop: threading.Event, marks: dict) -> None:
         """While our job is at ComfyUI: GET /queue about every QUEUE_POLL_S, "batch-ahead" when the number of other
-        clients' jobs before ours changes (a pre-placed picture: only from its turn on, `turn`); the time our job only
-        waited there is kept out of the image timing; the next picture may be placed ahead of time (_maybe_preplace)."""
+        clients' jobs before ours changes; the time our job only waited there is kept out of the image timing."""
         last = None
-        polled = False
         t = time.monotonic()
-        while not stop.wait(QUEUE_POLL_S if polled else 0.2):
+        while not stop.wait(QUEUE_POLL_S if last is not None else 0.2):
             try:
                 entries = self.bridge.comfy.queue_entries()
             except Exception:
                 continue
-            polled = True
             now = time.monotonic()
             if any(e["prompt_id"] == pid and not e["running"] for e in entries):
                 marks["pending"] += now - t
             t = now
-            if turn():
-                ahead = self.bridge.comfy.jobs_ahead(pid, entries)
-                if ahead != last:
-                    last = ahead
-                    self._emit("batch-ahead", {"job": job.id, "batch": job.batch_id, "ahead": ahead})
-            if not stop.is_set():
-                self._maybe_preplace(job, entries)
-
-    # ----- internals: a picture placed at ComfyUI ahead of time (19.11.) -----
-
-    def _order_number(self, job: Job) -> float:
-        """ComfyUI's `number` for the job (decision 18.11.): the start of its batch plus its index times ORDER_STEP."""
-        b = self.store.batches.get(job.batch_id)
-        start = (b.created if b is not None and b.created else 0.0) or job.created or time.time()
-        return start + max(0, int(job.index)) * ORDER_STEP
-
-    def _maybe_preplace(self, job: Job, entries: list) -> None:
-        """While `job` runs: when other participants have jobs at ComfyUI (a /queue entry with another client id; 19.11.),
-        the next picture goes to ComfyUI now, so the order of ours does not lose its place between two pictures. Alone,
-        nothing happens (one job at a time, PLACE_GAP_S between them). At most one is pre-placed; never a picture whose
-        batch waits for its dry run, never while the window's own run holds the batch back (gate)."""
-        me = getattr(self.bridge.comfy, "client_id", None)
-        if not any(e.get("client_id") != me for e in entries):
-            return
-        with self._lock:
-            if (self._ahead is not None or self._stop.is_set() or self._current is not job or job.status != RUNNING
-                    or self._cancel_running):
-                return
-            if self.gate is not None and not self.gate():
-                return
-            nxt = self._next_job()
-            if nxt is None or nxt.batch_id not in self._requests:
-                return
-            b = self.store.batches.get(nxt.batch_id)
-            if b is None or b.dry_pending:
-                return
-            ahead = {"job": nxt, "go": threading.Event(), "state": "placed", "req": None, "thread": None}
-            self._ahead = ahead
-            nxt.preplaced, nxt.error = True, ""
-            nxt.attempts += 1
-            self.store.save()
-            self._emit("queue-job", nxt.to_dict())
-            t = ahead["thread"] = threading.Thread(target=self._run_ahead, args=(ahead,), daemon=True, name="pcc-batch-ahead")
-            t.start()
-
-    def _run_ahead(self, ahead: dict) -> None:
-        """The thread of a pre-placed picture: the whole job (_execute), with its own cancel check (a Stop of the job that
-        runs does not end it; pause and cancel take it back, _ahead_check)."""
-        check = getattr(self.bridge, "cancel_check", None)
-        try:
-            with (check(lambda: self._ahead_check(ahead)) if callable(check) else contextlib.nullcontext()):
-                self._execute(ahead["job"], ahead=ahead)
-        except Exception as e:          # a step of the runner itself: report it, go on
-            self._emit("batch-error", {"batch": ahead["job"].batch_id, "job": ahead["job"].id,
-                                       "message": f"{type(e).__name__}: {e}"})
-        finally:
-            with self._lock:            # over before its turn without a result (its picture was gone ...): let it go
-                if not ahead["go"].is_set() and ahead["state"] == "placed" and not self._stop.is_set():
-                    ahead["state"] = "failed"
-                    if self._ahead is ahead:
-                        self._ahead = None
-                    if ahead["job"].preplaced:
-                        self._set(ahead["job"], preplaced=False)
-                    self._kick()
-
-    def _request_back(self, job: Job, what: str) -> bool:
-        """pause() / cancel() of a pre-placed picture (call with the lock held): its thread takes it back (_ahead_check)."""
-        ahead = self._ahead
-        if ahead is None or ahead["job"] is not job or ahead["state"] not in ("placed", "taking"):
-            return False
-        if ahead["req"] != "cancel":
-            ahead["req"] = what
-        return True
-
-    def _ahead_check(self, ahead: dict) -> bool:
-        """The cancel check of a pre-placed picture (Bridge.cancel_check; ComfyUI.wait asks about twice a second). From
-        its turn on, Cancel as for every job. Before: a pause or cancel asked for takes it out of ComfyUI's queue
-        (_take_back); out: _TakenBack (no /interrupt, that could hit the job that runs); ComfyUI has just started it: it
-        counts as running, a pause is dropped and a cancel stops exactly that job (True: ComfyUI.wait interrupts it by
-        its prompt id)."""
-        if ahead["go"].is_set():
-            return self.bridge._cancel.is_set()
-        if self._stop.is_set():
-            raise _Stopped()
-        with self._lock:
-            what = ahead["req"]
-            if what is None or ahead["state"] != "placed":
-                return False
-            ahead["state"] = "taking"
-            pid = ahead["job"].prompt_id
-        out = self._take_back(pid)
-        with self._lock:
-            ahead["state"] = "placed"
-            if out:
-                self._back(ahead, PAUSED if what == "pause" else CANCELLED)
-                raise _TakenBack()
-            if out is None:
-                return False            # ComfyUI did not answer: asked again at the next check
-            ahead["req"] = None
-            if what == "cancel":
-                self._back(ahead, CANCELLED)
-                return True
-            return False
-
-    def _take_back(self, pid: str) -> bool | None:
-        """Take a waiting job out of ComfyUI's queue. True: out (or never sent); False: ComfyUI runs it already (or has just
-        finished it); None: ComfyUI did not answer."""
-        if not pid:
-            return True
-        comfy = self.bridge.comfy
-        try:
-            comfy.delete_queued(pid)
-            entries = comfy.queue_entries()
-        except Exception:
-            return None
-        if any(e["prompt_id"] == pid for e in entries):
-            return False                # a delete leaves a running job alone
-        try:
-            return not comfy.history(pid)
-        except Exception:
-            return None
-
-    def _back(self, ahead: dict, status: str) -> None:
-        """A pre-placed picture taken back (call with the lock held): paused (it goes again on resume) or cancelled."""
-        job = ahead["job"]
-        ahead["state"] = "back"
-        if self._ahead is ahead:
-            self._ahead = None
-        fields = {"status": status, "preplaced": False}
-        if status == CANCELLED:
-            fields["finished"] = time.time()
-        else:
-            fields.update(prompt_id="", started=0.0)
-        self._set(job, **fields)
-        if status == CANCELLED:
-            self._check_batch(job.batch_id)
-        self._kick()
-
-    def _await_turn(self, ahead: dict) -> bool:
-        """The pre-placed picture is done at ComfyUI before its turn: its result waits until the job before it is placed.
-        False: the window closes, or it was cancelled meanwhile (the result is dropped)."""
-        while not ahead["go"].wait(0.1):
-            if self._stop.is_set():
-                return False
-            with self._lock:
-                if ahead["go"].is_set():
-                    break
-                if ahead["req"] == "cancel" and ahead["state"] == "placed":
-                    self._back(ahead, CANCELLED)
-                    return False
-                if ahead["req"] == "pause":
-                    ahead["req"] = None     # it ran already: nothing to pause
-        return True
-
-    def _take_turn(self, ahead: dict) -> None:
-        """Runner thread: the job before is over. The pre-placed picture becomes the job that runs (its websocket opens, the
-        bar is its own) and the runner waits for it like for any job. One that is being taken back is waited for; one that
-        was taken back or failed is let go."""
-        while True:
-            with self._lock:
-                if self._ahead is not ahead:
-                    return              # taken back or failed meanwhile
-                if ahead["state"] == "placed" and ahead["req"] != "pause":
-                    job = ahead["job"]
-                    ahead["state"] = "promoted"
-                    self._ahead = None
-                    job.preplaced = False
-                    job.status, job.started, job.finished, job.error = RUNNING, time.time(), 0.0, ""
-                    self._current, self._cancel_running = job, False
-                    getattr(self.bridge, "_cancel").clear()
-                    if ahead["req"] == "cancel":
-                        self._cancel_running = True
-                        self.bridge.cancel()
-                    self.store.save()
-                    self._emit("queue-job", job.to_dict())
-                    b = self.store.batches.get(job.batch_id)
-                    if b is not None:
-                        self._emit("batch-progress", self._batch_dict(b))
-                    ahead["go"].set()
-                    break
-            if self._stop.is_set():
-                return
-            time.sleep(0.05)            # a pause is being asked at ComfyUI: wait for the answer
-        t = ahead["thread"]
-        if t is not None:
-            t.join()
-        with self._lock:
-            if self._current is job:
-                self._current = None
-            if job.status == RUNNING and not self._stop.is_set():      # its thread ended without an outcome
-                self._set(job, status=ERROR, finished=time.time(), error=job.error or "The job ended without a result.")
-                self._after_job(job, None)
-            gap = job.status == DONE and self._ahead is None
-        if gap:
-            self._place_gap()
+            ahead = self.bridge.comfy.jobs_ahead(pid, entries)
+            if ahead != last:
+                last = ahead
+                self._emit("batch-ahead", {"job": job.id, "batch": job.batch_id, "ahead": ahead})
 
     # ----- internals: delivering a result -----
 
@@ -1514,11 +1257,9 @@ class QueueRunner:
     def _recover(self) -> None:
         with self._lock:
             jobs = list(self.store.jobs)
-            rescue = [j for j in jobs if j.status == RUNNING or (j.status == WAITING and j.preplaced and j.prompt_id)]
-            for j in rescue:
-                j.preplaced = False
+            rescue = [j for j in jobs if j.status == RUNNING]
             for j in jobs:
-                if j.status in (WAITING, PAUSED) and j not in rescue:
+                if j.status in (WAITING, PAUSED):
                     j.status, j.finished, j.error = CANCELLED, time.time(), "Discarded after a restart."
                     self.store.drop_input(j)
                     self._emit("queue-job", j.to_dict())

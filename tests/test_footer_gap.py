@@ -100,6 +100,28 @@ def main():
     assert app.root.bind_class("TLabel", "<Button-3>"), "right-click Copy on labels"
     from pccomfy import photocraft
     assert photocraft.version_note("0.23.1", "0.20.2") is None
+
+    # the window is exactly as high as its content in short pages too (user 20.11.: a floor of 320 left a big gap between
+    # "Ready" and the ComfyUI line in Expand)
+    from pccomfy.gui_theme import stack_height
+    app._status("Ready")
+    for model, mode in (("qwen", "outpaint"), ("qwen", "txt2img")):
+        app.v_model.set(model)
+        app._on_model()
+        app.v_mode.set(mode)
+        app._on_mode()
+        app.root.update()
+        app._fit_height()
+        assert app._geom[1] == stack_height(app.root), (mode, app._geom, stack_height(app.root))
+    from pccomfy import gui_theme           # a short page at any scale: no floor above the content (was 320 at 100 %)
+    real = gui_theme.stack_height
+    gui_theme.stack_height = lambda root: app._px(200) if root is app.root else real(root)
+    app.start_state = lambda: ""            # a model is chosen (not the small empty start window)
+    try:
+        app._fit_height()
+        assert app._geom[1] == app._px(200), app._geom
+    finally:
+        gui_theme.stack_height = real
     print("ALL OK (empty status line takes no room)")
 
 

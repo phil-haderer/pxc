@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
+from .gui_theme import ICON_PX  # noqa: E402  (the head chips' list, 20.11.)
 from .workflows import lora_subgraph as workflows_lora_subgraph, stage_subgraph as workflows_stage_subgraph
 from .workflows import writer_samples as workflows_writer_samples
+from . import variants
 
 
 class ModeMixin:
@@ -210,86 +212,358 @@ class ModeMixin:
         return not self.v_model.get() and self.v_workflow.get() not in ("", BUILTIN)
 
     def _update_mode_radios(self):
-        """The functions are always there (two per row); "Image -> image" only for a workflow of your own. Below them, a
-        model that cannot do the chosen function is greyed out in its place (_update_model_chips)."""
-        m = self._model()
-        shown = []
+        """The functions are always listed; "Image -> image" only for a workflow of your own. In the model list, a model that
+        cannot do the chosen function is grey but clickable in its place (_update_model_chips), and so is a function the chosen model cannot do (_fn_dim). A function is greyed out when every
+        model that can do it is hidden (right-click menu, gear window)."""
         hidden = cfgmod.hidden_tabs()
+        order = []
         for key, _label in MODE_LABELS:
-            rb = self.rb_modes[key]
+            item = self.rb_modes[key]
+            item.shown = False
             if key == "img2img" and not self._custom_workflow():
-                rb.grid_remove()           # no model uses it
+                continue                   # no model uses it
+            if key in ("multi_edit", "sketch", "scribble"):        # tabs of the Edit function (refslots.py), no entry of their own
+                item.state = "normal"
                 continue
-            if key in ("multi_edit", "sketch", "scribble"):        # tabs of the Edit function (refslots.py), no button of their own
-                rb.configure(state="normal")
-                rb.grid_remove()
-                continue
-            # greyed out when every model that can do it is hidden (right-click menu, gear window)
             own = EDIT_MODES if key == "edit" else (key,)
             offered = self._custom_workflow() or any(any(k in x.modes for k in own) and x.key not in hidden for x in models.MODELS)
-            rb.configure(state="normal" if offered else "disabled")
-            if key in SCALE_MODES:      # Upscale and Refine are ONE button (rb_scale_fn); these two stay hidden
-                rb.grid_remove()
+            item.state = "normal" if offered else "disabled"
+            if key in SCALE_MODES:      # Upscale and Refine are ONE entry (rb_scale_fn) at the place of Upscale
                 if key == "upscale":
-                    shown.append("scale")
-                    self.rb_scale_fn.configure(state="normal" if self._custom_workflow() or any(
-                        ("upscale" in x.modes or "refine" in x.modes) and x.key not in hidden for x in models.MODELS) else "disabled")
+                    order.append("scale")
+                    self.rb_scale_fn.state = "normal" if self._custom_workflow() or any(
+                        ("upscale" in x.modes or "refine" in x.modes) and x.key not in hidden for x in models.MODELS) else "disabled"
                 continue
-            shown.append(key)
-        for i, key in enumerate(shown):
-            (self.rb_scale_fn if key == "scale" else self.rb_modes[key]).grid(row=i // 2, column=i % 2, sticky="ew", padx=2, pady=2)
+            item.shown = True
+            order.append(key)
+        self.rb_scale_fn.shown = "scale" in order
+        self._mode_order = order
         self._update_model_chips()
 
     def _update_model_chips(self):
-        """A hidden model (right-click menu, gear window) leaves the row; the others close up, three per row."""
+        """A hidden model (right-click menu, gear window) leaves the model list; a model that cannot do the chosen function
+        stays in its place, grey but clickable (user 20.11.)."""
         mode = self.v_mode.get()
         hidden = cfgmod.hidden_tabs()
-        shown = [m.key for m in models.MODELS if m.key in self.rb_tabs and m.key not in hidden]
-        if not shown:
-            self.f_chip_short.grid_remove()           # every model hidden: no centred short row either
         for m in models.MODELS:
-            rb = self.rb_tabs.get(m.key)
-            if rb is None:
+            item = self.rb_tabs.get(m.key)
+            if item is None:
                 continue
-            if m.key in hidden:
-                rb.grid_remove()
-                self.chip_lines[m.key].grid_remove()
-                continue
-            self._grid_chip(m.key, shown.index(m.key), len(shown))
+            item.shown = m.key not in hidden
             ok = mode in m.modes or self._custom_workflow() or (mode == "upscale" and "refine" in m.modes)
-            rb.configure(state="normal" if ok else "disabled")      # standard mode: a model without Upscale (Fibo) falls back to None
+            # grey but clickable (user 20.11., A): a click takes the model and its last function; Fibo in Upscale falls back to None
+            item.state, item.dim = "normal", not ok
+        self._show_picks()
 
-    def _grid_chip(self, key: str, i: int, n: int, cols: int = 3):
-        """Chip i of n in the grid without gaps (11.12.): every chip has its own grey line on the left and on top, so two
-        neighbours share one line; the line on the right only where no chip follows in the row, the one below only where no chip
-        is below. The grey comes from a backdrop frame in the same cell (chip_lines), so a missing slot has no lines.
-        A last row with fewer than `cols` chips is centred (user 18.11.): its k chips go into their own frame (f_chip_short,
-        gui.py) across the whole width, between two empty side columns. All its columns share one uniform group with
-        weights cols - k (sides) and 2 (chips), so a chip is exactly 1/cols of the width like the chips above (chips spanning
-        half columns would break the uniform widths in Tk). Under a full row the short row has no top line of its own; the
-        row above draws its bottom line instead, so the line stays 1 px where the rows meet half a chip apart."""
-        r, c = divmod(i, cols)
-        last = (n - 1) // cols                      # index of the last row
-        k = n - last * cols                         # chips in the last row
-        short = k < cols
-        right = 1 if (c == cols - 1 or i == n - 1) else 0
-        below = 1 if (r == last or (short and r == last - 1)) else 0
-        if short and r == last:
-            box = self.f_chip_short
-            if c == 0:                              # the first chip of the short row sets up its frame
-                for col in range(cols + 2):
-                    w = (cols - k) if col in (0, k + 1) else 2 if 1 <= col <= k else 0
-                    box.columnconfigure(col, weight=w, uniform="chip" if w else "")
-                box.grid(row=r, column=0, columnspan=cols, sticky="ew")
-            cell = {"row": 0, "column": c + 1, "in_": box}
-            top = 0 if r > 0 else 1
+    def _pick_mode_key(self) -> str:
+        """The function the function chip shows: Edit for its tabs, Fill also for Insert reference, "scale" for Upscale and
+        Refine, else the mode itself."""
+        mode = self.v_mode.get()
+        try:
+            key = self._fn_key()
+        except (AttributeError, tk.TclError):      # the window is still being built
+            key = ""
+        return key or ("scale" if mode in SCALE_MODES else mode)
+
+    def _pick_measure(self, text: str) -> int:
+        """Pixels of `text` in the chips' font (without a real Tk: its length)."""
+        fnt = self.__dict__.get("_pick_font")
+        if fnt is None:
+            from tkinter import font as tkfont
+            fnt = self._pick_font = tkfont.Font(root=self.root, font=font(10))
+        try:
+            return int(fnt.measure(text))
+        except (AttributeError, TypeError, tk.TclError):
+            return len(text)
+
+    def _pick_width(self, labels) -> int:
+        """Pixels of the longest of `labels`: the chip keeps this width whatever it shows (user 20.11.)."""
+        return max((self._pick_measure(t) for t in labels), default=0)
+
+    def _pick_room(self, button, labels) -> int:
+        """Pixels the text of a head chip is filled up to: its longest entry, or more when the chip is wider (both chips share
+        the width, user 20.11.), so the arrow sits at the chip's right edge."""
+        want = self._pick_width(labels)
+        try:
+            w, req = int(button.winfo_width()), int(button.winfo_reqwidth())
+            frame = req - self._pick_measure(str(button.cget("text")))      # padding, border and symbol: what is not text
+        except (AttributeError, TypeError, tk.TclError):
+            return want
+        if w <= 1:                                  # not drawn yet
+            return want
+        return max(want, w - frame - self._pick_measure(PICK_ARROW) - self._px(3))
+
+    def _pick_text(self, text: str, width: int) -> str:
+        """`text`, filled up with thin spaces to `width` pixels, then the arrow: so the arrow sits at the same place for every
+        entry and the chip does not change its width."""
+        fill = " " if self._pick_measure(" ") > 0 else " "
+        out, n = text, 0
+        while self._pick_measure(out + fill) <= width and n < 400:      # never past `width`: the chip must not grow
+            out += fill
+            n += 1
+        return out + PICK_ARROW
+
+    def _show_picks(self):
+        """The two chips in the head show the chosen function (with its symbol) and the chosen model."""
+        b_mode, b_model = getattr(self, "b_mode", None), getattr(self, "b_model", None)
+        if b_mode is None or b_model is None:
+            return
+        try:
+            key = self._pick_mode_key()
+            item = self.rb_scale_fn if key == "scale" else self.rb_modes.get(key)
+            texts = [self.rb_scale_fn.text] + [x.text for k, x in self.rb_modes.items() if k not in ("multi_edit", "sketch", "scribble")
+                                                and k not in SCALE_MODES]
+            pic = self._function_icon("refine" if key == "scale" else key)
+            mode_text = self._pick_text(item.text if item else key, self._pick_room(b_mode, texts))
+            if str(b_mode.cget("text")) != mode_text or str(b_mode.cget("image")) != str(pic[0]):
+                b_mode.configure(text=mode_text, image=pic)
+            m = self._model()
+            names = [MODEL_PICK_EMPTY] + [x.text for x in self.rb_tabs.values()]
+            model_text = self._pick_text(m.label if m else MODEL_PICK_EMPTY, self._pick_room(b_model, names))
+            state = "normal" if any(x.shown for x in self.rb_tabs.values()) else "disabled"
+            if str(b_model.cget("text")) != model_text or str(b_model.cget("state")) != state:
+                b_model.configure(text=model_text, state=state)
+        except tk.TclError:
+            pass
+        self._show_adv_context()
+
+    # ---------- Advanced settings: whose values, what changed (user 20.11., A, B and C) ----------
+
+    ADV_FN = {"txt2img": "Text to image", "outpaint": "Expand", "inpaint": "Fill", "remove": "Remove", "edit": "Edit",
+              "multi_edit": "Multi edit", "sketch": "Sketch", "scribble": "Scribble", "upscale": "Upscale", "refine": "Refine",
+              "img2img": "Image to image"}
+
+    def _show_adv_context(self):
+        """The head row of the Advanced settings names the model and function its values belong to ("Qwen Image 2.1 · Fill",
+        only the function when the row is too narrow); the function's heading over its rows names the function."""
+        lbl = getattr(self, "lbl_adv_ctx", None)
+        if lbl is None:
+            return
+        m, mode = self._model(), self.v_mode.get()
+        fn = self.ADV_FN.get(mode, mode)
+        texts = [f"{m.label} · {fn}", fn] if m is not None else [""]
+        try:
+            from tkinter import font as tkfont
+            fnt = tkfont.Font(root=self.root, font=ttk.Style().lookup("Muted.TLabel", "font") or None)
+            room = int(self.f_adv_head.winfo_width()) - int(self.btn_adv.winfo_reqwidth()) - self._px(16)
+            if self.b_adv_reset.winfo_manager():
+                room -= int(self.b_adv_reset.winfo_reqwidth()) + self._px(10)
+            text = next((t for t in texts if room <= self._px(20) or fnt.measure(t) <= room), texts[-1])
+            if str(lbl.cget("text")) != text:
+                lbl.configure(text=text)
+            head = {"upscale": "Upscale", "refine": "Refine"}.get(mode, dict(MODE_LABELS).get(mode, mode))
+            if str(self.lbl_grp_fn.cget("text")) != head.upper():
+                self.lbl_grp_fn.configure(text=head.upper())
+            self.tt_adv_reset.text = (f"Back to the startup settings of {m.label} · {fn} (only the Advanced settings)."
+                                      if m is not None else "")
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            pass
+
+    def _adv_values(self) -> dict:
+        """What the Advanced settings hold, by name (compared with the startup values for the blue dots)."""
+        def g(v):
+            try:
+                x = v.get()
+            except (tk.TclError, ValueError):
+                return None
+            return round(float(x), 4) if isinstance(x, float) else x
+        out = {k: g(v) for k, v in (("steps", self.v_steps), ("cfg", self.v_cfg), ("seed", self.v_seed), ("sampler", self.v_sampler),
+                                     ("scheduler", self.v_scheduler), ("turbo", self.v_turbo), ("lora_str", self.v_lora_str),
+                                     ("detail", self.v_detail), ("context", self.v_context), ("feather", self.v_feather),
+                                     ("density", self.v_density), ("lmask", self.v_lmask), ("native", self.v_native),
+                                     ("native_mp", self.v_native_mp))}
+        for i, v in enumerate(self.stage_vars):
+            out[f"stage{i}"], out[f"sstr{i}"] = g(v), g(self.v_sstr[i])
+        out["loras"] = tuple((str(r["name"].get()), str(r["strength"].get()), bool(r["on"].get())) for r in getattr(self, "lora_rows", []))
+        return out
+
+    def _adv_baseline(self, later: bool = True):
+        """The startup values of this model and function, taken right after they were set (a switch, Reset, the start)."""
+        if later:
+            job = getattr(self, "_adv_base_job", None)
+            if job is not None:
+                try:
+                    self.root.after_cancel(job)
+                except tk.TclError:
+                    pass
+            self._adv_base_job = self.root.after_idle(lambda: self._adv_baseline(False))
+            return
+        self._adv_base_job = None
+        self._adv_base = self._adv_values()
+        if not getattr(self, "_adv_watching", False):       # any change of a value redraws the dots
+            self._adv_watching = True
+            for v in [self.v_steps, self.v_cfg, self.v_seed, self.v_sampler, self.v_scheduler, self.v_turbo, self.v_lora_str,
+                      self.v_detail, self.v_context, self.v_feather, self.v_density, self.v_lmask, self.v_native,
+                      self.v_native_mp, self.v_adv_open] + list(self.stage_vars) + list(self.v_sstr):
+                v.trace_add("write", lambda *a: self._adv_dots(later=True))
+            self.adv_body.bind("<Configure>", lambda e: self._adv_dots(later=True), add="+")
+        self._adv_dots()
+
+    def _adv_dots(self, later: bool = False):
+        """A small blue dot left of every caption in the Advanced settings whose value differs from the startup value of this
+        model and function, and "Reset" in the head row while there is one (open or closed)."""
+        if later:
+            if getattr(self, "_adv_dot_job", None) is None:
+                self._adv_dot_job = self.root.after_idle(self._adv_dots)
+            return
+        self._adv_dot_job = None
+        base = getattr(self, "_adv_base", None)
+        if base is None or not hasattr(self, "_adv_anchor"):
+            return
+
+        def belongs(w):          # packed / gridded somewhere inside the Advanced settings
+            n = 0
+            while w is not None and n < 12:
+                if w is self.adv_body:
+                    return True
+                mgr = w.winfo_manager()
+                if not mgr:
+                    return False
+                info = {"pack": w.pack_info, "grid": w.grid_info, "place": w.place_info}.get(mgr, dict)()
+                w = self.root.nametowidget(str(info["in"])) if info.get("in") else None
+                n += 1
+            return False
+        now = self._adv_values()
+        changed = {k for k, v in now.items() if v != base.get(k)}
+        a = self._adv_anchor
+        anchors = {k: [a[k]] for k in ("steps", "cfg", "seed", "sampler", "scheduler", "detail", "context", "feather",
+                                         "density", "lmask", "loras")}
+        anchors["turbo"] = anchors["lora_str"] = [self.cb_turbo]
+        anchors["native"] = anchors["native_mp"] = [self.cb_native, self.lbl_canvas]
+        for i in range(len(self.stage_vars)):
+            anchors[f"stage{i}"] = anchors[f"sstr{i}"] = [self.stage_adv_cbs[i], self.stage_cbs[i]]
+        dots = self.__dict__.setdefault("_dot_w", {})
+        want = set()
+        try:
+            for k in changed:
+                for w in anchors.get(k, []):
+                    if w.winfo_manager() and belongs(w):
+                        want.add(w)
+                        break
+            for w in want:
+                d = dots.get(w)
+                if d is None:          # a small blue circle in the gap left of the caption (the window's 10 px edge)
+                    size = max(5, self._px(4))
+                    try:
+                        bg = ttk.Style().lookup("TFrame", "background") or BG
+                    except tk.TclError:
+                        bg = BG
+                    d = dots[w] = tk.Canvas(self.f_body, width=size, height=size, highlightthickness=0, bd=0, bg=bg)
+                    d.create_oval(0, 0, size - 1, size - 1, fill=ACCENT_TEXT, outline=ACCENT_TEXT)
+                    Tooltip(d, "Changed: differs from the startup settings of this model and function.")
+                if not d.winfo_manager():
+                    d.place(in_=w, x=-max(2, self._px(1.5)), rely=0.5, anchor="e")
+                d.tk.call("raise", d._w)      # (Canvas.lift raises canvas items, not the widget)
+            for w, d in dots.items():
+                if w not in want and d.winfo_manager():
+                    d.place_forget()
+            shown = bool(self.b_adv_reset.winfo_manager())
+            if want and not shown:
+                self.b_adv_reset.pack(side="right", padx=(self._px(10), 0), before=self.lbl_adv_ctx)
+            elif not want and shown:
+                self.b_adv_reset.pack_forget()
+            if bool(want) != shown:
+                self._show_adv_context()
+        except tk.TclError:
+            pass
+
+    def _reset_advanced(self):
+        """"Reset" in the head row: the Advanced settings back to the startup settings of this model and function. The prompt,
+        the number of variants, "Enhance my Prompt with LLM", the factor, Live preview and the switches under the prompt stay."""
+        t = self.t_prompt
+        text = t.get("1.0", "end").strip() if str(t.cget("state")) != "disabled" else None
+        keep = [(v, v.get()) for v in (self.v_variants, self.v_enhance, self.v_scale, self.v_live)]
+        if self.f_opts.winfo_manager() == "pack" and getattr(self, "_opts_place", "") != "post":
+            # the switch box under the prompt (MOSS' UltraReal ...) is not part of the Advanced settings
+            keep += [(v, v.get()) for v in list(self.stage_vars) + list(self.v_sstr)]
+            if self.f_turbo.winfo_manager() == "grid":
+                keep += [(self.v_turbo, self.v_turbo.get()), (self.v_lora_str, self.v_lora_str.get())]
+        self._reset_settings()
+        if text and str(t.cget("state")) != "disabled":
+            t.delete("1.0", "end")
+            t.insert("1.0", text)
+        for v, x in keep:
+            if v.get() != x:
+                v.set(x)
+        if any(v is self.v_turbo for v, _ in keep):
+            self._on_turbo()
+        self._update_stage_scales()
+        m = self._model()
+        self._status(f"Advanced settings back to the startup settings of {m.label if m else 'this model'} · "
+                     f"{self.ADV_FN.get(self.v_mode.get(), self.v_mode.get())}.")
+
+    def _menu_below(self, menu, widget):
+        """The list under its chip, as wide as the chip at least (rows filled edge to edge), its entries starting where the
+        chip's symbol / text starts (user 20.11.: the symbols in line with the chip's symbol)."""
+        # the chip's symbol (or text) starts after its padding and border: half of what is not symbol and text; the list has a
+        # 1 px border and scales its padding itself
+        try:
+            pic = widget.cget("image")          # the function chip: a state list (light, "selected", white, ...)
+            pic = pic[0] if isinstance(pic, (tuple, list)) and pic else str(pic).split()[0] if str(pic).strip() else ""
+            pic_w = int(self.root.tk.call("image", "width", str(pic))) if pic else 0
+            off = (int(widget.winfo_reqwidth()) - pic_w - self._pick_measure(str(widget.cget("text")))) / 2
+            # the list's symbols are 90 % of the chip's and centred in their square like it: their drawn edge sits further in
+            menu.pad_x = max(0.0, (off - 1) / (menu.scale or 1) + ICON_PX * (1 - PICK_ICON) / 2 * (1 if pic_w else 0))
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            menu.pad_x = PICK_PAD_X
+        try:        # exactly as wide as the chip, wider only when an entry needs it (user 21.11.)
+            menu.min_width = int(widget.winfo_width())
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            menu.min_width = 0
+        try:
+            menu.tk_popup(widget.winfo_rootx(), widget.winfo_rooty() + widget.winfo_height())
+        except tk.TclError:
+            pass
+
+    def _mode_menu(self):
+        """The function chip was clicked: the list of the functions, the chosen one light blue (not bold), each with its symbol
+        (90 % of the chip's, user 20.11.)."""
+        menu = self.m_mode
+        menu.delete(0, "end")
+        self.v_pick_mode.set(self._pick_mode_key())
+        for key in self._mode_order:
+            item = self.rb_scale_fn if key == "scale" else self.rb_modes[key]
+            pics = self._function_icon("refine" if key == "scale" else key, size=PICK_ICON, gap=False)   # (light, "selected", white, "disabled", grey)
+            off = item.state == "disabled"
+            dim = not off and self._fn_dim(key)      # the chosen model cannot do it: grey, a click switches the model (user 20.11.)
+            menu.add_radiobutton(label=item.text, value=key, variable=self.v_pick_mode, state=item.state,
+                                 icon=pics[4] if (off or dim) else pics[0], icon_hot=None if off else pics[2],
+                                 fg=DISABLED if dim else None, command=lambda k=key: self._pick_mode(k))
+        self._menu_below(menu, self.b_mode)
+
+    def _fn_dim(self, key: str) -> bool:
+        """A function entry the chosen model cannot do (user 20.11., A): grey in the list but clickable; the click takes the
+        model last used for the function (_on_mode). Not with a workflow of your own or before a model is chosen."""
+        m = self._model()
+        if m is None or self._custom_workflow():
+            return False
+        own = ("upscale", "refine") if key == "scale" else EDIT_MODES if key == "edit" else (key,)
+        return not any(k in m.modes for k in own)
+
+    def _pick_mode(self, key: str):
+        """A function was chosen in the list: what a click on its button did."""
+        if key == "edit":
+            self._on_edit_fn()
+        elif key == "inpaint":
+            self._on_fill_fn()
+        elif key == "scale":
+            self._on_scale_fn()
         else:
-            if i == n - 1:                          # no short row (any more): its frame leaves
-                self.f_chip_short.grid_remove()
-            cell = {"row": r, "column": c, "in_": self.f_models}
-            top = 1
-        self.chip_lines[key].grid(sticky="nsew", **cell)
-        self.rb_tabs[key].grid(sticky="ew", padx=(1, right), pady=(top, below), **cell)
+            self.v_mode.set(key)
+            self._on_mode()
+
+    def _model_menu(self):
+        """The model chip was clicked: the models that are not hidden, MiniMax first, then the order of the former chips (user
+        21.11.); greyed out when they cannot do the chosen function, red when their files are missing (as the chips were)."""
+        menu = self.m_model
+        menu.delete(0, "end")
+        for m in models.PICK_ORDER:
+            item = self.rb_tabs.get(m.key)
+            if item is None or not item.shown:
+                continue
+            menu.add_radiobutton(label=item.text, value=m.key, variable=self.v_model, state=item.state,
+                                 fg=NA_RED if item.missing else DISABLED if item.dim else None, command=self._on_model)
+        self._menu_below(menu, self.b_model)
 
     def _chip_menu(self, key: str, event):
         """Right-click on a model chip (L3, user 29.10.): save the settings of the chosen model, or hide the model (it comes
@@ -355,8 +629,13 @@ class ModeMixin:
     def _remember_model_for_mode(self):
         key, mode = self.v_model.get(), self.v_mode.get()
         if key and not getattr(self, "_booting", False):
+            m = models.BY_KEY.get(key)
+            if m is not None and mode not in m.modes and not self._custom_workflow():
+                return          # a grey model clicked: it is not the model of this function (it was taken as one before, 20.11.)
             mm = self.__dict__.setdefault("_mode_model", dict(self.state.get("model_by_mode") or {}))
             mm[mode] = key
+            if m is not None:      # and the function last used with the model (a grey model's click, 20.11.)
+                self.__dict__.setdefault("_model_mode", dict(self.state.get("mode_by_model") or {}))[key] = mode
 
     def _on_model(self):
         """A model was clicked: keep the function when the model has it, else its first one; start with the model's settings."""
@@ -376,8 +655,10 @@ class ModeMixin:
             if self.v_mode.get() == "upscale" and "refine" in m.modes:
                 self.v_mode.set("refine")        # Fibo cannot enlarge: back to None
                 self._status(f"{m.label} cannot enlarge pictures, so the factor is None. Use Qwen Image 2.1, Flux 3 or Flux 2 for 1.5x and more.")
-            else:
-                self.v_mode.set(next(iter(m.modes)))
+            else:      # the function last used with this model (user 20.11.), else its first
+                last = self.__dict__.setdefault("_model_mode", dict(self.state.get("mode_by_model") or {})).get(m.key)
+                self.v_mode.set(last if last in m.modes else next(iter(m.modes)))
+        self._remember_model_for_mode()
         self._apply_model_mode(force=True)
         self._on_mode_ui()
         self._on_workflow()
@@ -445,6 +726,12 @@ class ModeMixin:
                 t.insert("1.0", self._prompt_kept)
             self._prompt_kept = ""
         cur = t.get("1.0", "end").strip() if str(t.cget("state")) != "disabled" else ""
+        # Remove with a named object (user 21.11.): picking it always empties the field, so "Name what to remove" shows;
+        # your text waits aside like with Expand, and the object typed in Remove is dropped when you leave it
+        blank = mode == "outpaint" or self._named_remove(mode, spec)
+        if changed and self._named_remove(prev, m.modes.get(prev)):
+            cur = ""
+            self._replace_prompt("")
         # The stock text of a function (Upscale, Refine, Scribble on photo, the style of Sketch to image) always wins over
         # your own text (user 11.11.; until then your text stayed, user 3.11.). Your text waits aside and comes back with the
         # next function that has no stock text; Expand (no text) does the same. Ctrl+Z in the field brings it back too.
@@ -456,10 +743,11 @@ class ModeMixin:
         # back with its tab (user 10.11., P6)
         aside = self.__dict__.setdefault("_sketch_away", {})
         away = getattr(self, "_away_prompt", "")
-        if own and prev in ("sketch", "scribble") and (stock or (prev_stock and away and mode != "outpaint")):
+        if own and prev in ("sketch", "scribble") and (stock or (blank and mode != "outpaint")
+                                                        or (prev_stock and away and mode != "outpaint")):
             aside[prev] = cur
             cur = ""
-        elif own and (stock or mode == "outpaint"):
+        elif own and (stock or blank):
             if not (prev_stock and away):      # an edited stock text of the function before never pushes your own text out
                 self._away_prompt = cur
             cur = ""
@@ -476,7 +764,7 @@ class ModeMixin:
             # (a style from the Styles menu counts as stock text for a function change, but a model change inside the same
             # function keeps it like typed text; the field shows what is sent, user 13.11.)
             new = spec.prompt_hint
-            if not new and changed and mode != "outpaint" and not stock and getattr(self, "_away_prompt", ""):
+            if not new and changed and not blank and not stock and getattr(self, "_away_prompt", ""):
                 new, self._away_prompt = self._away_prompt, ""
             if t.get("1.0", "end").strip() != new:
                 self._replace_prompt(new)
@@ -497,6 +785,12 @@ class ModeMixin:
         self._update_mode_radios()
         self._update_prompt_choices()
         self._update_prompt_hint()
+        self._adv_baseline()          # these are the startup values the blue dots compare with (user 20.11., C)
+
+    @staticmethod
+    def _named_remove(mode, spec) -> bool:
+        """Remove where you name the object (Qwen, Flux 2, Flux 3, Fibo): the field takes the name, not your prompt."""
+        return mode == "remove" and spec is not None and bool(spec.remove_text)
 
     def _replace_prompt(self, text: str):
         """Put `text` into the prompt field as ONE undo step: Ctrl+Z in the field brings the text before back (Tk's automatic
@@ -636,7 +930,7 @@ class ModeMixin:
         if wf in list(self.cb_workflow["values"]) and wf != self.v_workflow.get():
             self.v_workflow.set(wf)
             self._on_workflow()
-        self.v_status.set("Ready")
+        self.v_status.set("")
 
     def _reset_settings(self):
         d = self.cfg["defaults"]
@@ -691,19 +985,18 @@ class ModeMixin:
         self._on_density()
         self._fit_height()
         self._status("Reset to the startup settings.")
+        self._adv_baseline()
 
     def _pack_post(self, frame):
-        """Show one of the finishing rows in its place: Mix source/new, Qwen's switch box (Turbo LoRA, user 17.11.: where
-        "Sharpen result" was), Context, Edge feather, Layer mask."""
+        """Show one of the finishing rows in its place: Mix source/new, Context, Edge feather, Layer mask (Qwen's and MOSS'
+        Turbo LoRA sit under "Sampling" since 20.11., f_samp)."""
         def shown(f):
             if not hasattr(f, "winfo_manager"):
                 return False
-            if f is getattr(self, "f_opts", None):          # the switch box counts only while it sits in this box
-                return getattr(self, "_opts_place", "") == "post"
             return bool(f.winfo_manager())
         if shown(frame):
             return
-        order = [f for f in (getattr(self, n, None) for n in ("f_detail", "f_opts", "f_ctx", "f_feather", "f_density", "f_lm", "f_native")) if f is not None]
+        order = [f for f in (getattr(self, n, None) for n in ("f_detail", "f_ctx", "f_feather", "f_density", "f_lm", "f_native")) if f is not None]
         later = [f for f in order[order.index(frame) + 1:] if shown(f)] if frame in order else []
         frame.pack(fill="x", pady=(2, 0), **({"before": later[0]} if later else {"in_": self.f_post}))
 
@@ -767,6 +1060,18 @@ class ModeMixin:
         except (OSError, ValueError, KeyError):
             return []
 
+    def _variant(self):
+        """The known model variant (pccomfy/variants.py) the selected workflow really runs with: the file ComfyUI lists for our
+        diffusion model is a variant (picked in Model Links, or the only one there). None = our own file, or not known yet."""
+        inv = getattr(self, "inv", None)
+        if inv is None:
+            return None
+        for t in self._wf_templates():
+            v = variants.in_use(t, inv.found)
+            if v is not None:
+                return v
+        return None
+
     def _switch_missing(self) -> dict:
         """What the window's switches need that ComfyUI does not have: {"turbo", "enhance" or "stage<i>": (label, [file or node names])}.
         A switch needs the loaders of its LoRA / stage nodes (and the node classes of a stage); "Enhance my Prompt with LLM" the
@@ -804,7 +1109,9 @@ class ModeMixin:
             return []
         miss = self._switch_missing()
         notes: list[str] = []
-        rows = [("turbo", self.cb_turbo, self.v_turbo, self.tt_turbo, self._has_lora_switch()),
+        variant = self._variant()
+        built_in = variant is not None and variant.lora_off        # Qwen Turbo: the LoRA box stays off and grey (user 20.11.)
+        rows = [("turbo", self.cb_turbo, self.v_turbo, self.tt_turbo, self._has_lora_switch() and not built_in),
                 ("enhance", self.cb_enhance, self.v_enhance, self.tt_enhance, self._llm_row_wanted())]
         stages = self._stages()
         rows += [(f"stage{i}", cb, self.stage_vars[i], self.stage_tips[i], i < len(stages)) for i, cb in enumerate(self.stage_cbs)]
@@ -1032,13 +1339,21 @@ class ModeMixin:
         """The finishing rows' box (``f_post``, first row of the Advanced settings) is in the grid only while a row is packed in it.
         Tk keeps the last size of a box that lost all its rows, so MiniMax (no Context, Edge feather, layer mask or Original size
         row) showed an empty line before Steps (user 18.11.)."""
-        f = getattr(self, "f_post", None)
+        for f in (getattr(self, "f_post", None), getattr(self, "f_samp", None)):     # f_samp: Turbo LoRA under "Sampling"
+            try:
+                used = bool(f.pack_slaves())
+                if used and not f.winfo_manager():
+                    f.grid()
+                elif not used and f.winfo_manager():
+                    f.grid_remove()
+            except (AttributeError, tk.TclError):
+                pass
+        head = getattr(self, "lbl_grp_fn", None)       # the function's heading only over its own rows (user 20.11., B)
         try:
-            used = bool(f.pack_slaves())
-            if used and not f.winfo_manager():
-                f.grid()
-            elif not used and f.winfo_manager():
-                f.grid_remove()
+            if bool(self.f_post.pack_slaves()):
+                head.grid()
+            else:
+                head.grid_remove()
         except (AttributeError, tk.TclError):
             pass
 
@@ -1066,12 +1381,12 @@ class ModeMixin:
         self.tt_enhance.text = enhance_tip(self.v_model.get(), name, samples)
         self.cb_enhance.configure(text="Enhance my Prompt with LLM")
         has_lora = self._has_lora_switch()
-        self.cb_turbo.configure(state="normal" if has_lora else "disabled", text=self._lora_label())
-        for w in (self.cb_turbo, self.f_lora):      # no LoRA of its own in this workflow: nothing to show (no greyed-out box)
-            if has_lora:
-                w.grid()
-            else:
-                w.grid_remove()
+        variant = self._variant()
+        built_in = has_lora and variant is not None and variant.lora_off     # Qwen Turbo: the LoRA is in the file (user 20.11.)
+        if built_in:
+            self.v_turbo.set(False)
+        self.cb_turbo.configure(state="normal" if has_lora and not built_in else "disabled", text=self._lora_label())
+        # (no LoRA of its own in this workflow: _update_options_box hides its row, no greyed-out box)
         if self.v_workflow.get() != self._lora_wf:   # another workflow: the slider starts at the value it ships with
             self._lora_wf = self.v_workflow.get()
             for t in self._wf_templates():
@@ -1085,7 +1400,9 @@ class ModeMixin:
         spec = m.modes.get(self.v_mode.get()) if m else None
         self.tt_steps.text = spec.steps_tip if spec else ""
         tip = next((t for t in (lora_tip(x) for x in self._wf_templates()) if t), "")
-        self.tt_turbo.text = tip or LORA_TIP
+        self.tt_turbo.text = (variant.tip if built_in else "") or tip or LORA_TIP
+        if self._steps_fixed(variant):
+            self.tt_steps.text = STEPS_FIXED_TIP
         stages = self._stages()
         reset_str = False
         if self.v_workflow.get() != self._stage_wf:   # another workflow: its stages start the way it says
@@ -1105,7 +1422,7 @@ class ModeMixin:
                     cb.grid_remove()
                     twin.configure(state="normal", text=stages[i]["label"])
                     self.stage_adv_tips[i].text = self.stage_tips[i].text
-                    twin.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
+                    twin.grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))     # under "Sampling" (user 20.11.)
                 elif self._stage_row_live:      # the checkbox sits in the row of the Upscale / Refine box (Fibo, 8.11.)
                     cb.grid_remove()
                     twin.grid_remove()
@@ -1161,13 +1478,16 @@ class ModeMixin:
             for w in self.recipe_widgets:
                 w.configure(state="normal")
             return
-        speed = bool(self.v_turbo.get()) or not self._has_lora_switch()
-        key = (self.v_workflow.get(), speed)
+        variant = self._variant()
+        speed = (bool(self.v_turbo.get()) or not self._has_lora_switch()) and not (variant is not None and variant.lora_off)
+        key = (self.v_workflow.get(), speed, variant.file if variant else "")
         vals = {}
         for t in self._wf_templates():
             vals = sampler_values(t if speed else bypass_lora(t))
             if vals:
                 break
+        if variant is not None and vals:      # a known variant: its own values stand in the fields (user 20.11.)
+            vals = {**vals, **variants.sampler_values(variant, speed)}
         self._wf_vals = vals
         if key != self._vals_key:
             self._vals_key = key
@@ -1180,11 +1500,17 @@ class ModeMixin:
                         pass
         for w in (self.w_steps, self.w_cfg):
             w.configure(state="normal" if "steps" in vals else "disabled")
+        if self._steps_fixed(variant):          # Qwen Turbo: 8 steps fixed by its sigma schedule (user 20.11.)
+            self.w_steps.configure(state="disabled")
         # Sampler and Scheduler can be changed (under Advanced); Flux 2 Klein's own scheduler is "Flux2Scheduler" in the list
         names = [n for n in getattr(self, "_sched_names", []) if n != FLUX2_SCHEDULER]
         self.cb_sched["values"] = ([FLUX2_SCHEDULER] + names) if vals.get("scheduler") == FLUX2_SCHEDULER else names
         self.cb_sampler.configure(state="readonly" if "sampler" in vals else "disabled")
         self.cb_sched.configure(state="readonly" if "scheduler" in vals else "disabled")
+
+    def _steps_fixed(self, variant) -> bool:
+        """True when the variant's fixed sigma schedule sets the steps (full denoise: not Refine / Upscale)."""
+        return bool(variants.sigmas_for(variant, self.v_mode.get()))
 
     def _sampler_override(self) -> dict:
         """Steps / CFG the user typed over the workflow's own (only what differs from what the fields showed)."""

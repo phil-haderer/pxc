@@ -266,9 +266,9 @@ class TipsMixin:
             tip_log(f"popup after {ms} ms: {e}")
 
     def _tip_gap(self) -> int:
-        """The room between the plugin and the popup: as high as a function button (user 4.11.)."""
+        """The room between the plugin and the popup: as high as the function chip (user 4.11.; was a function button)."""
         try:
-            h = max(rb.winfo_reqheight() for rb in self.rb_modes.values())
+            h = self.b_mode.winfo_reqheight()
         except (AttributeError, ValueError, tk.TclError):
             h = 0
         return max(self._px(8), h)
@@ -290,11 +290,11 @@ class TipsMixin:
         y = r.winfo_rooty() + self._px(60)
         return max(left, min(x, right - w)), max(top, min(y, bottom - h))
 
-    def _tips_setting_row(self, parent):
+    def _tips_setting_row(self, parent, pady=(12, 4)):
         """The same tick in the settings window (tab "Other settings")."""
         self._tips_setting_var = tk.BooleanVar(value=tips_hidden())
         cb = ttk.Checkbutton(parent, text=HIDE_TEXT, variable=self._tips_setting_var, style="SetText.TCheckbutton",
                              command=lambda: cfgmod.set_setting(HIDE_KEY, True if self._tips_setting_var.get() else None))
-        cb.pack(side="top", anchor="w", padx=14, pady=(12, 4))
+        cb.pack(side="top", anchor="w", padx=14, pady=pady)
         Tooltip(cb, "Tick to stop the tip of the day when PxC starts; untick to see the tips again.")
         return cb

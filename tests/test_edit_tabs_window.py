@@ -1,7 +1,7 @@
-"""The tabs under Edit (Edit canvas / Multi image edit / Insert reference; Sketch to image / Scribble on photo, plan B 10.11.)
-and the chosen model chip in the real
-window (user 10.11.): no tab text is cut (the chosen one is bold), every row uses the full width, and a chosen chip is blue
-to its edge (no dark ring inside the blue border). Real Tk window (hidden); skipped when Tk cannot open a window.
+"""The tabs under Edit (Edit canvas / Multi image edit; Sketch to image / Scribble on photo / Scribble with reference, plan B
+10.11.) in the real window: since 20.11. (user) one list chip in the look of the function chip, with its arrow, the full
+width, a little higher than the tabs were and lower than the function chip; and a chosen chip is blue to its edge (no
+dark ring inside the blue border). Real Tk window (hidden); skipped when Tk cannot open a window.
 
     python tests/test_edit_tabs_window.py
 """
@@ -37,31 +37,39 @@ def check_tabs(app, model):
     app.v_mode.set("edit")
     app._on_model()
     app.root.update()
-    bold = tkfont.Font(root=app.root, font=font(9, bold=True))
-    plain = tkfont.Font(root=app.root, font=font(9))
-    rows = app._edtab_layout
-    assert rows and rows[0], (model, rows)
+    shown = list(app._edtab_shown)
+    assert shown, (model, shown)
+    chip = app.b_edtab
+    assert chip.winfo_manager() == "pack" and str(chip.cget("style")) == "Pick.TButton"
     full = app.f_edtabs.winfo_width()
-    for r, row in enumerate(rows):
-        frame = app.f_edtab_rows[r]
-        assert frame.winfo_width() == full, (model, r, frame.winfo_width(), full)      # every row the full width
-        right = 0
-        for k in row:
-            rb = app.rb_edtabs[k]
-            label = dict(app.EDIT_TABS)[k]
-            need = rb.winfo_reqwidth() - plain.measure(label) + bold.measure(label)
-            assert rb.winfo_width() >= need, (model, k, rb.winfo_width(), need)      # the bold text fits: nothing cut
-            right = max(right, rb.winfo_x() + rb.winfo_width())
-        assert full - right <= 2 * 4, (model, r, full, right)                         # the last tab reaches the right edge
-    # (the long "Scribble with reference", 15.11., may take a row of its own, the full width)
-    widths = [app.rb_edtabs[k].winfo_width() for k in sum(rows, []) if not (k == "refscribble" and len(rows[-1]) == 1)]
-    assert max(widths) - min(widths) <= 1, (model, widths)          # all tabs the same width (window test 11.11.)
-    if "sketch" in models.BY_KEY[model].modes:      # MiniMax has Edit and Multi image edit only (step 4): one row of two
-        # plan B: the edit tabs in the first row, the sketch tabs after them in their own row(s); since 15.11. three of them
-        # (Fibo without Scribble with reference, user 15.11.)
+    assert full - chip.winfo_width() <= 2 * 2 * gui.EDTAB_PADX + 1, (model, full, chip.winfo_width())     # the full width
+    # right under the function and model chips, above the prompt; the reference slots stay under the prompt (user 20.11.)
+    order = app.f_body.pack_slaves()
+    assert order.index(app.f_edtabs) < order.index(app.f_prompt), model
+    if app.f_refs.winfo_manager():
+        assert order.index(app.f_refs) > order.index(app.f_prompt), model
+    # the gap above the list (to the chips) and below it (to the prompt box) as wide as the gap between the chips (user 21.11.)
+    app.root.update()
+    across = app.b_model.winfo_rootx() - (app.b_mode.winfo_rootx() + app.b_mode.winfo_width())
+    above = chip.winfo_rooty() - (app.b_mode.winfo_rooty() + app.b_mode.winfo_height())
+    below = app.f_prompt.winfo_rooty() - (chip.winfo_rooty() + chip.winfo_height())
+    assert above == below == across, (model, above, below, across)
+    label = dict(app.EDIT_TABS)[app.v_edtab.get()]
+    text = str(chip.cget("text"))
+    assert text.startswith(label) and text.endswith(gui.PICK_ARROW), (model, text)      # the chosen tab and the arrow
+    # a little higher than the tabs were (Small.Toolbutton), lower than the function chip with its symbol
+    assert app.rb_edtabs["edit"].winfo_reqheight() < chip.winfo_reqheight() < app.b_mode.winfo_height(), \
+        (model, app.rb_edtabs["edit"].winfo_reqheight(), chip.winfo_reqheight(), app.b_mode.winfo_height())
+    if "sketch" in models.BY_KEY[model].modes:      # MiniMax since 21.11. too (step 8), without Scribble with reference
         want = ["sketch", "scribble"] + (["refscribble"] if models.offers_ref_scribble(models.BY_KEY[model]) else [])
-        assert rows[0] == ["edit", "multi"] and sum(rows[1:], []) == want, (model, rows)
-    return rows
+        assert shown == ["edit", "multi"] + want, (model, shown)
+    # the list: one entry per tab, greyed out where the tab is
+    app._edtab_menu()
+    assert app.m_edtab.index("end") == len(shown) - 1, (model, app.m_edtab.index("end"))
+    assert [str(app.m_edtab.entrycget(i, "state")) == "disabled" for i in range(len(shown))] == \
+        [str(app.rb_edtabs[k].cget("state")) == "disabled" for k in shown]
+    app.m_edtab.unpost()
+    return shown
 
 
 def main():
@@ -80,10 +88,8 @@ def main():
     for name in ("Chip.Toolbutton", "Tab.Toolbutton"):
         assert st.lookup(name, "background", ["selected"]) == gui.ACCENT, name
         assert str(st.lookup(name, "relief", ["selected"])) == str(st.lookup("Accent.TButton", "relief")) == "raised", name
-        for opt in ("lightcolor", "darkcolor", "bordercolor"):
-            line = st.lookup("Accent.TButton", opt)
-            assert line and line != gui.ACCENT and st.lookup(name, opt, ["selected"]) == line, (name, opt, line)
-    assert st.lookup("Accent.TButton", "lightcolor") == gui.PANEL        # the dark ring of Generate
+        for opt in ("lightcolor", "darkcolor", "bordercolor"):      # no outline on a blue button since 21.11. (user)
+            assert st.lookup(name, opt, ["selected"]) == st.lookup("Accent.TButton", opt) == gui.ACCENT, (name, opt)
     # not chosen: a function button keeps its border in its own fill (no outline, as before), a chip its grey outline
     for opt in ("lightcolor", "darkcolor", "bordercolor"):
         assert st.lookup("Tab.Toolbutton", opt, ["!selected"]) == gui.PANEL, opt
@@ -101,21 +107,21 @@ def main():
         if "multi_edit" in m.modes or "sketch" in m.modes:
             seen[m.key] = check_tabs(app, m.key)
     # Insert reference is a tab of Fill since 11.11. (plan B step 4): Flux 3 has the same 2 + 2 under Edit as the others
-    assert all(sum(seen[k], []) == ["edit", "multi", "sketch", "scribble", "refscribble"] for k in ("flux3", "flux2", "qwen")), seen
-    assert sum(seen["fibo"], []) == ["edit", "multi", "sketch", "scribble"], seen     # no tab with reference (user 15.11.)
-    # under Fill (Flux 3 only): Fill selection and Insert reference in one row, the full width, the same width
+    assert all(seen[k] == ["edit", "multi", "sketch", "scribble", "refscribble"] for k in ("flux3", "flux2", "qwen")), seen
+    assert seen["fibo"] == ["edit", "multi", "sketch", "scribble"], seen     # no tab with reference (user 15.11.)
+    # under Fill (Flux 3 only): Fill selection and Insert reference in the same list
     app.v_model.set("flux3")
     app.v_mode.set("inpaint")
     app._on_model()
     app.root.update()
-    assert app._edtab_layout == [["fill", "bbox"]], app._edtab_layout
-    fw = [app.rb_edtabs[k].winfo_width() for k in ("fill", "bbox")]
-    assert abs(fw[0] - fw[1]) <= 1 and app.v_fn.get() == "inpaint", fw
-    assert seen["minimax"] == [["edit", "multi"]], seen
+    assert app._edtab_shown == ["fill", "bbox"] and app.v_fn.get() == "inpaint", app._edtab_shown
+    assert str(app.b_edtab.cget("text")).startswith("Fill selection")
+    app.v_edtab.set("bbox")             # a pick in the list: what a click on the tab did
+    app._edtab_clicked()
+    assert app.v_mode.get() == "multi_edit" and app.v_bbox.get() and str(app.b_edtab.cget("text")).startswith("Insert reference")
+    assert seen["minimax"] == ["edit", "multi", "sketch", "scribble"], seen     # step 8 (21.11.), no tab with reference yet
 
-    # the looks swapped (user 10.11.): the tabs filled grey like the small switches, the Sketch templates outlined like the
-    # model chips; and every row of buttons starts at the same left edge as the model chips
-    assert all(str(rb["style"]) == "Small.Toolbutton" for rb in app.rb_edtabs.values())
+    # the list chip starts at the same left edge as the function chip
     app.v_model.set("flux3")
     app.v_mode.set("edit")
     app._on_model()
@@ -124,13 +130,13 @@ def main():
     app.root.geometry("+-4000+-4000")      # shown off-screen: a withdrawn window is never laid out (its canvas body sits 1 px off)
     app.root.deiconify()
     app.root.update()
-    left =app.rb_tabs[models.MODELS[0].key].winfo_rootx()
-    firsts = {"function": app.rb_modes["edit"], "tab": app.rb_edtabs["edit"]}
+    left = app.b_mode.winfo_rootx()          # the function chip (20.11.; was the first model chip)
+    firsts = {"function": app.b_mode, "tab": app.b_edtab}
     assert not app.f_sketch.winfo_manager()      # the two scribble chips are tabs since 15.11. (user): no chip row
     for name, w in firsts.items():
-        assert w.winfo_manager() and w.winfo_rootx() == left, (name, w.winfo_rootx(), left)
+        assert w.winfo_manager() and abs(w.winfo_rootx() - left) <= 1, (name, w.winfo_rootx(), left)
     app.root.destroy()
-    print("ALL OK (Edit tabs and chip fill in the real window)")
+    print("ALL OK (Edit tab list and chip fill in the real window)")
 
 
 if __name__ == "__main__":

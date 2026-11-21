@@ -62,7 +62,7 @@ def main():
     # the model, its files, its start values
     m = models.BY_KEY["minimax"]
     assert m.label == "MiniMax H3 Image" and models.SHORT["minimax"] == "MiniMax" and models.MODELS[-1] is m
-    assert list(m.modes) == ["txt2img", "edit", "multi_edit"] and m.modes["txt2img"].workflow == WF.name    # Edit and Multi image edit: test_minimax_edit.py
+    assert list(m.modes)[:3] == ["txt2img", "edit", "multi_edit"] and m.modes["txt2img"].workflow == WF.name    # Edit and Multi image edit: test_minimax_edit.py
     s = m.modes["txt2img"].settings
     assert s["gen_mp"] == 4 and s["downsize"] is False and s["enhance"] is False and s["layer_mask"] == "none"
     assert models.GEN_MP_STEPS == (4, 8, 12, 16, 20)

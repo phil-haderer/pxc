@@ -482,6 +482,36 @@ def bypass_prompt_writer(graph: dict, prompt: str) -> dict:
     return g
 
 
+def writer_key(graph: dict, hashes: dict | None = None) -> str:
+    """The key of what the prompt writer will write (user 20.11.): a hash of every node the writer's end reads from (typed
+    request, text model file, seed, settings), a loaded picture by its content (`hashes`: uploaded name -> sha256) instead of
+    its name. "" when the graph has no writer, more than one, or its pc:vgl preview does not show the writer's end directly
+    (Reference at scribble appends a sentence behind it): then nothing is kept."""
+    import hashlib
+    writers = [str(x) for x in prompt_writers(graph)]
+    if len(writers) != 1:
+        return ""
+    end = writer_end(graph, writers[0])
+    vgl = [n for n in graph.values() if isinstance(n, dict) and "vgl" in _tags(n)]
+    if not vgl or any([str(v[0]) for v in n.get("inputs", {}).values() if isinstance(v, list) and v] != [end] for n in vgl):
+        return ""
+    hashes = hashes or {}
+    part = {}
+    for nid in sorted(_upstream(graph, end)):
+        n = graph[nid]
+        inp = dict(n.get("inputs", {}))
+        if n.get("class_type") == "LoadImage" and isinstance(inp.get("image"), str):
+            inp["image"] = hashes.get(inp["image"], inp["image"])
+        part[nid] = [n.get("class_type"), inp]
+    return hashlib.sha256(json.dumps([end, part], sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def use_written(graph: dict, text: str) -> dict:
+    """The prompt the writer wrote before for the same key (writer_key): every node that read the writer's end gets the text
+    itself, the writer and its preview drop out of the run (as with the writer off). Returns a new graph."""
+    return bypass_prompt_writer(graph, text)
+
+
 def append_to_writer(graph: dict, text: str) -> dict:
     """Reference at scribble (user 15.11.): `text` is appended to what the prompt writer wrote, through ComfyUI's
     StringConcatenate behind the writer's end (the way of the round, tests/live_ref_scribble.py `tagged`). Everything that read

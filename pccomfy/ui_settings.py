@@ -26,6 +26,10 @@ from .ui_update import UpdateMixin
 
 EMPTY_TEXT = {"choose": "Choose a model", "none_linked": "Link your models in the settings"}
 STATE_TEXT = {"ready": "ready", "partial": "not ready", "missing": "not ready"}      # small after the model name (user 19.11.; before "is ready.", 1.11.)
+# the state of a model in Model Links as a coloured chip right of "Show in PxC" (user 20.11.; before a small tick and grey word):
+# white bold text on green or red, as high as the mode tiles
+STATE_CHIP = {True: "✓ Ready", False: "✗ Not ready"}
+STATE_CHIP_BG = {True: "#2f8a4e", False: "#c9393e"}
 HINT_SAME = "same size and header as "          # behind a file in the chain list (user 3.11.)
 HINT_INCOMPLETE = "incomplete? shorter than its header says"
 GGUF_ALT = "Alternatively:"
@@ -38,15 +42,23 @@ RESTART_NOTE = "Loaded: restart ComfyUI, then click refresh (⟳) at the bottom 
 HINT_IN_USE = "in use"            # behind the file the plugin uses now in the list of the chain symbol (user 7.11.)
 HINT_EXPECTED = "the expected file"      # in the chain list, when another file is linked: the way back
 HINT_SIMILAR = "similar name"
-HINT_EXPLAIN = "Marked files have the same size and safetensors header as another file PxC expects."
 DOT_RED = "#e5484d"                   # the dot in front of a model that is not available (nothing in front of a ready one)
 DOT_PAD = 4                            # px of room to the left of the dot (user 1.11.)
-SETTINGS_W, SETTINGS_H = 520, 700      # the settings window at first (before the display scaling; 640 until 19.11.); then the size it was closed at
+SETTINGS_W, SETTINGS_H = 520, 700      # the settings window (before the display scaling; 640 wide until 19.11.); the width it was closed at comes back, the height is always 700 (user 20.11.)
 SET_ICON_PX = 16                       # the download symbol next to a file
 SET_STYLES = {"head": "SetHead.TLabel", "ok": "SetOk.TLabel", "bad": "SetBad.TLabel", "note": "SetNote.TLabel",
               "muted": "SetMuted.TLabel", "green": "SetGreen.TLabel", "red": "SetRed.TLabel",
               "head9": "SetHead9.TLabel", "warn": "SetWarn.TLabel", "hint": "SetHint.TLabel", "section": "SetSection.TLabel"}
 SET_MIN_W, SET_MIN_H = 440, 300        # the smallest the settings window can be dragged to (480 until 19.11.)
+
+
+def fit_height(y: int, h: int, top: int, bottom: int, min_h: int = 0) -> tuple[int, int]:
+    """(y, h) of a window that wants height ``h`` at ``y`` inside the work area ``top`` .. ``bottom`` (review 21.11.): moved
+    up first, then made lower (never below ``min_h``, never above the area's height)."""
+    room = max(1, int(bottom) - int(top))
+    h = max(min(int(h), room), min(int(min_h), room))
+    y = max(int(top), min(int(y), int(bottom) - h))
+    return y, h
 # the spacing of Model Links (user 19.11.): page margin, inside one file, between two files, before a section
 SET_PAD, SET_IN, SET_ITEM, SET_SECTION = 16, 4, 12, 20
 MODEL_GAP = 24                         # between the model chips and the name of the model (user 19.11.)
@@ -140,7 +152,6 @@ class ModelPicker(ttk.Frame):
         self.menu = menu
         return "break"
 
-LINK_MSG_MS = 10_000                             # the message with Undo after a change of the links shows this long (user 19.11.)
 MODES_HEAD = "Supported Modes"                    # before the mode tiles of a model (user 19.11.; before "Modes")
 ALL_FILES_BUTTON = "Download missing files"      # one model's missing files, the optional ones too (user 3.11.; name 19.11.)
 REQUIRED_HEAD = "Required"                        # the files of the standard settings (user 19.11.; before "Standard settings need these weights:")
@@ -235,6 +246,10 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             self._update_mode_radios()
         except (AttributeError, tk.TclError):      # the window is still being built
             pass
+        try:
+            self._on_workflow()           # a model variant came or went (Model Links): its values and switches (user 20.11.)
+        except (AttributeError, tk.TclError):
+            pass
         if self._settings_win is not None:
             self._settings_fill()
 
@@ -248,7 +263,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             rb = self.rb_tabs.get(m.key)
             if rb is None:
                 continue
-            rb.configure(style="Missing.Chip.Toolbutton" if not self._model_usable(m.key, self.v_mode.get()) else "Chip.Toolbutton")
+            rb.missing = not self._model_usable(m.key, self.v_mode.get())     # red in the model list (gui_modes._model_menu)
 
     def _model_usable(self, key: str, mode: str) -> bool:
         """Has ComfyUI the files this model needs? The whole model counts, not only the chosen function: a model with one
@@ -259,7 +274,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
 
     def _update_mode_radios(self):
         super()._update_mode_radios()
-        self._update_tabs()                 # a model chip turns red when its files for the chosen function are missing
+        self._update_tabs()                 # a model turns red in the model list when its files are missing
         self._update_live_preview()
         self._update_llm_button()
         self._enforce_switch_files()
@@ -324,7 +339,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             if not hide_foot:
                 self.lbl_conn.pack(side="left")
                 self.b_refresh.pack(side="left", padx=FOOT_REFRESH_PADX)
-        # no model chosen or linked: no "Live preview" tick and no idle "Ready" (user 2.11.)
+        # no model chosen or linked: no "Live preview" tick (user 2.11.)
         show_live = not state
         if foot_changed or show_live != getattr(self, "_live_shown", True):
             self._live_shown = show_live
@@ -358,7 +373,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             label = next((m.label for m in models.MODELS if m.key == key), key)
             msg = f"{label} is not set up yet (model files missing). Open the settings (gear) to see what is needed."
             self._status(msg)
-            self._idle_text = msg               # counts as an idle line: the next working model replaces it with "Ready"
+            self._idle_text = msg               # counts as an idle line: the next working model clears it
             return True
         self._last_model = self.v_model.get()
         if key:                                  # the last model comes back at the next start (state.json, like the other settings)
@@ -414,16 +429,17 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         return lines
 
     def _ready_text(self) -> str:
-        """The idle line at the bottom: "Ready" only when the chosen model and function can run; else what to get (user 3.11.)."""
+        """The idle line at the bottom: empty when the chosen model and function can run (no "Ready" any more, user 21.11.);
+        else what to get (user 3.11.)."""
         m = self._model()
         if m is None or self.inv is None:
-            return "Ready"
+            return ""
         st = self.inv.mode_status(m.key, self.v_mode.get())
         names = [f.name for f in st.missing]
         packs = list(dict.fromkeys([p for _c, p, _u in self._pack_missing(self.inv)] +
                                    [p[0] for c in st.nodes if (p := manifest.node_pack(c))]))
         if not names and not packs and not st.nodes:
-            return "Ready"
+            return ""
         parts = []
         if names:
             parts.append(f"download {', '.join(names[:2])}{f' (+{len(names) - 2} more)' if len(names) > 2 else ''} in the settings")
@@ -704,10 +720,12 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             win.transient(self.root)
             win.minsize(self._px(SET_MIN_W), self._px(SET_MIN_H))      # narrower than this the model tabs would be cut off
             x = self.root.winfo_rootx() + self.root.winfo_width() + 8
-            w, h = self._settings_size()
-            h = self._root_height(h)           # as high as the plugin window (user 12.11.)
-            win.geometry(f"{w}x{h}+{x}+{self.root.winfo_rooty()}")
-            self._set_root_h = self.root.winfo_height()
+            w, h = self._settings_size()[0], self._px(SETTINGS_H)      # always 700 px high, no longer as high as the plugin (user 20.11.)
+            y = self.root.winfo_rooty()
+            area = self._monitor_at(x, y, work=True) if hasattr(self, "_monitor_at") else None
+            if area:      # never below the taskbar or off the screen (150 % on Full HD: 1050 px, review 21.11.)
+                y, h = fit_height(y, h, area[1], area[3], self._px(SET_MIN_H))
+            win.geometry(f"{w}x{h}+{x}+{y}")
         except (tk.TclError, TypeError):
             pass
         win.protocol("WM_DELETE_WINDOW", self._settings_close)
@@ -738,7 +756,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         chips = tk.Frame(row, bg=CHIP_LINE, bd=0, highlightthickness=0)      # its colour shows as the lines around the chips
         chips.pack(side="left")
         try:
-            fn_h = self.rb_modes["edit"].winfo_reqheight()
+            fn_h = self.b_mode.winfo_reqheight()
             chips.rowconfigure(0, minsize=fn_h + 2 * spacing.scale(1))      # the chip itself as high as a function button
         except (AttributeError, KeyError, tk.TclError):
             pass
@@ -763,20 +781,23 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         self.nb_settings = nb
         # "⋯" at the right end of the chip row, only on Model Links (user 19.11., choice K2): Undo, Reset, Check files
         self.b_set_more = tk.Label(row, text="⋯", bg=BG, fg=FG, font=font(14), padx=self._px(4), pady=0, cursor="hand2", takefocus=1)
-        Tooltip(self.b_set_more, "Undo, reset the links, check the files")
+        Tooltip(self.b_set_more, "Reset the links, check the files")
         for seq in ("<Button-1>", "<Return>", "<space>"):
             self.b_set_more.bind(seq, lambda e: (self._links_menu(), "break")[1], add="+")
         self.b_set_more.bind("<Enter>", lambda e: self.b_set_more.configure(fg=ACCENT), add="+")
         self.b_set_more.bind("<Leave>", lambda e: self.b_set_more.configure(fg=FG), add="+")
+        upd = self._update_check_row(row)        # "Check for updates" and "Check now", only on Other settings (user 20.11.)
 
         def tab_changed(e=None):
             try:
                 i = nb.index(nb.select())
                 self._set_tab.set(i)               # also when a page is chosen in code (the ComfyUI address opens Other settings)
                 if i == 0:
+                    upd.pack_forget()
                     self.b_set_more.pack(side="right")
                 else:
                     self.b_set_more.pack_forget()
+                    upd.pack(side="right")
             except tk.TclError:
                 pass
         nb.bind("<<NotebookTabChanged>>", tab_changed, add="+")
@@ -804,7 +825,8 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         bind_wheel(win, self._settings_wheel)      # only this window: the plugin's body has its own
         self._set_widgets = []
         self._page_rows = {}               # nothing to draw yet: the page of the focus is chosen first, then only it is drawn
-        self._link_msg = ""                # the message with Undo shows only after a change in this window
+        if not self._map_undo:             # the message with Undo stays while there is something to take back (user 21.11.)
+            self._link_msg = ""
         if focus in self._set_pages:
             self._select_model_tab(focus)
 
@@ -855,32 +877,66 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         self._set_bar, self._set_grip = bar, grip
 
     def _other_settings(self, parent):
-        """The tab "Other settings" (user 1.11.): the tip tick, and two buttons that undo things done elsewhere in the plugin."""
+        """The tab "Other settings" (user 1.11.; sections since 20.11.): the update line on top (only while one is known) and the
+        answer of Check now, then Connection, Save image, Appearance and Maintenance, one line between two sections.
+        "Check for updates" and "Check now" sit at the right end of the chip row (_update_check_row, user 20.11.)."""
         self._update_note_row(parent)         # "Update X available" at the very top, only while one is known (user 19.11., H2)
+        self._update_status_row(parent)       # the answer of Check now, only while it has text
+        self._other_head(parent, "Connection", first=True)
         self._comfy_address_row(parent)
+        self._owner_name_row(parent)
         self._other_sep(parent)
         self._save_image_row(parent)
         self._other_sep(parent)
-        self._owner_name_row(parent)
-        for text, tip, command in (
-                ("Show all hidden models", "Brings back every model chip that was hidden (right-click menu of a chip or the tick in the model tab).",
-                 self._show_hidden_models),
-                ("Reset all modes to default settings", "Forgets every page you saved with “Set current settings as startup settings (for this mode and model)” (right-click on a model chip): "
-                 "all models and functions start with the PxC standard settings again. Asks first.", self._reset_all_modes),
-                ("Copy report", "Copies a report to the clipboard for a bug report: PxC version, where it is installed, Python, "
-                 "which config files it reads and what they change, the ComfyUI address, which model files are missing. No prompts, "
-                 "no passwords; your user folder is shown as ~.", self._copy_report)):
-            b = ttk.Button(parent, text=text, style="SetSmall.TButton", command=command)
-            b.pack(side="top", anchor="w", padx=14, pady=(8, 0))
-            Tooltip(b, tip)
+        self._other_head(parent, "Appearance")
         self._ui_scale_row(parent)
-        self._update_check_row(parent)        # "Check for updates" and "Check now" (user 19.11., A1 + A2)
-        self._tips_setting_row(parent)        # the very bottom of the tab (user 13.11.)
+        self._tips_setting_row(parent, pady=(10, 0))
+        self._other_sep(parent)
+        self._other_head(parent, "Maintenance")
+        self._maintenance_row(parent)
 
     @staticmethod
     def _other_sep(parent):
-        """The light line (style Sep.TFrame, as in the model tabs) above and below the Save image block (user 12.11.)."""
+        """The light line (style Sep.TFrame, as in the model tabs) between two sections of Other settings (user 12.11., 20.11.)."""
         ttk.Frame(parent, style="Sep.TFrame", height=1).pack(side="top", fill="x", padx=14, pady=(14, 0))
+
+    @staticmethod
+    def _other_head(parent, text: str, first: bool = False):
+        """The name of a section of Other settings, in the style of "Save image" (user 20.11.)."""
+        ttk.Label(parent, text=text, style=SET_STYLES["head"]).pack(side="top", anchor="w", padx=14, pady=(10 if first else 12, 0))
+
+    MAINTENANCE = (
+        ("Show all hidden models", "Brings back every model chip that was hidden (right-click menu of a chip or the tick in the model tab).",
+         "_show_hidden_models"),
+        ("Reset all modes to default settings", "Forgets every page you saved with “Set current settings as startup settings (for this mode and model)” (right-click on a model chip): "
+         "all models and functions start with the PxC standard settings again. Asks first.", "_reset_all_modes"),
+        ("Copy report", "Copies a report to the clipboard for a bug report: PxC version, where it is installed, Python, "
+         "which config files it reads and what they change, the ComfyUI address, which model files are missing. No prompts, "
+         "no passwords; your user folder is shown as ~.", "_copy_report"))
+
+    def _maintenance_row(self, parent):
+        """The buttons of Maintenance side by side; one that does not fit any more goes into the next line (user 20.11.)."""
+        box = ttk.Frame(parent)
+        box.pack(side="top", fill="x", padx=14, pady=(8, 12))
+        self.b_maintenance = []
+        for text, tip, name in self.MAINTENANCE:
+            b = ttk.Button(box, text=text, style="SetSmall.TButton", command=getattr(self, name))
+            Tooltip(b, tip)
+            self.b_maintenance.append(b)
+        gap = spacing.scale(6)
+
+        def flow(e=None):
+            width = (e.width if e is not None else box.winfo_width()) or 0
+            x = y = line_h = 0
+            for b in self.b_maintenance:
+                w, h = b.winfo_reqwidth() or 0, b.winfo_reqheight() or 0
+                if x and x + w > width:
+                    x, y, line_h = 0, y + line_h + gap, 0
+                b.place(x=x, y=y)
+                x, line_h = x + w + gap, max(line_h, h)
+            box.configure(height=y + line_h)
+        box.bind("<Configure>", flow, add="+")
+        flow()
 
     # ---- Save image: folder, format and file name (the hamburger menu and Ctrl+S, savefile.py) ----
 
@@ -1105,8 +1161,6 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         self.lbl_comfy_note = ttk.Label(box, text="", style=SET_STYLES["muted"], justify="left", wraplength=self._px(520))
         self._comfy_seq = 0      # the note below is packed only while it has text (no empty line, user 6.11.)
         self._comfy_address_check(apply=False)          # shows at once whether the address in use answers
-        # a line under the address block, as above "Prompt" in the main window (window test F, 11.11.)
-        ttk.Frame(parent, style="Sep.TFrame", height=1).pack(side="top", fill="x", padx=14, pady=(10, 0))
 
     URL_HISTORY_MAX = 10
 
@@ -1267,14 +1321,6 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         except tk.TclError:
             return None
 
-    def _root_height(self, default: int) -> int:
-        """The plugin window's height (the settings window is as high); `default` when it cannot be read."""
-        try:
-            h = self.root.winfo_height()
-        except tk.TclError:
-            return default
-        return h if isinstance(h, int) and h >= 100 else default
-
     def _settings_follow(self, e=None):
         """The settings window moves with the plugin (user 7.11.): dragged by its header, or moved with PhotoCraft's window."""
         if e is not None and e.widget is not self.root:
@@ -1282,13 +1328,6 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         win = self._settings_win
         if win is None:
             return
-        rh = self._root_height(0)
-        if rh and rh != getattr(self, "_set_root_h", None):      # the plugin's height changed: the settings window follows (user 12.11.)
-            self._set_root_h = rh
-            try:
-                win.geometry(f"{win.winfo_width()}x{rh}")
-            except tk.TclError:
-                pass
         now, was = self._root_xy(), getattr(self, "_set_anchor", None)
         if now is None or was is None or now == was or min(now) < -10000:      # a minimised window reports -32000
             return
@@ -1478,7 +1517,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
                 var.set(key not in cfgmod.hidden_tabs() if usable else False)     # a model without its files is not in PxC
                 cb = ttk.Checkbutton(box, text="Show in PxC", variable=var, style="SetText.TCheckbutton",
                                      command=lambda k=key, v=var: self._set_model_hidden(k, not v.get()))
-                cb.pack(side="right")
+                cb.pack(side="left")          # left, the state as a chip on the right (user 20.11.)
                 made.append(cb)
                 if usable:
                     Tooltip(cb, "Untick to hide this model in PxC, tick to show it again.")
@@ -1487,8 +1526,11 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
                     Tooltip(cb, NOT_ALL_WEIGHTS.format(name=name))
                 # the name stands in the field above (user 19.11.): here only the tick or X and the state (user 3.11.)
                 if state:
-                    label(box, "✓" if state == "ready" else "✗", "green" if state == "ready" else "red", padx=(0, 6))
-                    label(box, STATE_TEXT[state], "muted")
+                    ok = state == "ready"
+                    chip = tk.Label(box, text=STATE_CHIP[ok], bg=STATE_CHIP_BG[ok], fg=ON_ACCENT, font=font(9, bold=True),
+                                    padx=self._px(8), pady=self._px(1), bd=0)
+                    chip.pack(side="right")
+                    box.state_chip = chip            # for the tests
             elif kind == "modes":
                 self._mode_tiles(line(SET_ITEM), row[2])
             elif kind == "download":
@@ -1568,14 +1610,14 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
                 Tooltip(b, "Stops every download that is running for the files on this page. What is loaded stays, loading it again goes on where it stopped.")
             elif kind == "links":          # after a change of the links: its message and Undo (user 19.11., K2); else nothing
                 msg = getattr(self, "_link_msg", "")
-                if not msg:
+                if not msg and not self._map_undo:
                     continue
                 box = line()
                 box.grid_configure(pady=(12, 0))
-                if self._map_undo:
+                if self._map_undo:         # no time limit; one change per click until none is left (user 21.11.)
                     b = ttk.Button(box, text="Undo", command=self._link_undo, style="SetSmall.TButton")
                     b.pack(side="right", padx=(8, 0))
-                    Tooltip(b, "Takes back the last change of the links.")
+                    Tooltip(b, self.LINK_UNDO_TIP)
                     self.b_link_undo = b
                 lb = label(box, msg, "muted", anchor="w")
                 fit_to_row(box, lb)
@@ -1721,11 +1763,12 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         now = cfgmod.model_map()
         return {"startup": now != self._map_start, "default": bool(now)}
 
+    LINK_UNDO_TIP = "Takes back the last change of the links. Click again for the change before, until none is left."
+
     def _link_msg_gone(self):
-        """The message with Undo goes after LINK_MSG_MS (user 19.11.); Undo stays in the menu "⋯". Only the top row is drawn
-        again, the page keeps its place."""
-        self._link_msg_job = None
-        if not getattr(self, "_link_msg", ""):
+        """The message over the page goes (only when nothing is left to take back: Undo stays without a time limit, user 21.11.).
+        Only the top row is drawn again, the page keeps its place."""
+        if not getattr(self, "_link_msg", "") or self._map_undo:
             return
         self._link_msg = ""
         top = getattr(self, "f_set_top", None)
@@ -1741,11 +1784,10 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             self._drawn = (top, (d[1][0], self._fill_key()))      # the rows are the same: no full drawing next time
 
     def _links_menu_entries(self) -> list:
-        """What the menu "⋯" of Model Links offers (user 19.11., choice K2): (label, command, usable now, tooltip); None = a line."""
+        """What the menu "⋯" of Model Links offers (user 19.11., choice K2; Undo is only the button over the page since 21.11.):
+        (label, command, usable now, tooltip); None = a line."""
         can = self._link_resets()
-        return [("Undo", self._link_undo, bool(self._map_undo), "Takes back the last change of the links."),
-                None,
-                ("Reset to startup", self._link_reset, can["startup"], "All links as they were when PxC started."),
+        return [("Reset to startup", self._link_reset, can["startup"], "All links as they were when PxC started."),
                 ("Reset to default models", self._link_default, can["default"], "Every model uses its own standard file again."),
                 None,
                 (self._check_label(), self.check_files, True, self.CHECK_TIP)]
@@ -1773,6 +1815,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         all_hints = self._link_hints(expected, cands)
         copies = [n for n in cands if all_hints.get(n, "").startswith(HINT_SAME + expected)]
         hints = self._menu_hints(expected, all_hints)
+        self._link_copies = copies        # the blue dot of the window (user 21.11., 10A)
         avail = list(self.inv.lists.get(f.kind, [])) if (f is not None and self.inv is not None) else []
         own = inventory.resolve(f.name, avail, None, f.aliases) if f is not None else None      # the expected file itself (not in ``cands``)
         used = self.inv.found(expected) if self.inv is not None else None
@@ -1824,12 +1867,16 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
                                                       scale=getattr(self, "ui", 1.0))
             return
         cands, pinned, hints, mapped, current = entries
+        # dots instead of texts (user 21.11., choice 10A): green = in use, blue = a copy of the expected file (same size); a file
+        # that equals ANOTHER file PxC knows (e.g. another model's) is no replacement and gets no dot (user 21.11.)
+        same = set(getattr(self, "_link_copies", ()))
+        hints = {n: h for n, h in hints.items() if not h.startswith(HINT_SAME) and h != HINT_IN_USE}
         # a search window instead of a menu (user 7.11.): typing filters, the list is alphabetical, the wheel does not close it
         self._link_picker = linkpicker.LinkPicker(
             win, at, cands, pinned, hints, mapped,
-            explain=HINT_EXPLAIN if any(h.startswith(HINT_SAME) for h in hints.values()) else "",
             unlink="Use the expected file again" if mapped else "",
-            on_pick=lambda n: self._link_models(expected, n), scale=getattr(self, "ui", 1.0), strong=[current] if current else ())
+            on_pick=lambda n: self._link_models(expected, n), scale=getattr(self, "ui", 1.0), strong=[current] if current else (),
+            same=sorted(same - {current}))
 
     def _link_models(self, expected: str, actual: str):
         """The plugin uses ``actual`` from now on for ``expected`` ("" removes the link)."""
@@ -1840,9 +1887,12 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         self._after_link_change("Linked: " + (f"{expected} → {actual}." if actual else f"{expected} is used again."))
 
     def _link_undo(self):
+        """One change back per click, until none is left (user 21.11.); then the button goes, the message stays."""
         if self._map_undo:
             cfgmod.set_model_map(self._map_undo.pop())
-            self._after_link_change("Undone: the links are as before the last change.")
+            left = len(self._map_undo)
+            self._after_link_change("Undone: the links are as before the last change." if left else
+                                    "Undone: nothing more to take back.")
 
     def _link_default(self):
         """"Reset to default models" (user 5.11.): all links removed, every model uses its own standard file again."""
@@ -1859,18 +1909,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             self._after_link_change("The links are as they were at startup.")
 
     def _after_link_change(self, msg: str = "Link saved."):
-        self._link_msg = msg                 # shown in the settings window with Undo (user 19.11.), for LINK_MSG_MS
-        job = getattr(self, "_link_msg_job", None)
-        if job is not None:
-            try:
-                self.root.after_cancel(job)
-            except (tk.TclError, ValueError):
-                pass
-        try:
-            self._link_msg_job = self.root.after(LINK_MSG_MS, self._link_msg_gone)
-        except (tk.TclError, AttributeError):
-            self._link_msg_job = None
-        if self.inv is not None:
+        self._link_msg = msg                 # shown in the settings window with Undo (user 19.11.), no time limit (21.11.)
+        if self.inv is not None:             # only there, not in the status line (user 21.11.)
             self.inv.mapping = cfgmod.model_map()
             self._set_inventory(self.inv, self._inv_error)      # statuses, tabs and the overlay follow at once
-        self._status(msg)

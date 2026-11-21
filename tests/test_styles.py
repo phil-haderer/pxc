@@ -32,20 +32,32 @@ def data_checks():
     assert styles.fill(models.SKETCH_ILLUSTRATION, "a red barn", mark) == models.SKETCH_ILLUSTRATION.replace(mark, "a red barn")
     assert styles.fill(models.SKETCH_ILLUSTRATION, None, mark) == models.SKETCH_ILLUSTRATION
     groups = got["txt2img"]
-    assert len(groups) == 13 and sum(len(g["styles"]) for g in groups) == 80 + 7  # renamed and thinned (plan B step 3, 10.11.; 4 merged 18.11.) + own
-    # the own texts (tools/styles-own.json, user 10.11.) stand at the end of their group, word for word
-    # (tools/ is private since 17.11.: the release export leaves it out, so the check runs only where it is)
+    assert len(groups) == 13 and sum(len(g["styles"]) for g in groups) == 73 + 7 + 3  # renamed and thinned (plan B step 3, 10.11.; 4 merged 18.11.; 7 taken out 20.11.) + own + the 3 from Edit (21.11.)
+    # the own texts (tools/styles-own.json, user 10.11.) are there word for word; since 21.11. Text to image follows Edit's
+    # order (tools/build_styles.py follow_edit), so an own style Edit also has stands where Edit has it, the others at the end
+    # of their group (tools/ is private since 17.11.: the release export leaves it out, so the check runs only where it is)
+    edit_names = {s["name"] for g in got["edit"] for s in g["styles"]}
     own_file = ROOT / "tools" / "styles-own.json"
     own_styles = []
     if own_file.exists():
         own = json.loads(own_file.read_text(encoding="utf-8"))["groups"]
         own_styles = [(g["name"], s["name"], s["text"]) for g in own for s in g["styles"]]
-        assert len(own_styles) == 7 and own_styles[0][:2] == ("Studio & product", "Studio portrait")
-        studio = next(g for g in groups if g["name"] == "Studio & product")
-        assert [("Studio & product", s["name"], s["text"]) for s in studio["styles"][-7:]] == own_styles
+        assert len(own_styles) == 7 + 3 and ("Studio & product", "Studio portrait") in [o[:2] for o in own_styles]   # + 3 from Edit (21.11.)
+        t2i_text_of = {s["name"]: s["text"] for g in groups for s in g["styles"]}
+        assert all(t2i_text_of.get(n) == t for _g, n, t in own_styles), "own texts word for word"
+        for gname in dict.fromkeys(o[0] for o in own_styles):
+            mine = [o for o in own_styles if o[0] == gname and o[1] not in edit_names]
+            grp = next(g for g in groups if g["name"] == gname)
+            assert not mine or [(gname, s["name"], s["text"]) for s in grp["styles"][-len(mine):]] == mine, gname
     else:
         print("  (tools/ not here: own styles not compared)")
-    assert [g["name"] for g in groups][:3] == ["Photo", "Studio & product", "Film look"], [g["name"] for g in groups]
+    # Text to image in Edit's order (user 21.11., "Edit groups, rest after"): Edit's groups first and in Edit's order, each
+    # starting with Edit's styles in Edit's order; the groups Edit lacks come after
+    edit_groups = [g["name"] for g in got["edit"]]
+    assert [g["name"] for g in groups][:len(edit_groups)] == edit_groups, [g["name"] for g in groups]
+    for eg, tg in zip(got["edit"], groups):
+        want = [s["name"] for s in eg["styles"]]
+        assert [s["name"] for s in tg["styles"]][:len(want)] == want, eg["name"]
     names = [s["name"] for g in groups for s in g["styles"]]
     assert len(set(names)) == len(names), "short names must be unique"
     # 18.11. (docs/plan/stil-vorschlag-18-11.md): merged styles are gone, renamed ones carry the new name, no scene words left
@@ -67,10 +79,11 @@ def data_checks():
         texts = {e["index"]: e["styleKeywords"] for e in json.loads(src.read_text(encoding="utf-8"))}
         sys.path.insert(0, str(ROOT / "tools"))
         from build_styles import final          # rewritten, renamed and merged styles (17.11., 18.11.)
-        want = [(g["name"], *f) for g in json.loads(sel.read_text(encoding="utf-8"))["groups"] for s in g["styles"]
-                if (f := final(s["name"], texts[s["index"]]))]
-        have = [(g["name"], s["name"], s["text"]) for g in groups for s in g["styles"]
-                if (g["name"], s["name"], s["text"]) not in own_styles]
+        # name and text only: since 21.11. the order and the group follow Edit (follow_edit, checked above)
+        want = sorted(f for g in json.loads(sel.read_text(encoding="utf-8"))["groups"] for s in g["styles"]
+                      if (f := final(s["name"], texts[s["index"]])))
+        own_names = {o[1] for o in own_styles}
+        have = sorted((s["name"], s["text"]) for g in groups for s in g["styles"] if s["name"] not in own_names)
         assert have == want
     else:
         print("  (source files not in data/styles: texts not compared)")
@@ -90,13 +103,20 @@ def look_checks(got):
     assert {k: data[k] for k in ("edit", "sketch")} == built, "styles.json is behind tools/styles-looks.json: run tools/build_style_looks.py"
     src = json.loads((ROOT / "tools" / "styles-looks.json").read_text(encoding="utf-8"))["groups"]
     all_src = [s for g in src for s in g["styles"]]
-    assert len(all_src) == 47 and sum(1 for s in all_src if s.get("tested")) == 11
+    assert len(all_src) == 38 and sum(1 for s in all_src if s.get("tested")) == 6     # A+ of 20.11.: 3 merged, 2 new sentences
     ed = {s["name"]: s["text"] for g in got["edit"] for s in g["styles"]}
     sk = {s["name"]: s["text"] for g in got["sketch"] for s in g["styles"]}
-    assert len(ed) == 41 and len(sk) == 46, (len(ed), len(sk))
+    assert len(ed) == 34 and len(sk) == 38, (len(ed), len(sk))     # 5 taken out by the user 20.11., 4 merged (A+, 20.11.)
     three_d = {s["name"] for g in src if g["name"] == "3D & craft" for s in g["styles"]}
-    assert len(three_d) == 6 and not three_d & set(ed) and three_d <= set(sk)      # 3D render 0/6 on photos (pilot)
-    assert "Pencil gesture sketch" in ed and "Pencil gesture sketch" not in sk
+    assert len(three_d) == 4 and not three_d & set(ed) and three_d <= set(sk)      # 3D render 0/6 on photos (pilot); 2 merged 20.11.
+    assert "Pencil gesture sketch" in ed and "Pencil gesture sketch" in sk     # took over Pencil drawing in Sketch (A+, 20.11.)
+    # A+ (user 20.11.): a style of Edit canvas / Sketch to image whose look Text to image has too carries its name there
+    t2i = {s["name"] for g in got["txt2img"] for s in g["styles"]}
+    own = set(ed) | set(sk)
+    # every style of Edit canvas is in Text to image too, with the same picture (user 21.11.; the last three of 20.11. came in
+    # with their own Text to image words in tools/styles-own.json); Sketch has none of its own either
+    assert own - t2i == set(), sorted(own - t2i)
+    assert all(styles.thumb_path(n) is not None for n in set(ed) & t2i)
     # the tested sentences stay word for word; every other text is look in its frame
     assert sk["Realistic photo"] == models.SKETCH_PHOTO and sk["Animated film"] == models.SKETCH_ILLUSTRATION
     mark = models.SKETCH_MARK
@@ -110,7 +130,7 @@ def look_checks(got):
     # 18.11.: the sentence on 31 styles (Realistic photo has it in its own words), never on the 14 line styles
     clean = {n for n, t in sk.items() if t.lower().endswith("no drawing lines left.")}
     lined = {s["name"] for s in all_src if s.get("lines")}
-    assert len(clean) == 32 and len(lined) == 14 and not clean & lined and "Anime" in lined and "Watercolor" in clean
+    assert len(clean) == 27 and len(lined) == 11 and not clean & lined and "Modern anime, clean lines" in lined and "Gouache, flat and earthy" in clean
     # the same frames and looks as the style pilot (tests/live_style_round.py)
     pilot = (ROOT / "tests" / "live_style_round.py").read_text(encoding="utf-8")
     assert 'EDIT_FRAME = "' + models.EDIT_FRAME + '"' in pilot
@@ -147,7 +167,7 @@ def icon_checks():
 
 def gui_checks():
     app = ra.make()
-    assert set(app.m_styles) == {k for k, _l in gui_common.MODE_LABELS} | {"txt2img", "edit", "sketch"} and len(app._style_texts) == 80 + 7 + 41 + 46
+    assert set(app.m_styles) == {k for k, _l in gui_common.MODE_LABELS} | {"txt2img", "edit", "sketch"} and len(app._style_texts) == 73 + 7 + 3 + 34 + 38
     assert not str(app.b_styles.cget("text")) and app.b_styles.cget("image")      # an icon in the column right of the field (12.11.)
     # the button: only in Text to image, Edit canvas and Sketch to image
     ra.go(app, "flux3", "txt2img")
@@ -168,7 +188,7 @@ def gui_checks():
     first = styles.load()["txt2img"][0]["styles"][0]["text"]
     app._apply_style(first)
     assert app.t_prompt.get("1.0", "end").strip() == "a red bicycle\n" + first
-    assert "Ctrl+Z" in app.v_status.get()
+    assert app.v_status.get() == ""                 # no status message on a style (user 21.11., choice 3)
     # a field that is switched off is left alone
     app.t_prompt.configure(state="disabled")
     app._apply_style("other")
@@ -192,10 +212,10 @@ def edit_checks(app):
     ra.go(app, "flux2", "edit")
     app.t_prompt.delete("1.0", "end")
     app.t_prompt.insert("1.0", "make it winter")
-    app._apply_style(st["Watercolor"], "Watercolor")
-    assert text() == st["Watercolor"] and cfgmod.get_setting("style_edit") == "Watercolor"
-    app._apply_style(st["Gouache"], "Gouache")
-    assert text() == st["Gouache"]
+    app._apply_style(st["Watercolor storybook"], "Watercolor storybook")
+    assert text() == st["Watercolor storybook"] and cfgmod.get_setting("style_edit") == "Watercolor storybook"
+    app._apply_style(st["Gouache, flat and earthy"], "Gouache, flat and earthy")
+    assert text() == st["Gouache, flat and earthy"]
     ra.go(app, "flux2", "txt2img")
     app.t_prompt.delete("1.0", "end")
     ra.go(app, "flux2", "edit")

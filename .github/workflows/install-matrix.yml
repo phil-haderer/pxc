@@ -142,10 +142,12 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1280x800x24 & sleep 2
           DISPLAY=:99 .venv/bin/python tests/ci_install_smoke.py --expect-shortcut
-      - name: Tests
+      - name: Tests (on their own Xvfb; without a display every window test skips itself, 19.11.)
         if: ${{ !cancelled() }}
         working-directory: ${{ env.PLUGIN_DIR }}
-        run: .venv/bin/python tests/run_all.py -j 4
+        run: |
+          Xvfb :98 -screen 0 1280x800x24 & sleep 2
+          DISPLAY=:98 .venv/bin/python tests/run_all.py -j 4
 
   distro:
     name: ${{ matrix.image }} (container)
@@ -198,3 +200,10 @@ jobs:
           cd "$PLUGIN_DIR"
           Xvfb :99 -screen 0 1280x800x24 & sleep 2
           DISPLAY=:99 .venv/bin/python tests/ci_install_smoke.py --expect-shortcut
+      - name: Tests (on their own Xvfb, as in the ubuntu jobs; Fedora has Tk 9, 19.11.)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          cd "$PLUGIN_DIR"
+          Xvfb :98 -screen 0 1280x800x24 & sleep 2
+          DISPLAY=:98 .venv/bin/python tests/run_all.py -j 4

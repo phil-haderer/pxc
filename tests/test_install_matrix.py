@@ -77,6 +77,13 @@ def workflow_checks():
     for pkg in ("libxcursor1", "libXcursor", "libxcursor"):
         assert pkg in text and pkg in sh, pkg
     assert "\t" not in text, "YAML must not contain tabs"
+    # the full tests on Linux, in the ubuntu jobs and in the containers (Debian, Fedora with Tk 9, Arch), with a display: without
+    # one every window test skipped itself and the Linux jobs never ran a single window test (found 19.11.)
+    linux_tests = "DISPLAY=:98 .venv/bin/python tests/run_all.py -j 4"
+    assert text.count(linux_tests) == 2, text.count(linux_tests)
+    assert ".venv/bin/python tests/run_all.py" not in text.replace(linux_tests, ""), "a Linux test run without a display"
+    distro = text[text.index("\n  distro:"):]
+    assert linux_tests in distro and "if: ${{ !cancelled() }}" in distro
 
 
 def requirements_checks():

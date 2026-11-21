@@ -197,7 +197,7 @@ class StateMixin:
             "mask_grow": int(self.v_grow.get()), "mask_blur": int(self.v_blur.get()), "overlap": int(self.v_overlap.get()),
             "scale": self._scale(),
             "enhance": bool(self.v_enhance.get()),
-            "turbo": bool(self.v_turbo.get()), "stage_on": bool(self.v_stage.get()), "stage2_on": bool(self.v_stage2.get()), "stage3_on": bool(self.v_stage3.get()), "stage_strengths": [round(float(v.get()), 2) for v in self.v_sstr], "loras": self._loras(), "detail": round(float(self.v_detail.get()), 2),
+            "turbo": bool(self.v_turbo.get()), "stage_on": bool(self.v_stage.get()), "stage2_on": bool(self.v_stage2.get()), "stage3_on": bool(self.v_stage3.get()), "stage_strengths": [round(float(v.get()), 2) for v in self.v_sstr], "loras": self._lora_saved(), "detail": round(float(self.v_detail.get()), 2),
             "lora_strength": round(float(self.v_lora_str.get()), 2),
             "layer_mask": layer_mask_key(self.v_lmask.get()),
             "feather_pct": round(float(self.v_feather.get()), 1),
@@ -309,6 +309,7 @@ class StateMixin:
             "stage_on": req.stage_on, "stage2_on": bool(self.v_stage2.get()), "stage3_on": bool(self.v_stage3.get()), "stage_strengths": [round(float(v.get()), 2) for v in self.v_sstr], "detail": req.detail, "loras": [list(x) for x in req.loras], "lora_strength": req.lora_strength if req.lora_strength is not None else self.state.get("lora_strength", 1.0),
             "runs": dict(self.state.get("runs", {})),
             "model_by_mode": dict(getattr(self, "_mode_model", None) or self.state.get("model_by_mode") or {}),
+            "mode_by_model": dict(getattr(self, "_model_mode", None) or self.state.get("mode_by_model") or {}),
             "win_pos": list(getattr(self, "_win_pos", None) or self.state.get("win_pos") or []) or None,
             "queue_cols": self.state.get("queue_cols"), "queue_size": self.state.get("queue_size"),   # the queue window (19.11.)
         })

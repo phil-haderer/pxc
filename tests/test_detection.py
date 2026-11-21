@@ -17,7 +17,7 @@ except ImportError:  # the checks below do not read toml
     sys.modules["tomllib"] = types.SimpleNamespace(load=lambda f: {})
 sys.path.insert(0, str(ROOT))
 
-from pccomfy import comfy, config as cfgmod, inventory, manifest, models  # noqa: E402
+from pccomfy import comfy, config as cfgmod, inventory, manifest, models, workflows  # noqa: E402
 
 LOADERS = {cls: (kind, fld) for kind, (cls, fld, _f) in manifest.KINDS.items()}
 
@@ -106,6 +106,10 @@ def test_resolve():
     assert inventory.resolve("flux2-vae.safetensors", av) == "flux2-vae.safetensors"
     assert inventory.resolve("moss/LORA_DMD2.safetensors", av) == "Moss\\lora_dmd2.safetensors"          # separator and case
     assert inventory.resolve("qwen_3_8b_fp8mixed.safetensors", av) == "Sub/Folder/qwen_3_8b_fp8mixed.safetensors"   # sub-folder
+    # a LoRA the manifest keeps in a sub-folder also counts when it lies directly in loras/ (README, user 20.11.)
+    for found in (inventory.resolve, workflows.lora_file):
+        assert found("Moss\\lora_dmd2.safetensors", ["lora_dmd2.safetensors"]) == "lora_dmd2.safetensors"
+        assert found("Moss\\lora_dmd2.safetensors", ["Mine\\Sub\\lora_dmd2.safetensors"]) == "Mine\\Sub\\lora_dmd2.safetensors"
     assert inventory.resolve("nothing.safetensors", av) is None
     assert inventory.resolve("a.safetensors", ["x/a.safetensors", "y/a.safetensors"]) is None            # two candidates: no guess
     assert inventory.resolve("seedvr2_ema_vae_fp16.safetensors", ["ema_vae_fp16.safetensors"],

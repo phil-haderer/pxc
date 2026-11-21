@@ -152,10 +152,10 @@ def delete(entries: list[dict], index: int) -> None:
 
 
 def label(entry: dict) -> str:
-    """The menu label, function first, then model, then the name: "[Edit canvas · Flux 3 Klein] Summer meadow" (user 12.11.; the tag
-    is left out when nothing was remembered)."""
+    """The menu label, function first, then model, then the name: "Edit canvas · Flux 3 Klein – Summer meadow" (user 12.11.; no
+    square brackets since 21.11.; the tag is left out when nothing was remembered)."""
     tag = " · ".join(x for x in (entry.get("function", ""), entry.get("model", "")) if x)
-    return f"[{tag}] {entry['name']}" if tag else entry["name"]
+    return f"{tag} – {entry['name']}" if tag else entry["name"]
 
 
 def context(entry: dict, model_labels: dict, mode_labels: dict) -> dict:

@@ -54,6 +54,12 @@ def main():
     popped.clear()
     assert app._copy_menu(ev) is None and not popped          # the dot and the badge have nothing to copy
 
+    # the function, model and Edit list chips: no Copy (it covered the model chip's own menu, user 20.11.)
+    for chip in (app.b_mode, app.b_model):
+        ev.widget = chip
+        popped.clear()
+        assert app._copy_menu(ev) is None and not popped, chip
+
     # the dot is red until ComfyUI answers; never grey
     assert str(app.lbl_dot.cget("style")) == "ConnBad.TLabel"
     gui.set_dot(app.lbl_dot, None)

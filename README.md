@@ -44,14 +44,14 @@ Many test rounds went into PxC, and every line of it was written with Claude Cod
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/expand-dark.png"><img src="readme-images/icons/expand-light.png" alt="" width="20" height="20"></picture>&nbsp; Expand
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/fill-dark.png"><img src="readme-images/icons/fill-light.png" alt="" width="20" height="20"></picture>&nbsp; Fill
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/remove-dark.png"><img src="readme-images/icons/remove-light.png" alt="" width="20" height="20"></picture>&nbsp; Remove
-  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/edit-dark.png"><img src="readme-images/icons/edit-light.png" alt="" width="20" height="20"></picture>&nbsp; Edit, with five tabs: Edit canvas · Multi image edit · Sketch to image · Scribble on photo · Scribble with reference
+  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/edit-dark.png"><img src="readme-images/icons/edit-light.png" alt="" width="20" height="20"></picture>&nbsp; Edit, with five modes in a list: Edit canvas · Multi image edit · Sketch to image · Scribble on photo · Scribble with reference
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/upscale-refine-dark.png"><img src="readme-images/icons/upscale-refine-light.png" alt="" width="20" height="20"></picture>&nbsp; Upscale / Refine
 
   Not every model offers every function or mode: MOSS and Krea, for example, only do Text to image.
 - **LLMs included:** one tick lets a text model improve your prompt. It also describes the canvas and reference images, turns sketches and scribbles into prompts, and names what to remove.
 - **Your own prompts:** save a prompt under a name and use it again later, with the function and model it was made for.
 - **Tested settings:** every function and model starts with its tested settings; change them under Advanced settings if you like.
-- **Your models, organised:** **Download missing files** fetches each model as one pack and puts every file into the right ComfyUI folder. Already have a model in another version? Choose your own file in the file's field in the gear window (Model Links) instead of downloading it again: besides the int8 ConvRot files PxC downloads, the bf16, fp8 and nvfp4 versions of the same model can be used, and GGUF for the main model with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) node pack.
+- **Your models, organised:** **Download missing files** fetches each model as one pack and puts every file into the right ComfyUI folder. Already have a model in another version? Choose your own file in the file's field in the gear window (Model Links) instead of downloading it again: besides the int8 ConvRot files PxC downloads, the bf16, fp8 and nvfp4 versions of the same model can be used, and GGUF for the main model with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) node pack. PxC also recognises six other versions of the main models and uses the settings from their model cards: Qwen Image 2.1 Turbo int8, MOSS Image Base int8, Kromoss int8 (a fine-tune of MOSS), Fibo 2.0 Dev int8, Krea 2 Turbo fp8 and MiniMax H3 Image w4a8. Pick one in Model Links, or keep it in the folder instead of the file PxC downloads. Qwen Image 2.1 Turbo and Fibo 2.0 Dev are tested in every function, MiniMax H3 Image w4a8 in Text to image and Edit, Kromoss not yet, the others in Text to image.
 - **Team use:** run ComfyUI on one strong PC or server and point several PxC installations at it (gear window ▸ ComfyUI address). The queue lists your own jobs and, read-only, the jobs of the others, and the progress bar shows how many jobs are ahead of yours.
 
 > Unofficial community project, not affiliated with PhotoCraft, ArtCraft or Storyteller. PhotoCraft is in early alpha
@@ -63,11 +63,11 @@ Many test rounds went into PxC, and every line of it was written with Claude Cod
 
 The Style prompts button beside the prompt adds a ready-made style text. A few of the built-in styles:
 
-**Text to image** (87 styles in 13 groups)
+**Text to image** (80 styles in 13 groups)
 
 - **Photo:** Tilt-shift, miniature look · Golden hour travel photo · Drone shot from above · Night light trails, long exposure
 - **Studio & product:** Studio portrait · Business headshot · Product photo, glass on white · Food photography
-- **Film look:** Film noir, teal and fog · Neon city night, bokeh · 1970s film, muted greens
+- **Film look:** Film look, warm dusk · Neon city night, bokeh · 1970s film, muted greens
 - **Black & white:** Black and white, hard light and shadows · Double exposure, black and white
 - **Painting:** Oil painting, 19th-century realism · Impressionist painting, sunny · Watercolor storybook · Japanese ink wash
 - **Drawing & print:** Pencil gesture sketch · Etching, cross-hatched · Linocut print
@@ -75,19 +75,19 @@ The Style prompts button beside the prompt adds a ready-made style text. A few o
 - **Anime & comic:** Modern anime, clean lines · Anime, golden sky · Manga, bold ink · 1930s rubber-hose cartoon
 - **3D & craft:** 3D clay render · Claymation, stop-motion · Low-poly game look · Voxel diorama, pastel
 - **Pixel & glitch:** Pixel art · VHS glitch
-- **Retro & vintage:** Technicolor, 1950s print · 1980s airbrush · Synthwave, neon retro
+- **Retro & vintage:** Technicolor, 1950s print · Synthwave, neon retro
 - **Fantasy & sci-fi:** Dark fantasy, glowing neon · Cyberpunk neon, rain · Cosmic glow
 - **Surreal:** Floating objects, blue sky · Surreal reflections, pastel
 
-**Edit** (41 styles in 7 groups)
+**Edit** (34 styles in 7 groups; a style that Text to image has too carries the same name and look)
 
-- **Photo:** Realistic photo · Studio portrait · Vintage black-and-white photo · Cyanotype
-- **Film look:** Film look, warm dusk · Film noir, teal and fog
-- **Painting:** Watercolor · Oil painting · Impressionist painting · Japanese ink wash
-- **Drawing & print:** Pencil drawing · Linocut · Etching, cross-hatched
-- **Anime & comic:** Animated film · Anime · Clear-line comic · Modern comic, cel shaded
-- **Graphic & poster:** Flat vector · Mid-century travel poster · Risograph
-- **Retro & vintage:** Pixel art · Technicolor, 1950s print · Synthwave
+- **Photo:** Realistic photo · Studio portrait · Vintage black-and-white photo · Cyanotype blue print, glowing
+- **Film look:** Film look, warm dusk · Film look, cool blue night
+- **Painting:** Watercolor storybook · Oil painting, 19th-century realism · Impressionist painting, sunny · Japanese ink wash
+- **Drawing & print:** Pencil gesture sketch · Linocut print · Etching, cross-hatched
+- **Anime & comic:** Animated film · Modern anime, clean lines · Clear-line comic
+- **Graphic & poster:** Flat vector, sunny · Mid-century travel poster · Risograph, blue and yellow
+- **Retro & vintage:** Pixel art · Technicolor, 1950s print · Synthwave, neon retro
 
 </details>
 
@@ -147,7 +147,7 @@ Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface 
 
 ## Model downloads
 
-**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder (a folder like `loras/Flux 3` is a sub-folder you create), then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
+**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder, then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
 
 **Custom nodes** (small add-ons for ComfyUI; install them from the ComfyUI Manager or the link, then restart ComfyUI):
 - [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): needed for Flux 2 and for Upscale with Flux 3 and Fibo.
@@ -320,8 +320,8 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 | **Remove Selection** | Draw a selection around any object, with a little margin, and name it in the prompt field ("car"). It is removed and the background is filled in. With Flux 3 Klein, Flux 2 Klein and Fibo you can leave the prompt empty: their text model names the subject itself. |
 | **Edit** › Edit canvas | Changes the whole picture based on your prompt, or use one of the many **Style prompts** (painting, comic, film look …). |
 | **Edit** › Multi image edit | Edits the picture with reference images (drop or paste images into the slots). A click on the tag on a slot puts it where your cursor is in the prompt. |
-| **Edit** › Sketch to image | Turns a sketch on a white canvas into a picture in the style you choose under **Style prompts** (photo, painting, comic …). Simply replace `<WHAT IT SHOWS>` in the prompt box with the subject. Needs the model's prompt writer file (see [Model downloads](#model-downloads)); without it this tab is greyed out. |
-| **Edit** › Scribble on photo | Turns scribbles on a photo into real objects: scribble in bright red or green, or on a layer of its own; only that place changes. Replace `<WHAT IT SHOWS>` in the prompt with what goes there. |
+| **Edit** › Sketch to image | Turns a sketch on a white canvas into a picture in the style you choose under **Style prompts** (photo, painting, comic …). Simply replace `SUBJECT` in the prompt box with the subject. Needs the model's prompt writer file (see [Model downloads](#model-downloads)); without it this entry of the Edit list is greyed out. MiniMax runs it without a prompt writer. |
+| **Edit** › Scribble on photo | Turns scribbles on a photo into real objects: scribble in bright red or green, or on a layer of its own; only that place changes. Replace `SUBJECT` in the prompt with what goes there. |
 | **Edit** › Scribble with reference | Like Scribble on photo, but with a reference image: what it shows is placed where you scribbled. Replace `<WHAT IS IN THE REFERENCE>` with what it shows ("a beagle dog"). |
 | **Upscale / Refine** | Pick a factor (1.5x to 4x) in the row "Upscale factor": the whole picture is enlarged into a new document, up to 16 MP. Or pick **Refine**: the picture is cleaned up at the same size, as a new layer. |
 
@@ -338,8 +338,8 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 | Edit › Multi image edit | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Upscale (new file) | ✓ | ✓ | ✓ | ✓ (up to 3x) | | | |
 | Refine (same size) | ✓ | ✓ | ✓ | ✓ | | | |
-| Edit › Sketch to image | ✓ | ✓ | ✓ | ✓ | | | |
-| Edit › Scribble on photo | ✓ | ✓ | ✓ | ✓ | | | |
+| Edit › Sketch to image | ✓ | ✓ | ✓ | ✓ | | | ✓ |
+| Edit › Scribble on photo | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Edit › Scribble with reference | ✓ | ✓ | ✓ | | | | |
 | Text to image | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
@@ -350,8 +350,8 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 - **Results & history:** **Variants** give several results as layers in one group. **Last runs** (the clock at the bottom right) bring back earlier settings. **Undo** and **Redo** beside Generate take back or bring back the last AI result. The seed button brings back the seed of the last run; **Copy canvas** and **Save image** are in the bottom-right menu.
 - **Prompts:** **Style prompts** and **Enhance my Prompt with LLM**; next to it, **Reroll prompt** has the text model write a new prompt. **Save** keeps a prompt under a name, **Describe Canvas** writes what the picture shows, the copy button copies the prompt the text model wrote, and Ctrl+Z in the field brings back a deleted prompt.
 - **Pictures & references:** drop, paste (Ctrl+V) or add pictures to the **reference slots**; click a slot's tag or drag its picture into the prompt to name it. **Cut out:** the scissors at the bottom right remove the background with **BiRefNet**, **RMBG-2.0** or **Both**: a copy of the picture is added as a new layer with an editable layer mask. Every reference slot has its own cut-out button. It needs the optional files under [Model downloads](#model-downloads) ▸ Remove background. A **live preview** shows the picture while it is being made.
-- **Work faster:** Ctrl+Enter generates, Esc stops a run, Ctrl+S saves the picture, Q opens the queue. **Batch** runs Refine, Upscale or Edit on all open pictures or a whole folder (optional dry run on the first picture); the **queue** shows what is waiting. **Startup settings:** right-click a model chip and choose "Set current settings as startup settings"; **Reset page** in the bottom-right menu goes back. **Hide this model** for models you do not use, and a **Tip of the day** at start (can be switched off).
-- **Files & settings:** **Check files** (gear window ▸ Model Links ▸ ⋯) compares the model files on your disk with their checksums; a damaged file is named, never deleted. **Advanced settings:** edge feather, context size, mask density, custom LoRAs.
+- **Work faster:** Ctrl+Enter generates, Ctrl+Alt+Enter stops a run, Esc closes the queue or the settings, Ctrl+S saves the picture, Q opens the queue. **Batch** runs Refine, Upscale or Edit on all open pictures or a whole folder (optional dry run on the first picture); the **queue** shows what is waiting. **Startup settings:** right-click a model chip and choose "Set current settings as startup settings"; **Reset page** in the bottom-right menu goes back. **Hide this model** for models you do not use, and a **Tip of the day** at start (can be switched off).
+- **Files & settings:** **Check files** (gear window ▸ Model Links ▸ ⋯) compares the model files on your disk with their checksums; a damaged file is named, never deleted. **Advanced settings:** edge feather, context size, mask density, sampling, custom LoRAs; the head row names the model and function they belong to, a blue dot marks a changed value and **Reset** brings back their startup settings.
 
 <a id="help"></a>
 <details>

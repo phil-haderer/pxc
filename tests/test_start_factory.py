@@ -93,7 +93,7 @@ def main():
         assert app.v_detail.get() == 1.0
         assert app.v_context.get() != 0.9 and app.v_grow.get() != 40 and app.v_blur.get() != 33
         assert app._loras() == [], app._loras()
-        assert app.v_status.get() == "Ready"
+        assert app.v_status.get() == ""          # no "Ready" (21.11.)
     finally:
         app.root.destroy()
     # "Set current settings as my standard settings" is loaded at the start (user 4.11., evening); a value not saved stays at the standard

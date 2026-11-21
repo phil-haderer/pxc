@@ -37,6 +37,9 @@ PROMPT_FILE = ROOT / "docs" / "tests" / "testprompts.md"
 # one or two of each kind: text, counting, position, faces, motion, colours, layout
 PROMPTS = [1, 12, 25, 40, 55, 73, 90, 101, 120, 143, 160, 180]
 VARIANTS = (False, True)            # LLM prompt enhancement off / on
+# window title and summary heading; tests/live_fibo_t2i_dev.py reuses rate and summary with its own
+TITLE = "Fibo Text to image: LLM blind vergleichen"
+HEADING = "Fibo-LLM-Testrunde"
 
 
 class _NoPhotoCraft:
@@ -117,7 +120,7 @@ def cmd_rate(a):
     fout = out / "bewertung.json"
     data = json.loads(fout.read_text(encoding="utf-8")) if fout.exists() else {}
     root = tk.Tk()
-    root.title("Fibo Text to image: LLM blind vergleichen")
+    root.title(TITLE)
     root.configure(bg="#282828")
     st = {"i": 0}
     choice, note = tk.StringVar(), tk.StringVar()
@@ -230,7 +233,7 @@ def cmd_summary(a):
             pp["beide schlecht"] += 1
     rated = sum(1 for r in data.values() if r.get("wahl"))
     a_, b_ = labels
-    lines = [f"# Fibo-LLM-Testrunde {out.name}", "", f"Bewertet: {rated} von {len(key['pairs'])} Paaren "
+    lines = [f"# {HEADING} {out.name}", "", f"Bewertet: {rated} von {len(key['pairs'])} Paaren "
              f"({key.get('size', '?')} px, Startwerte von Fibo Text to image)", "",
              f"| {a_} besser | {b_} besser | gleich gut | beide schlecht |", "|---|---|---|---|",
              f"| {wins[a_]} | {wins[b_]} | {same} | {bad} |", "", "Je Prompt:", "",

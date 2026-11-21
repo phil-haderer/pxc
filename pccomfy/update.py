@@ -80,6 +80,12 @@ def is_newer(latest: str, current: str = __version__) -> bool:
     return bool(a and b and a > b)
 
 
+def is_dev(version: str | None = None) -> bool:
+    """The working folder (its version ends in "-dev"; a release export always writes the tag's version): no check at the
+    start and no blue dot from a release found earlier (user 21.11.); "Check now" by hand still asks."""
+    return str(__version__ if version is None else version).strip().lower().endswith("-dev")
+
+
 def due(last, now: float | None = None) -> bool:
     """The start check runs when the last one is a day old (or there was none, or the clock went back)."""
     now = time.time() if now is None else now

@@ -6,6 +6,40 @@ entry here.
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-11-21
+
+### Added
+- **MiniMax H3 Image: Sketch to image and Scribble on photo.** MiniMax is also first in the model list.
+- **Style picker:** Styles opens a box of square preview pictures, grouped by chips; Custom prompts are listed in the
+  same box (click = use, right-click = use, append, edit or delete). A style replaces a prompt you have not touched.
+  Text to image also offers the Edit canvas styles, in the same order.
+- **Model variants:** known variants of a model file (for example Kromoss for MOSS Image) are recognised and run with
+  their own settings.
+- Each custom LoRA row has its own on/off tick.
+- **Advanced settings** are grouped; a dot marks every value you changed from the start value.
+- Model Links: a coloured chip shows the state of each model; the file list marks the file in use and real
+  replacements with dots, with a legend. Undo has no time limit, one step per click.
+- The queue window keeps finished runs of other PCs as "Done".
+
+### Changed
+- **Generate turns into Stop** while a run is on (with a short guard against double clicks); the Edit tabs are a
+  list right under the head chips, and functions and models are two list chips in the head, as wide as their lists.
+- PCs sharing one ComfyUI take turns picture by picture.
+- Remove: picking it always empties the prompt field; your text comes back when you leave Remove.
+- Qwen Image Fill: the layer mask follows the object, so an object drawn larger than the selection is no longer cut
+  off. MiniMax Scribble on photo does the same.
+- Sketch prompts use SUBJECT as the placeholder; new, shorter tips under the prompt for Edit canvas, Multi image edit
+  and Scribble on photo.
+- The MOSS prompt writer writes short English prompts.
+- Styles renamed alike across modes; eight styles removed; no "Ready" line; no outlines on the blue buttons and the
+  progress bar.
+
+### Fixed
+- The settings window stays inside the screen's work area and always opens at full height.
+- Escape closes the queue or settings window but never stops a run; Stop during a batch ends only that batch.
+- Linux: copied pictures stay on the X11 clipboard (with time limits), the batch window keeps its bottom edge.
+- Qwen Turbo in Expand runs without the sigma schedule.
+
 ## [1.0.7] - 2026-11-19
 
 ### Added
@@ -112,7 +146,8 @@ in your document.
 - Windows 10/11 and Linux, an NVIDIA graphics card, PhotoCraft 0.20.2 or newer.
 - One custom node pack: ComfyUI-KJNodes.
 
-[Unreleased]: ../../compare/v1.0.7...HEAD
+[Unreleased]: ../../compare/v1.0.8...HEAD
+[1.0.8]: ../../compare/v1.0.7...v1.0.8
 [1.0.7]: ../../compare/v1.0.6...v1.0.7
 [1.0.6]: ../../compare/v1.0.5...v1.0.6
 [1.0.5]: ../../compare/v1.0.4...v1.0.5

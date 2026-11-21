@@ -68,14 +68,30 @@ def llm_gap_checks(app):
     app.v_mode.set("txt2img")
     app._on_model()
     app.root.update()
+    # (the Turbo LoRA sits in the Advanced settings since 20.11.: UltraReal is the one row under the LLM row; the gap
+    # between two rows is measured in Qwen's switch box, Turbo LoRA over the next row)
     rows = [w for w in [app.cb_turbo] + app.stage_cbs if w.winfo_ismapped()]
-    assert app.f_enh.winfo_ismapped() and len(rows) >= 2, ([str(w) for w in rows])
+    assert app.f_enh.winfo_ismapped() and len(rows) == 1 and rows[0] is not app.cb_turbo, ([str(w) for w in rows])
     below_llm = rows[0].winfo_rooty() - bottom(app.f_enh)
-    between = rows[1].winfo_rooty() - bottom(rows[0])
-    assert abs(below_llm - between) <= 1, (below_llm, between)
+    pady = rows[0].grid_info()["pady"]
+    gap = int(str(pady[0] if isinstance(pady, (tuple, list)) else str(pady).split()[0]))      # the rows' own gap above each row
+    assert abs(below_llm - gap) <= 1, (below_llm, gap)
     # the copy icon must not make the LLM row taller than its checkbox (at 150 % it did: 30 px against 26, 4 px more gap; 13.11.)
     assert app.b_copy.winfo_reqheight() <= app.cb_enhance.winfo_reqheight(), (app.b_copy.winfo_reqheight(), app.cb_enhance.winfo_reqheight())
     assert app.f_enh.winfo_height() == app.cb_enhance.winfo_height(), (app.f_enh.winfo_height(), app.cb_enhance.winfo_height())
+    # the copy icon is there only once the text model wrote a prompt (user 20.11.), right of the checkbox, before Reroll
+    app._last_vgl = ""
+    app._sync_copy()
+    assert not app.b_copy.winfo_manager()
+    app._last_vgl = "a written prompt"
+    app._sync_copy()
+    slaves = app.f_enh.pack_slaves()
+    assert app.b_copy.winfo_manager() == "pack" and slaves.index(app.b_copy) == slaves.index(app.cb_enhance) + 1
+    if app.b_reroll.winfo_manager():
+        assert slaves.index(app.b_reroll) > slaves.index(app.b_copy)
+    app._last_vgl = ""
+    app._sync_copy()
+    assert not app.b_copy.winfo_manager()
 
 
 def closed_advanced_checks(app):
@@ -108,11 +124,39 @@ def closed_advanced_checks(app):
         assert app.sep_status.winfo_rooty() - (text_top + th) <= 7, app.sep_status.winfo_rooty() - (text_top + th)
 
 
+def hold_still(app, seconds=1.0):
+    """A real window manager (Wayland via XWayland) may still move a window it just showed (title bar, 1 px): update until
+    the plugin window stands still for 0.1 s, at most `seconds` (Mint laptop 19.11.)."""
+    import time
+    end, last, since = time.monotonic() + seconds, None, time.monotonic()
+    while time.monotonic() < end:
+        app.root.update()
+        pos = (app.root.winfo_rootx(), app.root.winfo_rooty())
+        if pos != last:
+            last, since = pos, time.monotonic()
+        elif time.monotonic() - since >= 0.1:
+            return
+        time.sleep(0.02)
+
+
+def settle(app, ok, seconds=1.0):
+    """A real window manager (X11) moves windows a moment later: update until `ok()` holds, at most `seconds` (Mint laptop
+    19.11., under the load of the full run)."""
+    import time
+    end = time.monotonic() + seconds
+    while not ok() and time.monotonic() < end:
+        app.root.update()
+        time.sleep(0.02)
+
+
 def small_window_place_checks(app):
     """Queue: where the settings window opens (beside the plugin window, tops level). Batch: beside the plugin window on the side
     of the ⋯ button with the same gap, bottom edges level, and it keeps that bottom edge when it grows (user 12.11.)."""
     app.root.deiconify()
-    app.root.update()
+    # room above the plugin window: the dry-run window may be taller than the plugin (the head is lower since 20.11.), and
+    # a window above the screen's top edge is held at 0, so the bottom edges could not be level
+    app.root.geometry(f"+{app.root.winfo_rootx()}+{max(app.root.winfo_rooty(), 300)}")
+    hold_still(app)
     try:
         app.open_queue()
         app.root.update()
@@ -124,12 +168,14 @@ def small_window_place_checks(app):
         app.root.update()
         w, r = app._batch_dlg, app.root
         assert w.winfo_ismapped()
+        settle(app, lambda: abs(bottom(w) - bottom(r)) <= 2)
         assert abs(w.winfo_rootx() - (right(r) + 8)) <= 2, (w.winfo_rootx(), right(r))
         assert abs(bottom(w) - bottom(r)) <= 2, (bottom(w), bottom(r))
         import tkinter.ttk as ttk
         ttk.Label(w, text="one more line\nand another\nand a third").pack()     # the content grows (a folder was chosen …)
         for _ in range(5):
             app.root.update()
+        settle(app, lambda: abs(bottom(w) - bottom(r)) <= 2)
         assert abs(bottom(w) - bottom(r)) <= 2, ("after growing", bottom(w), bottom(r))
         app._batch_close()
         # the dry run opens where the batch window was: beside the plugin, bottom edges level (user 13.11.)

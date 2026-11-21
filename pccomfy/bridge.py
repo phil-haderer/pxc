@@ -33,7 +33,7 @@ from typing import Callable
 import numpy as np
 from PIL import Image
 
-from . import __version__, config, fillmask, imaging, inventory, manifest, models, refslots, scribble, workflows
+from . import __version__, config, fillmask, imaging, inventory, manifest, models, refslots, scribble, variants, workflows
 from .comfy import Cancelled, ComfyUI
 from .photocraft import PhotoCraft, PhotoCraftError
 
@@ -158,6 +158,7 @@ class Request:
     #                                      ("[seam fix]" on top, "[raw]" hidden below it; imaging.seam_correct)
     seam_fixed: bool = False             # the same correction always on (Fibo, user 29.10.): one corrected layer, no A/B
     sampler_override: dict = field(default_factory=dict)   # {"steps": .., "cfg": .., "denoise": .., "sampler": .., "scheduler": ..} typed over the workflow's sampler
+    variant: str = ""                    # the file of a known model variant the run uses (pccomfy/variants.py, set by the window)
     doc_tag: str = ""                    # Upscale: model and options in the new document's name ("Flux3Klein x1.5 SeedVR2")
     label: str = ""                      # added to the layer names (a comparison run: "res 1024")
     preset: str = ""                     # name of the preset used: the layers are named "<preset> #<run_no>"
@@ -170,6 +171,8 @@ class Request:
                                          # empty = "<mode> variants"
     scribble: bool = False               # Sketch, "Scribble on photo" (runs as edit): find the scribble, generate only a crop
                                          # around it and put it back there with a fading layer mask (scribble.py)
+    scribble_object: bool = False        # ... with the layer mask following the drawn object (Mode.scribble_object_mask, MiniMax)
+    fill_object: bool = False            # Fill: the layer mask also covers the object where it reaches past the selection (Qwen)
 
 
 BBOX_MARGIN = 0.15  # BBOX layer mask: the box grown by this share of its size on every side (user 30.10.: 50 % was far too big; big test: 40 % kept nearly every object whole, 0 % cut larger ones)
@@ -200,6 +203,8 @@ def sketch_text(text: str) -> str:
     prompt is always visible and editable). Left in, it becomes the generic sentence of the test rounds: "Turn this sketch
     into ...", "Replace the coloured scribbles with what they show, ..."; anywhere else it is dropped."""
     mark = models.SKETCH_MARK
+    for old in models.OLD_SKETCH_MARKS:      # a prompt saved before 21.11.
+        text = (text or "").replace(old, mark)
     if mark not in (text or ""):
         return text
     text = text.replace("sketch of " + mark + " into", "sketch into").replace("with " + mark, "with what they show")
@@ -636,10 +641,13 @@ class Bridge:
         self.keep_files = keep_files
         self.pipeline = ""
         self.last_vgl = ""
+        # the prompts the writer wrote (writer_key -> text), user 20.11.: the same request, picture, text model and writer seed
+        # send the kept text, so a run of another graph in between (ComfyUI keeps only the last graph's results) does not
+        # make the writer write again; "Reroll prompt" (a new seed) gives a new key. Kept while the plugin runs.
+        self._written: dict[str, str] = {}
         self._scribble_layer = None      # Scribble on photo: the id of the scribble layer found on top (hidden after the run)
         self._cancel = threading.Event()
         self._cancel_all = threading.Event()    # "Cancel all": stops the variants and comparison runs that would follow too
-        self._cancel_tl = threading.local()     # cancel_check() of the calling thread (a batch picture placed ahead of time)
         self.on_preview = None                  # the window's callback for live preview frames (PIL images), see Request.preview
         self._tmp: list[Path] = []
         self._snap: dict | None = None          # history snapshot taken before the last generation (for "Undo AI edit")
@@ -659,22 +667,6 @@ class Bridge:
         """Cancel the run that is on now and every one that follows it."""
         self._cancel_all.set()
         self._cancel.set()
-
-    @contextlib.contextmanager
-    def cancel_check(self, check):
-        """For the runs the CALLING THREAD makes inside the block: check() instead of Cancel decides when the run is
-        cancelled (the batch picture placed at ComfyUI ahead of time, jobqueue.py: Stop of the job that runs must not end
-        it). Other threads are not affected."""
-        old = getattr(self._cancel_tl, "check", None)
-        self._cancel_tl.check = check
-        try:
-            yield
-        finally:
-            self._cancel_tl.check = old
-
-    def _cancelled(self) -> bool:
-        check = getattr(self._cancel_tl, "check", None)
-        return bool(check()) if check is not None else self._cancel.is_set()
 
     def cancel_all_requested(self) -> bool:
         return self._cancel_all.is_set()
@@ -907,7 +899,7 @@ class Bridge:
         kw = {"on_preview": on_preview} if on_preview is not None else {}
         if ws is not None:
             kw["ws"] = ws
-        return self.comfy.wait(prompt_id, on_progress=on, cancelled=self._cancelled, **kw)
+        return self.comfy.wait(prompt_id, on_progress=on, cancelled=self._cancel.is_set, **kw)
 
     @staticmethod
     def _auto_stages(req: Request, wf: str, mp: float) -> Request:
@@ -1156,6 +1148,10 @@ class Bridge:
                                              prompt=named or remove_prompt(mask.crop(region.pil()), attempt, req.remove_target))
                     p.seed = gp.seed
                 graph, out_node = self._graph(req, gp, image_name, mask_name, wf, ref_name, force_plain=marked and not (fill and req.enhance and prompt_phase_nodes(workflows.load_template(wf))), layout=layout)
+                wkey = workflows.writer_key(graph, getattr(self.comfy, "upload_hashes", None)) if req.enhance else ""
+                kept = self._written.get(wkey) if wkey else None
+                if kept is not None:          # written before for the same key: no writing again (user 20.11.)
+                    graph = workflows.use_written(graph, kept)
                 self._save_graph(graph)
                 self._log_run(req, gp, wf, attempt)
                 if not attempt:
@@ -1177,9 +1173,13 @@ class Bridge:
                                       on_preview=self.on_preview if live else None, ws=ws)
                 finally:
                     self.comfy.close_events(ws)
-                vgl = self._vgl_text(graph, hist)
+                vgl = kept if kept is not None else self._vgl_text(graph, hist)
                 if vgl:
                     self.last_vgl = vgl
+                    if wkey and kept is None:
+                        if len(self._written) >= 64:
+                            self._written.pop(next(iter(self._written)))
+                        self._written[wkey] = vgl
                 ims = self.comfy.output_images(hist, out_node)[: max(1, req.variants)]
                 if tries == 1 or not ims:
                     break
@@ -1217,9 +1217,9 @@ class Bridge:
         self._last_models = frozenset()
         self.freed += 1
         end = time.monotonic() + FREE_PAUSE_S
-        while time.monotonic() < end and not self._cancelled():
+        while time.monotonic() < end and not self._cancel.is_set():
             time.sleep(0.1)
-        if self._cancelled():
+        if self._cancel.is_set():
             raise Cancelled()
         return True
 
@@ -1302,8 +1302,13 @@ class Bridge:
                     lm = layer_mask
                     if found is not None:      # colour matched to the photo around the scribble, pasted into the canvas
                         im, _m = scribble.put_back(imaging.to_rgb(src), im, found, region)
-                        if req.refs:           # Reference at scribble: the mask follows the object (window test 15.11.)
+                        # Reference at scribble (window test 15.11.) and MiniMax (user 21.11.: it draws larger than the
+                        # scribble, the fade from the box left soft edges): the mask follows the object
+                        if req.refs or req.scribble_object:
                             lm = scribble.object_mask(imaging.to_rgb(src), im, found, region)
+                    elif req.fill_object and lm is not None and bbox is not None and mode == "soft":
+                        # Qwen Fill (user 21.11.): it often draws the object larger than the selection; the mask follows it
+                        lm = scribble.change_mask(imaging.to_rgb(src).crop(region.pil()), im, bbox, region, (W, H), lm)
                     lab = " ".join(x for x in (label, ab) if x)
                     if req.preset:
                         name = f"{req.preset} #{req.run_no}" + (f".{i + 1}" if count > 1 else "") + (f" [{lab}]" if lab else "")
@@ -1643,7 +1648,13 @@ class Bridge:
             if not req.enhance or force_plain:
                 # first: without the text model, a picture it alone needed (Text to image) is not required either
                 tpl = workflows.bypass_prompt_writer(tpl, workflows.tagged_for_writer_off(tpl, p.prompt))
-            if not req.turbo:
+            variant = variants.get(req.variant)
+            if variant is not None and variant.base not in variants.unet_names(tpl):
+                variant = None           # a variant of another model's file (the window switched models): not this workflow
+            # no speed LoRA in the workflow (Fibo): the Turbo tick means nothing, the variant runs with its own values, as
+            # the window shows them (gui_modes: speed = turbo or no LoRA switch); 20.11., Fibo Dev ran with 4 steps, CFG 1
+            speed = bool(req.turbo) or not workflows.lora_switches(tpl)
+            if not req.turbo or (variant is not None and variant.lora_off):
                 tpl = workflows.bypass_lora(tpl)
             elif req.lora_strength is not None:
                 tpl = workflows.set_lora_strength(tpl, req.lora_strength)
@@ -1656,6 +1667,8 @@ class Bridge:
                     off.append(first)
             if off:
                 tpl = workflows.bypass_stage(tpl, off)
+            if variant is not None:      # the variant's own values first (they stand in the window's fields too)
+                tpl = workflows.set_sampler(tpl, **variants.sampler_values(variant, speed))
             if req.sampler_override:
                 tpl = workflows.set_sampler(tpl, **{k: v for k, v in req.sampler_override.items() if k in ("steps", "cfg", "denoise", "sampler", "scheduler")})
             if req.loras:
@@ -1677,6 +1690,11 @@ class Bridge:
                     workflows.describe_reference(graph, ref_ids[0], ref_scribble_object(request) or "object")
             if layout:
                 workflows.add_layout(graph, *layout)
+            sigmas = variants.sigmas_for(variant, req.mode)
+            if sigmas and "steps" not in req.sampler_override:
+                nid = workflows.main_sampler(graph)        # a fixed sigma schedule (Qwen Turbo), only at full denoise
+                if nid is not None:
+                    variants.use_manual_sigmas(graph, nid, sigmas)
             workflows.set_writer_seed(graph, p.writer_seed if p.writer_seed is not None and p.writer_seed >= 0 else 0)
             return graph, out
         if not p.checkpoint:
@@ -1701,7 +1719,7 @@ class Bridge:
                    "turbo": req.turbo, "enhance": req.enhance, "layer_mask": req.layer_mask, "base_res": req.base_res,
                    "native": req.native, "native_mp": req.native_mp, "gen_mp": req.gen_mp, "new_document": req.new_document,
                    "ref_native": req.ref_native, "ref_mp": req.ref_mp, "ref_side": req.ref_side,
-                   "context": req.context, "sampler": req.sampler_override, "prompt": (gp.prompt or "")[:600]}
+                   "context": req.context, "sampler": req.sampler_override, "variant": req.variant, "prompt": (gp.prompt or "")[:600]}
             f.write_text("\n".join(old + [json.dumps(rec, ensure_ascii=False)]) + "\n", encoding="utf-8")
         except (OSError, TypeError, ValueError):
             pass

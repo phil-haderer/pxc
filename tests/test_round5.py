@@ -102,12 +102,14 @@ def main():
     assert not hasattr(app, "_match_widgets") and not hasattr(app, "v_match") and not hasattr(app._request(), "match")
 
     # The LoRA box: shown where the workflow has a LoRA of its own, hidden (not greyed out) where not
-    shown, hidden = rec(app.cb_turbo, "grid"), rec(app.cb_turbo, "grid_remove")
+    # (its own row f_turbo since 20.11.: in the switch box, or for MOSS at the top of the Advanced settings)
+    # (a stub window here: the calls are recorded; the real placement is checked in test_stage_advanced.py)
+    shown, packed = rec(app.f_turbo, "grid"), rec(app.f_turbo, "pack")
     pick("qwen", "edit")
-    assert shown and not hidden
-    shown.clear(); hidden.clear()
+    assert shown and not packed
+    shown.clear()
     pick("fibo", "edit")
-    assert hidden and not shown
+    assert not shown and not packed
     pick("qwen", "edit")
     pick("fibo", "txt2img")
 
@@ -215,7 +217,8 @@ def main():
     for wf, steps in (("flux3-klein-edit.json", 15), ("flux3-klein-t2i.json", 15), ("flux3-klein-upscale.json", 8)):
         assert workflows.sampler_values(workflows.load_template(t.ROOT / "workflows" / wf))["steps"] == steps, wf
     assert app.sep_prompt is not None and gui.scale_text(1.5) == "x 1.5" and gui.scale_text("2.0") == "x 2"
-    assert app.sep_status["style"] == app.sep_prompt["style"] == "Sep.TFrame" and app.sep_status["height"] == 1   # the same light line above the progress line
+    assert app.sep_status["style"] == "Sep.TFrame" and app.sep_status["height"] == 1   # a light line above the progress line
+    assert app.sep_prompt["style"] != "Sep.TFrame"      # no line between the head chips and the prompt (user 20.11.)
 
     # defaults: Flux 3 upscale starts without SeedVR2 and with the Restore LoRA at 50 %; Qwen text to image: no Turbo, enhancer off (user 30.10.)
     assert models.BY_KEY["flux3"].modes["upscale"].settings["stage_on"] is False
@@ -306,7 +309,7 @@ def main():
     assert gui.made_text(0, 1) == "opened 1 new document" and gui.made_text(0, 2) == "opened 2 new documents"
     assert gui.made_text(2, 1) == "created 2 layers"      # layers win when a run made both (not the case today)
     assert "people" not in models.FLUX2_DEFAULT and models.FLUX2_DEFAULT_OLD in models.STOCK_PROMPTS and models.FLUX2_DEFAULT.endswith("Keep the composition and colors exactly as they are.") and models.FLUX2_DEFAULT_PREV in models.STOCK_PROMPTS
-    assert models.EDIT_TIP == "Describe the result: “Replace the laptop with a book.” or “Remove the sitting person.”"
+    assert models.EDIT_TIP == "Example: “Make the person smile.”"   # user 21.11.
     assert app.lbl_hint["wrap"] == "word"      # selectable text
     # an info icon in front of the tip, both in one row (user 29.10.), in the brighter tip blue (user 3.11.)
     from pccomfy import gui_theme
@@ -333,22 +336,15 @@ def main():
     app.f_opts.winfo_manager = lambda: ""
     app._opts_place = ""
     app._update_options_box(True, [])
-    assert grids and grids[-1][1].get("in_") is app.adv_body and grids[-1][1].get("row") == 4, grids
+    assert grids and grids[-1][1].get("in_") is app.adv_body and grids[-1][1].get("row") == 7, grids     # under Sampler (20.11.)
     assert lifts
-    # Qwen (user 17.11.): the Turbo LoRA at the top of the finishing options, where "Sharpen result" was: after Mix
-    # source/new, above Context
+    # Qwen: the Turbo LoRA at the top of the Advanced settings (17.11.), under the heading "Sampling" since 20.11. (f_samp)
     packs3, lifts[:] = rec(app.f_opts, "pack"), []
     pick("qwen", "edit")
     app.f_opts.winfo_manager = lambda: ""
     app._opts_place = ""
-    app.f_ctx.winfo_manager = lambda: "pack"
     app._update_options_box(True, [])
-    assert packs3 and packs3[-1][1].get("before") is app.f_ctx and app._opts_place == "post", packs3
-    on = rec(app.f_detail, "pack")
-    app.f_detail.winfo_manager = lambda: ""
-    app._pack_post(app.f_detail)                       # Qwen Upscale / Refine: Mix source/new goes above the switch box
-    assert on and on[-1][1].get("before") is app.f_opts, on
-    del app.f_ctx.winfo_manager, app.f_detail.winfo_manager, app.f_detail.pack
+    assert packs3 and packs3[-1][1].get("in_") is app.f_samp and app._opts_place == "post", packs3
     assert lifts, "the switch box must be lifted above the Advanced settings (it is no child of adv_body: else it is hidden there)"
 
     # Remove Selection with the name of the object (Flux Klein): the instruction names it; runs.jsonl says what was sent

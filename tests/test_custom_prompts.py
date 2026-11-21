@@ -50,7 +50,7 @@ def main():
     assert cp.context(old, {}, {}) == {"model_key": "", "mode": "", "tab": ""}
     e.clear()
 
-    assert cp.label({"name": "Summer meadow", "model": "Flux 3 Klein", "function": "Edit canvas"}) == "[Edit canvas · Flux 3 Klein] Summer meadow"
+    assert cp.label({"name": "Summer meadow", "model": "Flux 3 Klein", "function": "Edit canvas"}) == "Edit canvas · Flux 3 Klein – Summer meadow"   # no square brackets (user 21.11.)
     assert cp.label({"name": "Plain", "model": "", "function": ""}) == "Plain"
 
     full = []

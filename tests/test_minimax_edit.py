@@ -90,7 +90,14 @@ def main():
 
     # the model
     m = models.BY_KEY["minimax"]
-    assert list(m.modes) == ["txt2img", "edit", "multi_edit"]
+    assert list(m.modes) == ["txt2img", "edit", "multi_edit", "sketch", "scribble"]      # Sketch and Scribble since 21.11. (step 8)
+    for k in ("sketch", "scribble"):      # the Edit graph and the Edit start values, the writer off (user 21.11.: "ohne Schreiber")
+        spec = m.modes[k]
+        assert spec.workflow == WF.name and spec.settings == models.MINIMAX_EDIT and spec.run_as == "edit", k
+        assert spec.steps_tip == models.MINIMAX_STEPS_TIP, k
+    assert m.modes["sketch"].prompt_tip == models.SKETCH_TIP and m.modes["scribble"].prompt_tip == models.SCRIBBLE_TIP
+    assert m.modes["scribble"].prompt_hint == models.SKETCH_SCRIBBLE and m.modes["scribble"].prompts == models.SCRIBBLE_PROMPTS
+    assert not models.offers_ref_scribble(m)          # Scribble with reference: not probed with MiniMax yet
     assert m.max_refs == 6 and m.tag_style == "<Picture {n}>" and m.ref_side == 2048   # probe 14.11.
     assert m.tag_style.format(n=1, i=0) == "<Picture 1>" and m.tag_style.format(n=2, i=1) == "<Picture 2>"
     for k in ("edit", "multi_edit"):
@@ -103,7 +110,7 @@ def main():
 
     # the files: the writer starts off everywhere (user 17.11.), so it is optional for the whole model; nothing else extra
     assert WRITER not in m.requires and WRITER not in manifest.tab_required("minimax")
-    for k in ("txt2img", "edit", "multi_edit"):
+    for k in ("txt2img", "edit", "multi_edit", "sketch", "scribble"):
         assert manifest.mode_extra("minimax", k) == () and WRITER in manifest.mode_optional("minimax", k), k
         assert WRITER not in inventory.mode_files("minimax", k), k
         assert set(manifest.mode_required("minimax", k)) == set(m.requires)

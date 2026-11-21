@@ -46,8 +46,16 @@ class _Ev:
 
 
 class PopMenu:
-    def __init__(self, master, scale: float = 1.0, **ignored_tk_menu_kw):
+    def __init__(self, master, scale: float = 1.0, checks: bool = True, chosen_fg: str | None = None, pad_x: int | None = None,
+                 icon_gap: int = 8, font_size: int = 9, **ignored_tk_menu_kw):
         self.master, self.scale = master, scale
+        # font_size: the rows' font (the head's lists use the chips' 10, user 21.11.); min_width: screen px the popup is at
+        # least wide, set by the caller before posting (a list under its chip is as wide as the chip, user 21.11.)
+        self.font_size, self.min_width = font_size, 0
+        # checks=False (the function and model lists of the head, user 20.11.): no dot / tick column; the chosen radio entry
+        # is drawn in `chosen_fg` (normal weight since 20.11.) instead. pad_x: the rows' left and right padding (default PAD_X); icon_gap: px
+        # between an entry's icon and its text
+        self.checks, self.chosen_fg, self.pad_x, self.icon_gap = checks, chosen_fg, PAD_X if pad_x is None else pad_x, icon_gap
         self._name = f".popmenu{next(_ids)}"
         self.entries: list[dict] = []
         self._binds: dict[str, list] = {}
@@ -77,7 +85,7 @@ class PopMenu:
 
     def _add(self, kind, **kw):
         e = {"type": kind, "label": "", "command": None, "state": "normal", "menu": None, "value": None, "variable": None,
-             "onvalue": True, "offvalue": False, "accelerator": None, "tip": None, "icon": None, "icon_hot": None}
+             "onvalue": True, "offvalue": False, "accelerator": None, "tip": None, "icon": None, "icon_hot": None, "fg": None}
         e.update({k.lstrip("-"): v for k, v in kw.items() if k.lstrip("-") in e})
         if e["state"] not in ("normal", "disabled", "active"):
             e["state"] = "normal"
@@ -201,21 +209,22 @@ class PopMenu:
 
     def _measure(self):
         """Row boxes (top, bottom) inside the margin and the widths; fills self._rows and returns (row_w, content_h)."""
-        fnt = self._font = tkfont.Font(root=self.master, font=font(9))
+        fnt = self._font = tkfont.Font(root=self.master, font=font(self.font_size))
         px = self._px
         has_check = any(e["type"] in ("radiobutton", "checkbutton") for e in self.entries)
         has_arrow = any(e["type"] == "cascade" for e in self.entries)
         has_acc = any(e["accelerator"] for e in self.entries)
-        self._check_w = px(16) if has_check else 0
+        self._check_w = px(16) if has_check and self.checks else 0
         # an entry may carry an "icon" (a PhotoImage kept by the caller): drawn left of the text, in its own column; "icon_hot"
         # (optional, same size) replaces it on the active row, e.g. the white version on the blue hover (user 12.11.)
         icon_w = max([e["icon"].width() for e in self.entries if e["icon"] is not None] or [0])
-        self._icon_w = icon_w + px(8) if icon_w else 0
+        self._icon_w = icon_w + px(self.icon_gap) if icon_w else 0
         self._arrow_w = px(16) if has_arrow else 0
         text_w = max([fnt.measure(e["label"]) for e in self.entries if e["type"] != "separator"] or [0])
         acc_w = max([fnt.measure(str(e["accelerator"])) for e in self.entries if e["accelerator"]] or [0])
         self._acc_w = acc_w + (px(16) if acc_w else 0)
-        row_w = px(PAD_X) + self._check_w + self._icon_w + text_w + self._acc_w + self._arrow_w + px(PAD_X)
+        row_w = px(self.pad_x) + self._check_w + self._icon_w + text_w + self._acc_w + self._arrow_w + px(self.pad_x)
+        row_w = max(row_w, int(self.min_width or 0) - 2 * px(MARGIN_X) - 2)     # the window: rows + margins + 1 px border each side
         row_h = fnt.metrics("linespace") + 2 * px(PAD_Y)
         self._rows, y = [], 0
         for e in self.entries:
@@ -252,7 +261,9 @@ class PopMenu:
         e = self.entries[i]
         disabled = e["state"] == "disabled"
         hot = i == self._active and not disabled
-        return (ACCENT if hot else PANEL), (ON_ACCENT if hot else DISABLED if disabled else FG), (ON_ACCENT if hot else DISABLED if disabled else MUTED)
+        # "fg": an entry's own text colour while it is neither active nor greyed out (a model whose files are missing: red)
+        return ((ACCENT if hot else PANEL), (ON_ACCENT if hot else DISABLED if disabled else e["fg"] or FG),
+                (ON_ACCENT if hot else DISABLED if disabled else MUTED))
 
     def _draw_row(self, i):
         cv, px, m, mx = self._cv, self._px, self._px(MARGIN), self._px(MARGIN_X)
@@ -269,8 +280,11 @@ class PopMenu:
         bg, fg, arrow_fg = self._row_colors(i)
         cv.create_rectangle(x0, y0, x1, y1, fill=bg, outline=bg, tags=(f"r{i}", f"bg{i}"))
         mid = (y0 + y1) // 2
-        if e["type"] in ("radiobutton", "checkbutton") and self._checked(e):
-            cx = x0 + px(PAD_X) + self._check_w // 2 - px(2)
+        chosen = not self.checks and e["type"] == "radiobutton" and self._checked(e)
+        if chosen and self.chosen_fg and e["state"] != "disabled" and bg != ACCENT:
+            fg = self.chosen_fg
+        if self.checks and e["type"] in ("radiobutton", "checkbutton") and self._checked(e):
+            cx = x0 + px(self.pad_x) + self._check_w // 2 - px(2)
             if e["type"] == "radiobutton":
                 r = px(3)
                 cv.create_oval(cx - r, mid - r, cx + r, mid + r, fill=fg, outline=fg, tags=(f"r{i}", f"tick{i}"))
@@ -280,14 +294,14 @@ class PopMenu:
                                tags=(f"r{i}", f"tick{i}"))
         icon = e["icon_hot"] if e["icon_hot"] is not None and bg == ACCENT else e["icon"]
         if icon is not None:
-            cv.create_image(x0 + px(PAD_X) + self._check_w, mid, image=icon, anchor="w", tags=(f"r{i}", f"icon{i}"))
-        cv.create_text(x0 + px(PAD_X) + self._check_w + self._icon_w, mid, text=e["label"], anchor="w", fill=fg, font=font(9),
+            cv.create_image(x0 + px(self.pad_x) + self._check_w, mid, image=icon, anchor="w", tags=(f"r{i}", f"icon{i}"))
+        cv.create_text(x0 + px(self.pad_x) + self._check_w + self._icon_w, mid, text=e["label"], anchor="w", fill=fg, font=font(self.font_size),   # chosen: light blue, not bold (user 20.11.)
                        tags=(f"r{i}", f"fg{i}"))
         if e["accelerator"]:
-            cv.create_text(x1 - px(PAD_X) - self._arrow_w, mid, text=str(e["accelerator"]), anchor="e", fill=arrow_fg,
-                           font=font(9), tags=(f"r{i}", f"acc{i}"))
+            cv.create_text(x1 - px(self.pad_x) - self._arrow_w, mid, text=str(e["accelerator"]), anchor="e", fill=arrow_fg,
+                           font=font(self.font_size), tags=(f"r{i}", f"acc{i}"))
         if e["type"] == "cascade":
-            ax = x1 - px(PAD_X) - px(3)
+            ax = x1 - px(self.pad_x) - px(3)
             h, w = px(4), px(3)
             cv.create_polygon(ax - w, mid - h, ax + w, mid, ax - w, mid + h, fill=arrow_fg, outline=arrow_fg,
                               tags=(f"r{i}", f"arrow{i}"))

@@ -23,6 +23,8 @@ from pccomfy import config as cfgmod, gui, popmenu  # noqa: E402
 from pccomfy.gui_common import ACCENT, ON_ACCENT  # noqa: E402
 from pccomfy.popmenu import PopMenu  # noqa: E402
 
+TOP_CLASSES = ("Toplevel", "Pccomfy")    # Linux: PxC's own windows carry the class "Pccomfy" (hostos.TOP_KW, Mint laptop 19.11.)
+
 MINE = ("gui_modes.py", "gui_run.py", "gui_theme.py", "ui_settings.py")
 
 
@@ -79,7 +81,7 @@ def main():
     e = Ev()
     e.widget = lb
     assert app._copy_menu(e) == "break"
-    tops = [w for w in app.root.winfo_children() if w.winfo_class() == "Toplevel"]
+    tops = [w for w in app.root.winfo_children() if w.winfo_class() in TOP_CLASSES]
     assert tops, "copy menu shown"
     for w in tops:
         w.destroy()
@@ -87,7 +89,7 @@ def main():
     # "Copy download link" over the settings window
     app._settings_win = win = tkinter.Toplevel(app.root)
     app._link_menu(e, "https://example.org/x")
-    pops = [w for w in win.winfo_children() if w.winfo_class() == "Toplevel"]
+    pops = [w for w in win.winfo_children() if w.winfo_class() in TOP_CLASSES]
     assert pops, "the link menu is a child of the settings window"
     for w in pops:
         w.destroy()

@@ -58,14 +58,16 @@ def main():
         time.sleep(0.02)
     assert getattr(app, "_describing", False), \
         f"click never taken: worker alive={bool(app.worker and app.worker.is_alive())}, batch={app._blocked_by_batch()}"
-    assert str(app.b_stop.cget("state")) == "normal"
-    app.stop()                                  # Esc / the Cancel button
+    # Generate is the grey "Stop" while the text model runs (no Stop button since 20.11.); a click on it stops
+    assert str(app.b_go.cget("text")) == gui.GO_STOP_TEXT and str(app.b_go.cget("style")) == "GoStop.TButton"
+    app._stop_armed -= gui.STOP_GUARD_S         # a click right after the start is ignored (double-click guard, 20.11.)
+    app.b_go.invoke()                           # Generate as "Stop"
     for _ in range(100):
         app.root.update()
         if not app._describing:
             break
         time.sleep(0.02)
-    assert not app._describing and str(app.b_stop.cget("state")) == "disabled"
+    assert not app._describing and str(app.b_go.cget("text")) == "Generate" and str(app.b_go.cget("style")) == "Accent.TButton"
     assert app.v_status.get() == "Cancelled.", app.v_status.get()
     app.root.destroy()
     print("ALL OK (cancel stops describe)")

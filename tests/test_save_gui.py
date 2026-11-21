@@ -68,6 +68,9 @@ def saved_with(app, bridge):
 def main():
     popmenu.CLOSE_ON_FOCUS_LOSS = False
     gui.winlink.available = lambda: False
+    # no start refresh against the dead address: on Linux its error comes at once and lands mid-test (on Windows only after
+    # about 2 s, when the test is through; Mint laptop 19.11.)
+    gui.App.refresh = lambda self: None
     cfg = cfgmod.load()
     cfg["comfyui"]["url"] = "http://127.0.0.1:1"
     cfg["photocraft"]["port"] = 1
@@ -102,7 +105,8 @@ def main():
     assert all(e["icon_hot"] is not None and e["icon_hot"] is not e["icon"] for e in cmds)   # white on hover (user 12.11.)
     assert menu.entries[0]["tip"] and "save" in menu.entries[0]["tip"].lower(), menu.entries[0]   # Save image has a hover hint (user 12.11.)
     assert all(e["tip"] for e in cmds[-2:]), cmds[-2:]       # the two resets keep the hint of the former "Reset page" button (16.11.)
-    assert not any(e["tip"] for e in cmds[1:-2]), menu.entries                                     # the others have none
+    assert menu.entries[1]["tip"] == app.COPY_CANVAS_TIP == "Copies the visible image to the clipboard."   # user 21.11.
+    assert not any(e["tip"] for e in cmds[2:-2]), menu.entries                                     # the others have none
     menu.entries[0]["command"]()
     menu.entries[1]["command"]()
     assert calls == ["save", "copy"], calls

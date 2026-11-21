@@ -52,7 +52,9 @@ def main():
     order = app._settings_win.pack_slaves()
     assert order.index(bar) < order.index(row) < order.index(nb), order
     assert not hasattr(app, "sep_set_tabs") and not hasattr(app, "sep_set_under")
-    app._settings_close()
+    # Escape in the plugin window closes the settings window too (user 20.11.; it no longer stops a run)
+    assert app._escape_key() == "break" and app._settings_win is None
+    assert app._escape_key() is None, "nothing open: Escape does nothing"
     app.root.destroy()
     shutil.rmtree(TMP, ignore_errors=True)
     print("ok settings header")

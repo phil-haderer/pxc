@@ -17,8 +17,10 @@ The files themselves (name, kind, link, note, size, SHA-256) live in ``models.js
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from . import variants
 
 # kind -> (loader node class, input field, folder inside ComfyUI's models folder)
 KINDS = {
@@ -99,7 +101,8 @@ def load_files(path: Path = MODELS_JSON) -> list[File]:
     return out
 
 
-_LIST = load_files()
+# a known variant of a diffusion model (pccomfy/variants.py, user 20.11.) counts as our file when ours is missing
+_LIST = [replace(f, aliases=f.aliases + tuple(a for a in variants.aliases_of(f.name) if a not in f.aliases)) for f in load_files()]
 FILES: dict[str, File] = {f.name: f for f in _LIST}
 
 

@@ -18,7 +18,7 @@ from pccomfy import models  # noqa: E402
 
 gui, cfgmod = t.gui, t.cfgmod
 KEPT = {"v_neg_open", "v_adv_open", "v_refs_open", "v_ckpt", "v_top"}
-SHOWN = {"v_conn", "v_status", "v_pl", "v_pl_rest", "v_empty", "v_model", "v_mode", "v_workflow"}   # display only / the tab
+SHOWN = {"v_conn", "v_status", "v_pl", "v_pl_rest", "v_empty", "v_model", "v_mode", "v_workflow", "v_pick_mode"}   # display only / the tab (v_pick_mode: the dot in the function list, 20.11.)
 
 
 def make():

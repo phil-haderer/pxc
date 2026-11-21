@@ -29,6 +29,10 @@ class Mode:
     fill_box: bool = False          # Fill (Flux 3): the selection is the layout box <obj_1> in the crop, no red mark (bridge.BOX_FILL_PROMPT; Fill round 5)
     ref_scribble: bool = True       # Scribble on photo: the tab "Scribble with reference" is offered (with a tag_style);
                                     # Fibo off (user 15.11.: it does not take poses over)
+    scribble_object_mask: bool = False   # Scribble on photo: the layer mask follows the drawn object (scribble.object_mask)
+                                    # instead of fading out from the scribble's box; MiniMax (user 21.11.: it draws larger, soft edges)
+    fill_object_mask: bool = False  # Fill: the layer mask also covers what the model clearly changed in an area that reaches
+                                    # into the selection (scribble.change_mask); Qwen (user 21.11.: it drew larger, the mask cut it off)
 
 
 @dataclass(frozen=True)
@@ -87,8 +91,8 @@ REMOVE_NAME_TIP = "Name what to remove (e.g. “car”)."
 REMOVE_PLACEHOLDER = "Name what to remove"   # grey in the empty field, Remove with remove_style (user 16.11.: the longer one was cut off)
 REMOVE_AGAIN = "If the first try doesn't work, try removing it a second time."   # idea of the user (28.10.), for all models since 3.11.
 REMOVE_TIP = REMOVE_NAME_TIP + " " + REMOVE_AGAIN    # Qwen; Flux 3, Flux 2 and Fibo only REMOVE_AGAIN (the placeholder names it, user 16.11.)
-MULTI_TIP = "Example: “Place the bag from {tag} on the table.” Cut out the object first."   # {tag}: the model's name for reference image 1 (user 3.11.)
-EDIT_TIP = "Describe the result: “Replace the laptop with a book.” or “Remove the sitting person.”"   # user 3.11., the same for every model
+MULTI_TIP = "Example: “Place the bag from {tag} on the table.” Use “Cut out” on the object first."   # {tag}: the model's name for reference image 1 (user 3.11., wording 21.11.)
+EDIT_TIP = "Example: “Make the person smile.”"   # the same for every model (user 3.11.; wording 21.11.)
 # Krea 2 / MOSS Expand (wording chosen by the user 29.10.; A/B test docs/tests/krea-moss-expand-ab.md)
 EXPAND_DESCRIBE_TIP = ("This model needs a prompt: describe the surroundings only (place, light, style), not the main subject. "
                        "Describe writes one for you.")
@@ -102,7 +106,8 @@ FLUX3_DEFAULT_OLD = "Restore the photo: remove blur, noise and compression artif
 # user replaces SKETCH_MARK with what the sketch shows. Left in, the bridge turns it into the generic sentence
 # (bridge.sketch_text). The wordings are the ones of the blind test rounds 1 to 7 (docs/tests/sketch-ergebnis.md): Photo,
 # the animated-film look without "expressive faces" (round 3b) and Scribble on photo (rounds 5 to 7).
-SKETCH_MARK = "<WHAT IT SHOWS>"
+SKETCH_MARK = "SUBJECT"     # was "<WHAT IT SHOWS>" until 21.11. (user: "replace ... to SUBJECT", everywhere)
+OLD_SKETCH_MARKS = ("<WHAT IT SHOWS>",)   # still read in saved prompts and pages (bridge.sketch_text, the style swap)
 SKETCH_PHOTO = ("Turn this sketch of " + SKETCH_MARK + " into a realistic photograph. Keep the composition, the shapes and the "
                 "proportions of the drawing exactly. Natural light, real materials, no drawing lines left.")
 SKETCH_ILLUSTRATION = ("Turn this sketch of " + SKETCH_MARK + " into a still from a classic hand-drawn animated film: clean "
@@ -158,8 +163,7 @@ NO_STYLE = "Choose a style under Style prompts, or type a prompt."
 SKETCH_TIP = ("Replace " + SKETCH_MARK + " with what the sketch shows, with its surroundings: "
               "“a house and a road in a green summer meadow”.")
 WRITTEN_TIP = "Loaded the written prompt: it runs as it is, without the prompt writer. Choose a style or a template to start fresh."   # Sketch after the history (user 10.11.)
-SCRIBBLE_TIP = ("Scribble in bright red or green, or on its own layer. Replace " + SKETCH_MARK + " with what goes there: "
-                "“a red vintage car”.")
+SCRIBBLE_TIP = "Scribble in bright red or green and replace " + SKETCH_MARK + " with what goes there."   # shorter (user 21.11.)
 NO_SCRIBBLE = "No scribble found. Scribble in bright red or green, or on its own layer."
 # The system prompt of Flux 2's Sketch writer (qwen3vl 4B, node 402 of flux2-klein-sketch.json): an edit instruction, not a
 # caption; the sketch part is neutral so Illustration stays an illustration (writer round on PC A, 10.11.: Photo and
@@ -210,6 +214,8 @@ def legacy_sketch_mode(mode: str, prompt: str, version=None) -> str:
     return SCRIBBLE_MODE if old else mode
 STOCK_PROMPTS = {FIBO_UPSCALE_DEFAULT, FLUX2_DEFAULT_PREV, FLUX2_DEFAULT_OLD, FLUX3_DEFAULT_OLD, PLACEHOLDER, FLUX2_DEFAULT, FLUX3_DEFAULT, FLUX3_RESTORE, QWEN_UPSCALE_DEFAULT, RELIGHT_NEUTRAL, RELIGHT_STUDIO, FIBO_REFINE,
                  SKETCH_PHOTO, SKETCH_ILLUSTRATION, SKETCH_SCRIBBLE}   # texts the window may replace when the mode changes
+# the same templates with the mark used until 21.11. (a page or run saved before): still stock texts
+STOCK_PROMPTS |= {s.replace(SKETCH_MARK, old) for s in (SKETCH_PHOTO, SKETCH_ILLUSTRATION, SKETCH_SCRIBBLE) for old in OLD_SKETCH_MARKS}
 
 # The tooltips of the function buttons: one general text per function, the same for every model (user 28.10.); what
 # holds for one model only goes into its tip under the prompt (Mode.prompt_tip). No ranking in it (user 3.11.).
@@ -232,7 +238,8 @@ QWEN = Model(
         "sketch": Mode("qwen-image-21-sketch.json", dict(base_res=1024, turbo=False, layer_mask="none", enhance=True), prompt_tip=SKETCH_TIP, run_as="edit"),   # Sketch to image: a style from Styles (plan B, 10.11.)
         "scribble": Mode("qwen-image-21-sketch.json", dict(base_res=1024, turbo=False, layer_mask="none", enhance=True), SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP, run_as="edit"),   # its own tab (plan B)
         # soft: opaque over the selection, fading out to the crop's side (Bridge: soft_layer_mask; Fill mask test round 30.10.)
-        "inpaint": Mode("qwen-image-21-edit.json", dict(_SOFT, base_res=1024, context=0.4, turbo=False, feather_pct=4.0), prompt_tip=FILL_TIP + " " + QWEN_SMALL),
+        "inpaint": Mode("qwen-image-21-edit.json", dict(_SOFT, base_res=1024, context=0.4, turbo=False, feather_pct=4.0), prompt_tip=FILL_TIP + " " + QWEN_SMALL,
+                        fill_object_mask=True),   # the mask follows the object (user 21.11., "Mask follows object")
         "outpaint": Mode("qwen-image-21-edit.json", dict(base_res=1024, context=0.4, turbo=False, layer_mask="soft")),   # soft mask: only the new area (+ overlap) is returned, the original stays untouched (user 4.11.); Context 40 %
         "remove": Mode("qwen-image-21-edit.json", dict(_SOFT, base_res=1024, context=0.4, turbo=False, feather_pct=10.0), prompt_tip=REMOVE_TIP, remove_text=True),
         # native 2K upscale: no upscaler node and no LoRA, 25 steps; the result is about the scale factor times the picture, up to 16 MP
@@ -382,8 +389,7 @@ FIBO = Model(
 # of 13 in 77 s (user 17.11.). 4 MP is the start (8 MP with the writer 12 of 13, but 108 s).
 GEN_MP_STEPS = (4, 8, 12, 16, 20)       # the size row of MiniMax (user 10.11.)
 MINIMAX_STEPS_TIP = "MiniMax H3 Image is made for 6 steps at CFG 1."
-MINIMAX_DESCRIBE_TIP = ("Tip: tick \"Enhance my Prompt with LLM\" – MiniMax H3 Image likes a long English description of "
-                        "the finished picture.")   # also in tips.py (user 18.11., choice C)
+MINIMAX_DESCRIBE_TIP = "Tick \"Enhance my Prompt with LLM\" – MiniMax H3 Image likes a long prompt."   # also in tips.py (user 18.11., choice C; shorter, user 21.11.)
 MINIMAX_T2I_TIP = MINIMAX_DESCRIBE_TIP   # the "Downsize to canvas" sentence went (too long, user 13.11.); it stays in DOWNSIZE_TIP
 MINIMAX_EDIT = dict(gen_mp=4, downsize=True, layer_mask="none", enhance=False)    # Edit / Multi image edit: 4 MP, "Downsize to canvas" on, the writer off (user 17.11.)
 MINIMAX = Model(
@@ -395,6 +401,13 @@ MINIMAX = Model(
         # layer in the canvas like every edit model; off = a new document in the chosen size)
         "edit": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, prompt_tip=EDIT_TIP, steps_tip=MINIMAX_STEPS_TIP),
         "multi_edit": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, prompt_tip=MULTI_TIP, steps_tip=MINIMAX_STEPS_TIP, run_as="edit"),
+        # Sketch to image and Scribble on photo (step 8, user 21.11.: "Ja, ohne Schreiber"; docs/tests/minimax-sketch-ergebnis.md:
+        # without the writer 25 of 26 good at 27 s, like Flux 3): the Edit graph and its start values. Scribble with
+        # reference is not offered yet (not probed with MiniMax)
+        "sketch": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, prompt_tip=SKETCH_TIP, steps_tip=MINIMAX_STEPS_TIP, run_as="edit"),
+        "scribble": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP,
+                         steps_tip=MINIMAX_STEPS_TIP, run_as="edit", ref_scribble=False,
+                         scribble_object_mask=True),   # the mask follows the object (user 21.11., "Mask follows object")
     },
     requires=(
         "minimax_h3_image_pruned_int8_convrot.safetensors",
@@ -407,6 +420,7 @@ MINIMAX = Model(
     preview="latent2rgb")   # <Picture 1> is the picture, the references follow (<Picture 2> ...)
 
 MODELS = [FLUX3, FLUX2, QWEN, FIBO, KREA2, MOSS, MINIMAX]      # the order of the tabs
+PICK_ORDER = [MINIMAX] + [m for m in MODELS if m is not MINIMAX]      # the list of the model chip: MiniMax first (user 21.11.)
 BY_KEY = {m.key: m for m in MODELS}
 # the unedited text of Reference at scribble is a stock text in every naming rule (a model change replaces it like the others)
 STOCK_PROMPTS.update(ref_scribble_text(m.tag_style) for m in MODELS if m.tag_style)

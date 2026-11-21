@@ -1,6 +1,6 @@
-"""Right-click menu on the model chips (L3, user 29.10.): favourite of the chosen function (a tick in the menu) and "Hide
-this model". A hidden chip leaves the row, the others close up; hiding the chosen model chooses another one; the favourite
-comes first when a function picks its model; a function whose models are all hidden is greyed out.
+"""Right-click menu on the model chip (L3, user 29.10.; since 20.11. one model chip with a list): save the settings and
+"Hide this model". A hidden model leaves the list, the others keep their order; hiding the chosen model chooses another one;
+a function whose models are all hidden is greyed out.
 
     python tests/test_model_chip_menu.py
 """
@@ -43,13 +43,8 @@ class Ev:
 
 
 def chips(app):
-    """The chips in the row: key -> (row, column); a hidden one is not there."""
-    out = {}
-    for key, rb in app.rb_tabs.items():
-        g = rb.__dict__.get("_grid")
-        if g is not None:
-            out[key] = g
-    return out
+    """The models in the model chip's list, in their order; a hidden one is not there."""
+    return [key for key, item in app.rb_tabs.items() if item.shown]
 
 
 def main():
@@ -60,11 +55,6 @@ def main():
     for f in names:
         shutil.copy(t.ROOT / "workflows" / f, wfdir / f)
     app.cb_workflow["values"] = [gui.BUILTIN] + names
-    for rb in app.rb_tabs.values():                       # record grid / grid_remove of each chip
-        rb.grid = lambda *a, w=rb, **k: w.__dict__.__setitem__("_grid", (k["row"], k["column"]))
-        rb.grid_remove = lambda w=rb: w.__dict__.pop("_grid", None)
-    for rb in app.rb_modes.values():
-        rb.grid = lambda *a, **k: None
     app.m_chip = Menu()
     app.v_model.set("qwen")
     app.v_mode.set("inpaint")
@@ -88,12 +78,10 @@ def main():
     assert app._model_for_mode("inpaint") == "qwen"
     cfgmod.set_setting("favorites", None)
 
-    # hide a chip that is not chosen: it leaves the row, the others close up
+    # hide a model that is not chosen: it leaves the list, the others keep their order
     app._set_model_hidden("flux2", True)
     assert cfgmod.hidden_tabs() == {"flux2"} and "flux2" not in chips(app)
-    order = [m.key for m in models.MODELS if m.key != "flux2"]
-    assert [k for k, _ in sorted(chips(app).items(), key=lambda kv: kv[1])] == order
-    assert chips(app)[order[1]] == (0, 1) and chips(app)[order[3]] == (1, 0)
+    assert chips(app) == [m.key for m in models.MODELS if m.key != "flux2"]
     assert app.v_model.get() == "qwen"
 
     # hide the chosen model: another one that can fill is chosen, the function stays (Flux 3 hidden too: it can fill
@@ -134,7 +122,7 @@ def main():
     # every model hidden: none is chosen
     for m in models.MODELS:
         app._set_model_hidden(m.key, True)
-    assert app.v_model.get() == "" and chips(app) == {}
+    assert app.v_model.get() == "" and chips(app) == []
     for m in models.MODELS:
         app._set_model_hidden(m.key, False)
     print("test_model_chip_menu: ok")

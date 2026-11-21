@@ -141,7 +141,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self._wf_vals: dict = {}
         self._lora_wf = g("workflow", "")   # the workflow the LoRA strength slider was last set for
         self.v_lmask = tk.StringVar(value=LAYER_MASKS[layer_mask_key(g("layer_mask", "soft"))])
-        self.v_status = tk.StringVar(value="Ready")
+        self.v_status = tk.StringVar(value="")       # no "Ready" (user 21.11.)
         self.v_conn = tk.StringVar(value="")
 
         self._build(d)
@@ -177,8 +177,9 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         r = self.root
         pad = {"padx": 10, "pady": 4}
 
-        # the head: the functions first (big buttons with a symbol, two per row), the models below them (small outlined
-        # chips, three per row; a model that cannot do the chosen function is greyed out). See docs/archiv/ux-funktion-zuerst.md.
+        # the head: the function chip and the model chip beside it (user 20.11., before: function buttons two per row and model
+        # chips three per row below them; a model that cannot do the chosen function is greyed out in its list).
+        # See docs/archiv/ux-funktion-zuerst.md.
         # the header above the functions (user 29.10.): as high as a function button, empty for now (the user's picture
         # comes later into f_logo); on its right the minimise button. Minimised, only this header stays (option A)
         self.f_header = ttk.Frame(r)
@@ -215,40 +216,40 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             w.bind("<Double-Button-1>", lambda e: self.toggle_minimize(), add="+")
         self.f_tabs = ttk.Frame(r)
         self.f_tabs.pack(fill="x", padx=10, pady=(8, 2))
-        f_fn = self.f_modes = ttk.Frame(self.f_tabs)
-        f_fn.pack(fill="x")
-        for c in range(2):
-            f_fn.columnconfigure(c, weight=1, uniform="fn")
-        self.rb_modes = {}
-        for key, label in MODE_LABELS:
-            # Edit and Fill light up while one of their tabs runs: their own variable (v_fn), like Upscale / Refine
-            # (Fill: Fill selection and, with Flux 3, Insert reference; plan B step 4)
-            merged = key in ("edit", "inpaint")
-            cmd = self._on_edit_fn if key == "edit" else self._on_fill_fn if key == "inpaint" else self._on_mode
-            rb = ttk.Radiobutton(f_fn, text=label, value=key, variable=self.v_fn if merged else self.v_mode, style="Tab.Toolbutton",
-                                 image=self._function_icon(key), compound="left", command=cmd)
-            self.rb_modes[key] = rb
-        # standard mode: ONE button for Upscale and Refine (PLAN.md 2, user 6.11.)
-        self.rb_scale_fn = ttk.Radiobutton(f_fn, text=SCALE_FN_LABEL, value="scale", variable=self.v_fn, style="Tab.Toolbutton",
-                                           image=self._function_icon("refine"), compound="left", command=self._on_scale_fn)
-        f_md = self.f_models = ttk.Frame(self.f_tabs)
-        f_md.pack(fill="x", pady=(6, 0))
-        cols = 3
-        for c in range(cols):
-            f_md.columnconfigure(c, weight=1, uniform="model")
-        # a short last row (one or two chips) sits centred in its own frame (user 18.11., _grid_chip); made before the chips,
-        # so it lies below them
-        self.f_chip_short = ttk.Frame(f_md)
-        self.rb_tabs = {}
-        self.chip_lines = {}
-        for i, m in enumerate(models.MODELS):
-            self.chip_lines[m.key] = tk.Frame(f_md, bg=CHIP_LINE, bd=0, highlightthickness=0)     # behind the chip: the grid lines
-            rb = ttk.Radiobutton(f_md, text=m.label, value=m.key, variable=self.v_model, style="Chip.Toolbutton",
-                                 command=self._on_model)
-            self.rb_tabs[m.key] = rb
-            self._grid_chip(m.key, i, len(models.MODELS), cols)
-            rb.bind("<Button-3>", lambda e, k=m.key: self._chip_menu(k, e), add="+")    # save / reset settings, hide (gui_modes.py)
+        # the head (user 20.11.): ONE chip for the function, on the left, and one for the model right beside it, grey like the
+        # function buttons were, with the arrow of the variants piece of Generate; a click opens the list (the functions in the
+        # order of the former buttons, the models in the order of the former chips). Each is as wide as its longest entry, so
+        # the model chip does not move. The lists' entries (rb_modes, rb_scale_fn, rb_tabs) keep what the buttons had: state,
+        # listed or not, files missing (PickItem); the lists are built from them when they open (gui_modes.py _mode_menu).
+        self.rb_modes = {key: PickItem(label) for key, label in MODE_LABELS}
+        # standard mode: ONE entry for Upscale and Refine (PLAN.md 2, user 6.11.)
+        self.rb_scale_fn = PickItem(SCALE_FN_LABEL)
+        self.rb_tabs = {m.key: PickItem(m.label) for m in models.MODELS}
+        self._mode_order = []
+        self.b_mode = ttk.Button(self.f_tabs, style="Pick.TButton", compound="left", command=self._mode_menu)
+        gap = self._px(PICK_GAP)
+        self.b_mode.grid(row=0, column=0, sticky="ew", padx=(1, gap - gap // 2))      # 1: the left edge of the former chips and of the tabs below
+        # the model chip as high and as wide as the function chip, together they fill the width (user 20.11.): an empty picture
+        # as high as the function symbol gives it the same height, the two columns share the width
+        self._pick_strut = tk.PhotoImage(master=self.root, width=1, height=self._px(ICON_PX))
+        self.b_model = ttk.Button(self.f_tabs, style="Pick.TButton", command=self._model_menu, image=self._pick_strut, compound="left")
+        self.b_model.grid(row=0, column=1, sticky="ew", padx=(gap // 2, 0))     # the gap split, so both cells are equally wide
+        for c in (0, 1):
+            self.f_tabs.columnconfigure(c, weight=1, uniform="pick")
+        for b in (self.b_mode, self.b_model):        # the arrow sits at the right edge of the chip's real width
+            b.bind("<Configure>", lambda e: self._show_picks(), add="+")
+        self.b_model.bind("<Button-3>", lambda e: self._chip_menu(self.v_model.get(), e), add="+")   # save / reset settings, hide (gui_modes.py)
+        self.v_pick_mode = tk.StringVar(value="")       # the chosen entry of the function list (light blue, normal weight since 20.11.)
+        # no dot in the two lists: the chosen entry is light blue (user 20.11.; not bold since the evening); the list's symbols start where the
+        # chip's symbol does (_pick_menu_pad)
+        # font_size 10: the entries as big as the chip's text (Pick.TButton, user 21.11.)
+        pick_kw = dict(scale=getattr(self, "ui", 1.0), checks=False, chosen_fg=PICK_CHOSEN, icon_gap=PICK_ICON_GAP, font_size=10)
+        self.m_mode = PopMenu(self.root, **pick_kw)
+        self.m_model = PopMenu(self.root, **pick_kw)
         self.m_chip = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
+        for v in (self.v_mode, self.v_model, self.v_fn):
+            v.trace_add("write", lambda *a: self._show_picks())
+        self._show_picks()
 
         # everything under the tabs: hidden while no model is chosen (ui_settings.py). It sits in a Canvas, so it can scroll
         # with a thin bar when the window would be taller than the screen (Advanced open, many slots): _fit_height decides.
@@ -274,6 +275,18 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.f_adv = ttk.Frame(r)
         self.adv_body = ttk.Frame(self.f_adv)
         self.adv_body.columnconfigure(1, weight=1)
+        # Advanced settings in groups (user 20.11., B): the function's rows, "Sampling", "Custom LoRAs"; adv_body rows:
+        # 0 function heading, 1 f_post, 2 "Sampling", 3 a stage marked advanced, 4 f_samp (Qwen's / MOSS' Turbo LoRA),
+        # 5 Steps/CFG/Seed, 6 Sampler/Scheduler, 7 the switch box (Flux upscale), 9 Custom LoRAs
+        self.lbl_grp_fn = ttk.Label(self.adv_body, text="", style="Group.TLabel")
+        self.lbl_grp_fn.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        self.lbl_grp_samp = ttk.Label(self.adv_body, text="SAMPLING", style="Group.TLabel")
+        self.lbl_grp_samp.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        self.f_samp = ttk.Frame(self.adv_body)
+        self.f_samp.grid(row=4, column=0, columnspan=2, sticky="ew")
+        self.f_samp.grid_remove()          # in the grid only while a row is packed in it (_sync_post_box)
+        # the captions a blue "changed" dot sits beside (user 20.11., C; _adv_dots)
+        self._adv_anchor = {}
         # the finishing options at the top of "Advanced settings": Mix source/new, Qwen's switches, Context, Edge feather, Layer mask
         self.f_post = ttk.Frame(self.adv_body)
         self.f_post.grid(row=1, column=0, columnspan=2, sticky="ew")      # row 0: a stage marked advanced (skip-layer guidance)
@@ -295,19 +308,24 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self._icons["copy"] = self._icon("copy", px=round(ICON_PX * 0.8))     # 80 % of the usual icon, flat like the other icons: white, blue under the mouse (user 1.11.)
         self._last_vgl = ""             # the prompt the text model wrote in the last run
         self._written_for = ""          # Sketch: the model whose written prompt the history put into the field (runs without the upsampler)
-        self.b_copy = ttk.Button(self.f_enh, image=self._icons["copy"], style="Copy.Link.TButton", command=self._copy_enhanced, state="disabled")
-        self.b_copy.pack(side="left", padx=(8, 0))
+        # shown only once the text model wrote a prompt that can be copied (user 20.11.; _sync_copy), before that not there
+        self.b_copy = ttk.Button(self.f_enh, image=self._icons["copy"], style="Copy.Link.TButton", command=self._copy_enhanced)
         self.tt_copy = Tooltip(self.b_copy, "Copy the prompt the text model wrote in the last run.")
         # "Reroll prompt" (user 18.11., choice A): a new writer seed, the next run writes a new prompt; only while Enhance is on
         self.b_reroll = ttk.Button(self.f_enh, text="Reroll prompt", style="Copy.Link.TButton", command=self.reroll_prompt)
         self.tt_reroll = Tooltip(self.b_reroll, REROLL_TIP)
         self.v_enhance.trace_add("write", lambda *a: self._update_reroll())
-        self.cb_turbo = ttk.Checkbutton(mf, text="LoRA", variable=self.v_turbo, command=self._on_turbo)
-        self.cb_turbo.grid(row=1, column=1, sticky="w", padx=(0, 6), pady=(2, 0))   # flush left like the LLM row (user 30.10.)
+        # the workflow's own LoRA (Turbo, DMD2 ...) in its own row: in the switch box (row 1) or, for MOSS, alone at the top of
+        # the Advanced settings while UltraReal stays under the prompt (user 20.11.; _update_options_box). A child of the body,
+        # so it can be placed in either box.
+        self.f_turbo = ttk.Frame(r)
+        self.f_turbo.columnconfigure(0, weight=1)
+        self.cb_turbo = ttk.Checkbutton(self.f_turbo, text="LoRA", variable=self.v_turbo, command=self._on_turbo)
+        self.cb_turbo.grid(row=0, column=0, sticky="w", padx=(0, 6))   # flush left like the LLM row (user 30.10.)
         self.tt_turbo = Tooltip(self.cb_turbo, LORA_TIP)
 
-        self.f_lora = ttk.Frame(mf)    # strength of that LoRA: on the right of its checkbox, like every slider
-        self.f_lora.grid(row=1, column=2, sticky="e", pady=(2, 0))
+        self.f_lora = ttk.Frame(self.f_turbo)    # strength of that LoRA: on the right of its checkbox, like every slider
+        self.f_lora.grid(row=0, column=1, sticky="e")
         self.w_lora_str = Slider(self.f_lora, scale=self.ui, from_=0.0, to=1.0, variable=self.v_lora_str, command=self._on_lora_str,
                                  length=self._px(SLIDER_W))
         self.w_lora_str.grid(row=0, column=0)
@@ -348,7 +366,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         ff = ttk.Frame(self.f_post)     # shown only while a soft layer mask is used (see _update_feather_state)
         self.f_feather = ff
         self._slider_row(ff)
-        lbl_f = ttk.Label(ff, text="Edge feather", style="Muted.TLabel")
+        lbl_f = self._adv_anchor["feather"] = ttk.Label(ff, text="Edge feather", style="Muted.TLabel")
         lbl_f.grid(row=0, column=0, sticky="w")
         self.w_feather = sc = Slider(ff, scale=self.ui, from_=0, to=10, variable=self.v_feather, command=self._on_feather,
                                      length=self._px(SLIDER_W))
@@ -362,7 +380,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         fd = ttk.Frame(self.f_post)     # shown with Edge feather (see _update_feather_state)
         self.f_density = fd
         self._slider_row(fd)
-        lbl_d = ttk.Label(fd, text="Mask density", style="Muted.TLabel")
+        lbl_d = self._adv_anchor["density"] = ttk.Label(fd, text="Mask density", style="Muted.TLabel")
         lbl_d.grid(row=0, column=0, sticky="w")
         self.w_density = sc = Slider(fd, scale=self.ui, from_=0, to=100, variable=self.v_density, command=self._on_density,
                                      length=self._px(SLIDER_W))
@@ -375,7 +393,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
                        "0 % = the whole redrawn area shows, 100 % = only the selection with its soft edge. "
                        "You can change it later in PhotoCraft's layer mask properties.")
 
-        self.sep_prompt = ttk.Frame(r, style="Sep.TFrame", height=1)     # a light line above "Prompt"
+        # the gap above "Prompt": no line any more under the function and model chips (user 20.11.), the room stays the same
+        self.sep_prompt = ttk.Frame(r, height=1)
         self.sep_prompt.pack(fill="x", padx=10, pady=(6, 4))
         # the row over the field holds only the choice buttons (f_pchoice). The icons Styles, Save, Describe Canvas (only in Text to
         # image and Upscale / Refine without tiles) and the bin sit in ONE narrow column at the right of the field, from its top
@@ -426,6 +445,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         except (TypeError, ValueError):
             lines = PROMPT_LINES
         self.t_prompt = self._text(self.f_prompt, lines)
+        self.t_prompt.configure(highlightcolor="#454545")       # no blue frame in focus either (user 20.11.)
         self._build_prompt_placeholder()
         # fills its frame: with fill="x" only it was centred in a frame that still had the old height while the grip was
         # dragged, so its top edge jumped by half a line
@@ -464,12 +484,13 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.t_neg.insert("1.0", self.state.get("negative", d["negative"]))
 
         self.f_xl = ttk.Frame(self.adv_body)       # extra LoRAs: a search box with a drop-down and a strength each (under Advanced)
-        self.f_xl.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(6, 0))     # the very last row of the Advanced settings (user 6.11.)
+        self.f_xl.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 0))     # the very last row of the Advanced settings (user 6.11.)
         self.all_loras: list[str] = []
         self.lora_rows: list[dict] = []
         head = ttk.Frame(self.f_xl)
         head.pack(fill="x")
-        ttk.Label(head, text="Custom LoRAs", style="Muted.TLabel").pack(side="left")
+        self._adv_anchor["loras"] = ttk.Label(head, text="CUSTOM LORAS", style="Group.TLabel")
+        self._adv_anchor["loras"].pack(side="left")
         self.b_addlora = ttk.Button(head, text="Add", image=self._icon("plus", MUTED, px=round(ICON_PX * 0.85)), compound="left", style="Link.TButton",   # 85 % of the usual icon (user 6.11.)
                                     command=self._add_lora_row)
         self.b_addlora.pack(side="right")
@@ -478,7 +499,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.f_xl_rows.pack(fill="x")
         mf.pack(fill="x", padx=10, pady=(0, 4), after=self.f_enh)     # the LoRA / stage box: under the LLM row
         af = ttk.Frame(self.adv_body)
-        af.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        af.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(2, 0))
         # Seed sits in the Advanced settings beside Steps and CFG (user 29.10.)
         items = [("Steps", self._spin(af, self.v_steps, 1, 99, 1, 3, steps_typed_ok)),
                  ("CFG", self._spin(af, self.v_cfg, 1, 9.9, 0.5, 3, cfg_typed_ok)),
@@ -491,6 +512,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
                 continue
             cap = ttk.Label(af, text=lbl, style="Muted.TLabel")
             cap.grid(row=0, column=col, sticky="sw", padx=(0, 6))
+            self._adv_anchor[("steps", "cfg", "seed")[col]] = cap
             w.grid(row=1, column=col, sticky="nw", padx=(0, 6))     # at the top of its row: the taller seed button pushed it down, away from its label
         # beside the seed: the seed of the last run again (user 1.11.), grey until a run has finished; 80 % like the copy icon (user 18.11.)
         self._last_seed = None
@@ -508,21 +530,32 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         # (the "Prompt writer seed" row of 17.11. is gone: the seed is hidden, "Reroll prompt" in the LLM row draws a new one, 18.11.)
 
         sm = ttk.Frame(self.adv_body)
-        sm.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        sm.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         sm.columnconfigure((1, 3), weight=1)
-        ttk.Label(sm, text="Sampler", style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self._adv_anchor["sampler"] = ttk.Label(sm, text="Sampler", style="Muted.TLabel")
+        self._adv_anchor["sampler"].grid(row=0, column=0, sticky="w")
         self.cb_sampler = ttk.Combobox(sm, textvariable=self.v_sampler, width=8)
         self.cb_sampler.grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Label(sm, text="Scheduler", style="Muted.TLabel").grid(row=0, column=2, sticky="w")
+        self._adv_anchor["scheduler"] = ttk.Label(sm, text="Scheduler", style="Muted.TLabel")
+        self._adv_anchor["scheduler"].grid(row=0, column=2, sticky="w")
         self.cb_sched = ttk.Combobox(sm, textvariable=self.v_scheduler, width=7)
         self.cb_sched.grid(row=0, column=3, sticky="ew", padx=(6, 0))     # its right edge on the line of the other boxes (user 12.11.)
         self.recipe_widgets += [self.cb_sampler, self.cb_sched]
 
         self.v_adv_open = tk.BooleanVar(value=False)     # Advanced settings are closed at every start (user 1.11.)
-        self.btn_adv = ttk.Button(self.f_adv, command=self._toggle_advanced, style="Adv.Link.TButton")     # no inner padding (gui_theme)
         self.sep_adv = ttk.Frame(self.f_adv, style="Sep.TFrame", height=1)     # a light line above "Advanced settings"
         self.sep_adv.pack(fill="x", pady=(0, 2))
-        self.btn_adv.pack(anchor="w")
+        # the head row (user 20.11., A and C): "Advanced settings" on the left, on the right the model and function these values
+        # belong to, and "Reset" while a value differs from their startup settings (_show_adv_context, _adv_dots)
+        self.f_adv_head = ttk.Frame(self.f_adv)
+        self.f_adv_head.pack(fill="x")
+        self.btn_adv = ttk.Button(self.f_adv_head, command=self._toggle_advanced, style="Adv.Link.TButton")     # no inner padding (gui_theme)
+        self.btn_adv.pack(side="left")
+        self.b_adv_reset = ttk.Button(self.f_adv_head, text="Reset", style="AdvReset.Link.TButton", command=self._reset_advanced)
+        self.tt_adv_reset = Tooltip(self.b_adv_reset, "")
+        self.lbl_adv_ctx = ttk.Label(self.f_adv_head, text="", style="Muted.TLabel")
+        self.lbl_adv_ctx.pack(side="right")
+        self.lbl_adv_ctx.bind("<Button-1>", lambda e: self._toggle_advanced(), add="+")
         # less room around the closed row (user 12.11., second round: 6 px free above and below the text, measured in the picture at
         # PC A's scale, formerly 10): no inner padding in the button, 2 under the line, no gap under the row, 4 above sep_status
         self.f_adv.pack(fill="x", padx=10, pady=(2, 0))
@@ -584,7 +617,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.v_scale.trace_add("write", lambda *x: self._sync_fac())     # presets, Reset and a tab change set the factor too
         self.f_detail = ttk.Frame(self.f_post)      # Upscale and Refine: under Advanced settings, at the top of the finishing options (user 28.10.)
         self._slider_row(self.f_detail)
-        ttk.Label(self.f_detail, text="Mix Source/New", style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self._adv_anchor["detail"] = ttk.Label(self.f_detail, text="Mix Source/New", style="Muted.TLabel")
+        self._adv_anchor["detail"].grid(row=0, column=0, sticky="w")
         self.w_detail = Slider(self.f_detail, scale=self.ui, from_=0.0, to=1.0, variable=self.v_detail, command=self._on_detail,
                                length=self._px(SLIDER_W))
         self.w_detail.grid(row=0, column=1, sticky="e", padx=8)
@@ -623,7 +657,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.f_ctx = fc
         fc.pack(fill="x", pady=(2, 0))
         self._slider_row(fc)
-        lb = ttk.Label(fc, text="Context", style="Muted.TLabel")
+        lb = self._adv_anchor["context"] = ttk.Label(fc, text="Context", style="Muted.TLabel")
         lb.grid(row=0, column=0, sticky="w")
         sc = Slider(fc, scale=self.ui, from_=0.0, to=1.0, variable=self.v_context, command=self._on_context,
                     length=self._px(SLIDER_W))
@@ -641,7 +675,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         lm = ttk.Frame(self.f_post)     # the last row of the finishing options (Advanced settings)
         self.f_lm = lm
         lm.pack(fill="x", pady=(2, 0))
-        lb = ttk.Label(lm, text="Layer mask", style="Muted.TLabel")
+        lb = self._adv_anchor["lmask"] = ttk.Label(lm, text="Layer mask", style="Muted.TLabel")
         lb.pack(side="left")
         self.cb_lm = cb_lm = ttk.Combobox(lm, textvariable=self.v_lmask, values=list(LAYER_MASKS.values()), state="readonly", width=18)
         cb_lm.pack(side="left", padx=6)
@@ -670,33 +704,30 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.v_native.trace_add("write", lambda *a: self._on_native())
         self._on_native()
 
-        # Generate, Stop, Undo, Redo: under the prompt field and its tip (and Describe) for every function, above the LLM row
+        # Generate (Stop during a run), Undo, Redo: under the prompt field and its tip (and Describe) for every function, above the LLM row
         # and the boxes under the prompt (user 16.11., on trial; was above the line over "Prompt"). The tip and Describe are
         # packed right after the grip, so they always land above this row
         bf = self.f_go = ttk.Frame(r)
         bf.pack(fill="x", padx=10, pady=(6, 2), before=self.f_neg)
-        # one grid over the full width (user 18.11., decision 1a): Generate, the variants piece, Stop and (at times) "Stop all"
+        # one grid over the full width (user 18.11., decision 1a): Generate, the variants piece and (at times) "Stop batch"
         # on the left, an empty column that takes what is left, Undo and Redo as two squares at the right edge; the widths
         # come from _fit_go_row
         self.b_go = ttk.Button(bf, text="Generate", width=9, style="Accent.TButton", command=self.generate)
         self.b_go.grid(row=0, column=0, sticky="nsew")
-        Tooltip(self.b_go, "Generate (Ctrl+Enter)")
-        # Variants are part of Generate (user 29.10.): a narrow accent-coloured piece on its right, like a split button; a click
-        # opens the choice 1 to 8. It shows "×n ▾", also at 1
-        self.w_variants = ttk.Button(bf, style="Split.Accent.TButton", width=0, command=self._variants_menu)
+        self.tt_go = Tooltip(self.b_go, GO_TIP)
+        # Variants are part of Generate (user 29.10.): a narrow piece on its right, like a split button, grey like the function
+        # and model chips (user 20.11., was blue); a click opens the choice 1 to 8. It shows "×n ▾", also at 1
+        self.w_variants = ttk.Button(bf, style="Split.Pick.TButton", width=0, command=self._variants_menu)
         self.w_variants.grid(row=0, column=1, sticky="nsew", padx=(1, 0))
         Tooltip(self.w_variants, "Variants: how many pictures one Generate makes (1 to 8).")
         self.m_variants = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
         for n in range(1, 9):
             self.m_variants.add_radiobutton(label=str(n), value=n, variable=self.v_variants)
         self.v_variants.trace_add("write", lambda *a: self._show_variants())
-        # Stop (was "Cancel", user 12.11.): the word on the usual grey button, STOP_W chars at its natural width
-        self.b_stop = ttk.Button(bf, text="Stop", width=STOP_W, command=self.stop, state="disabled")
-        self.b_stop.grid(row=0, column=2, sticky="nsew", padx=(1, 0))      # as close as Generate and the variants (user 6.11.)
-        Tooltip(self.b_stop, "Stop the run (Esc or Ctrl+Alt+Enter). With several variants it ends only the one that is running.")
-        # "Stop all" shows up only while several runs follow one another (variants of Upscale / Refine, a comparison)
-        self.b_stop_all = ttk.Button(bf, text="Stop all", style="Fit.TButton", command=self.stop_all)
-        Tooltip(self.b_stop_all, "Stop this run and all the variants that are still to come.")
+        # no Stop button (user 20.11.): Generate turns into a grey "Stop" during a run (_go_stop); while several runs follow one
+        # another (variants of Upscale / Refine, a comparison) it says "Stop run" and "Stop batch" shows up beside it
+        self.b_stop_all = ttk.Button(bf, text=STOP_BATCH_TEXT, style="Fit.TButton", command=lambda: self._stop_click(True))
+        Tooltip(self.b_stop_all, "Stop this run and the variants still to come; in a batch, the rest of this batch (other batches go on).")
         bf.grid_columnconfigure(GO_COL_GAP, weight=1)
         # Undo and Redo (user 18.11., decision 2a): squares as high as Generate, blue like it with a white icon while they
         # can be used, grey like the greyed-out Stop otherwise; one of them is blue at a time (_sync_history_buttons)
@@ -713,7 +744,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
 
         # one bar for the whole run (prompt, then image) with the current step written next to it
         self.v_pl = tk.StringVar(value="")
-        self.sep_status = ttk.Frame(r, style="Sep.TFrame", height=1)     # a light line above the progress line, as above "Prompt"
+        self.sep_status = ttk.Frame(r, style="Sep.TFrame", height=1)     # a light line above the progress line
         self.sep_status.pack(fill="x", padx=10, pady=(4, 0))     # 6 to 4: the closed Advanced settings row above it (user 12.11.)
         row = ttk.Frame(r)
         row.pack(fill="x", padx=10, pady=(6, 0))
@@ -779,7 +810,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.root.bind("<Button-1>", self._lora_outside, add="+")
         self.root.bind("<Control-Return>", lambda e: (self.generate(), "break")[1])
         self.root.bind("<Control-Alt-Return>", lambda e: (self.stop(), "break")[1])      # interrupts a run (user 30.10.)
-        self.root.bind("<Escape>", self._escape_key)      # closes the queue when it is open (user 13.11.), else stops
+        self.root.bind("<Escape>", self._escape_key)      # closes the queue or the settings window, never stops a run (user 20.11.)
         for key in ("<KeyPress-q>", "<KeyPress-Q>"):            # Q toggles the queue (user 13.11.), not while typing in a field
             self.root.bind(key, self._queue_key, add="+")
         self.root.bind("<Control-s>", lambda e: (self.save_image(), "break")[1])      # Save image (the prompt field has no Ctrl+S of its own)
@@ -846,6 +877,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
 
     SAVE_IMAGE_TIP = ("Saves the visible image to your save folder. Folder, file name and format are set in the settings "
                       "under Save image.")  # approved by the user 12.11.
+    COPY_CANVAS_TIP = "Copies the visible image to the clipboard."      # the user's text, 21.11.
     # the two resets of the page in the hamburger menu (user 16.11.; the texts of the former footer button "Reset page")
     RESET_SAVED_TIP = ("Back to the starting settings of the chosen model and function: your saved settings (right-click on "
                        "the model), else the standard ones. Other models and functions keep what they have.")
@@ -860,13 +892,14 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         m = self._footer_popup = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
         no_page = bool(getattr(self, "_foot_hidden", False))
         rows = [("Save image (Ctrl+S)", "save", self.save_image, self.SAVE_IMAGE_TIP, False),
-                ("Copy canvas", "copy", self.copy_canvas, None, False),
+                ("Copy canvas", "copy", self.copy_canvas, self.COPY_CANVAS_TIP, False),
                 ("Batch: open images", "images", lambda: self.open_batch(jobqueue.SOURCE_OPEN), None, False),
                 ("Batch: folder…", "folder", lambda: self.open_batch(jobqueue.SOURCE_FOLDER), None, False),
                 ("Open queue", "list", self.open_queue, None, False),
                 None,
+                # "Reset page to default": the symbol of "Use the last seed" (user 20.11.), the circle arrow is Refresh's
                 ("Reset page to my saved settings", "undo", lambda: self.reset_settings(factory=False), self.RESET_SAVED_TIP, no_page),
-                ("Reset page to default", "refresh", lambda: self.reset_settings(factory=True), self.RESET_DEFAULT_TIP, no_page)]
+                ("Reset page to default", "seed-last", lambda: self.reset_settings(factory=True), self.RESET_DEFAULT_TIP, no_page)]
         for row in rows:
             if row is None:
                 m.add_separator()

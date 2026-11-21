@@ -29,13 +29,13 @@ Q_NOT_CONNECTED_NET = "ComfyUI not connected. Set its host address in: Settings 
 TYPING = ("Entry", "TEntry", "Text", "Spinbox", "TSpinbox", "TCombobox", "Listbox")     # widgets where Q is a letter, not the queue
 BATCH_ONLY = "Batch works with Refine, Upscale and Edit. Choose one of them first."
 BATCH_NO_BBOX = "Batch can't place a reference in a selection (BBOX). Untick BBOX first."
-BATCH_BUSY = "A batch is running. Wait for it, or cancel it in the Queue (⋯ menu)."
+BATCH_BUSY = "A batch is running. Wait for it, or click Stop batch."
 AHEAD_POLL_S = 2.0           # Generate: GET /queue this often while our job waits at ComfyUI (decisions 12.11.)
 QUEUE_COMFY_MS = 2000        # the queue window: "At ComfyUI" is read again this often, only while the window is open
+Q_FOREIGN_DONE_MAX = 200     # finished runs of others kept in the queue window until "Clear finished" (Paket 3, 19.11.)
 SYNC_MS = 1000               # while a batch is on: Generate's lock is checked again this often
 THUMB_PX = 320               # the dry run's picture fits in this square (before the display scaling)
 
-PREPLACED_TEXT = "Sent"      # Status of a picture placed at ComfyUI ahead of time: it waits there, fixed in the line (19.11.)
 BAR_CELLS = 5                # the text bar of the Progress column: "▰▰▰▱▱ 60 %"
 STATUS_TEXT = {jobqueue.WAITING: "Waiting", jobqueue.RUNNING: "Running", jobqueue.PAUSED: "Paused", jobqueue.DONE: "Done",
                jobqueue.ERROR: "Error", jobqueue.CANCELLED: "Cancelled"}
@@ -129,13 +129,25 @@ class BatchMixin:
         return True
 
     def _batch_sync(self):
-        """Generate is grey while a batch is on (decision 12.11.) and comes back when it is over and no run of the window is on.
-        Undo and Redo are grey with it: a batch adds layers and documents in PhotoCraft meanwhile, a step back would take the
-        wrong one (they refuse anyway, _history_step)."""
+        """While a batch is on, Generate is the grey "Stop run" with "Stop batch" beside it, as with the variants of Upscale
+        (user 20.11.; was a locked grey Generate, decision 12.11.), and comes back when it is over and no run of the window
+        is on. Undo and Redo are grey with it: a batch adds layers and documents in PhotoCraft meanwhile, a step back would
+        take the wrong one (they refuse anyway, _history_step)."""
         self._batch_sync_job = None
         busy = self._batch_busy()
+        own = getattr(self, "_running", False) or bool(self.worker and self.worker.is_alive())
         try:
-            widgets = (self.b_go, self.w_variants)
+            if busy and not own:
+                self._batch_stopping = True
+                if not (getattr(self, "_go_stopping", False) and self.b_stop_all.winfo_manager()):
+                    self._show_stop_all(True)
+                    self._go_stop(True)
+            elif not busy and getattr(self, "_batch_stopping", False):
+                self._batch_stopping = False
+                if not own:
+                    self._show_stop_all(False)
+                    self._go_stop(False)
+            widgets = (self.w_variants,) if getattr(self, "_go_stopping", False) else (self.b_go, self.w_variants)   # "Stop" stays usable
             if busy:
                 for w in widgets:
                     w.configure(state="disabled")
@@ -158,8 +170,7 @@ class BatchMixin:
         if runner is None or not _recover_allowed():
             return
         try:
-            self._rescue_ids = {j["id"] for j in runner.jobs() if j["status"] == jobqueue.RUNNING
-                                or (j.get("preplaced") and j.get("prompt_id") and j["status"] == jobqueue.WAITING)}
+            self._rescue_ids = {j["id"] for j in runner.jobs() if j["status"] == jobqueue.RUNNING}
         except Exception:
             self._rescue_ids = set()
         self._rescued = 0
@@ -411,7 +422,12 @@ class BatchMixin:
         def grew(e):
             if e.widget is win and e.height != seen["h"]:
                 seen["h"] = e.height
-                place(e.height)
+                if hostos.IS_WINDOWS:
+                    place(e.height)
+                else:
+                    # X11 ignores a move of this window without title bar asked for inside its own <Configure>: it grew
+                    # downward (Mint laptop 19.11.); asked a moment later it moves
+                    idle(win, place, e.height)
         win.bind("<Configure>", grew, add="+")
         try:
             win.deiconify()
@@ -957,14 +973,9 @@ class BatchMixin:
     @staticmethod
     def _job_status_text(j: dict, entries: list | None = None) -> str:
         """The Status column; a picture PxC has sent but ComfyUI still keeps waiting reads "Waiting" (`entries`: ComfyUI's
-        queue as last read), not "Running" (laptop test 18.11.); one placed there ahead of time reads "Sent" (19.11.: it
-        is fixed in the line), "Running" as soon as ComfyUI runs it."""
+        queue as last read), not "Running" (laptop test 18.11.)."""
         if j["status"] == jobqueue.ERROR and str(j.get("error", "")).startswith(jobqueue.SKIPPED):
             return "Skipped"
-        if j["status"] == jobqueue.WAITING and j.get("preplaced"):
-            if j.get("prompt_id") and any(e["prompt_id"] == j["prompt_id"] and e.get("running") for e in entries or ()):
-                return STATUS_TEXT[jobqueue.RUNNING]
-            return PREPLACED_TEXT
         if j["status"] == jobqueue.RUNNING and j.get("prompt_id"):
             if any(e["prompt_id"] == j["prompt_id"] and not e.get("running") for e in entries or ()):
                 return "Waiting"
@@ -1077,12 +1088,13 @@ class BatchMixin:
                 continue
             ours = bool(me) and e.get("client_id") == me
             who = you if ours else (e.get("owner") or "unknown")
-            if e.get("kind") == "batch" and not ours:
-                what = "Batch"
-            else:
-                what = generate_label(e) if (ours or e.get("kind") == "generate") else "ComfyUI"
+            what = generate_label(e) if ours else self._foreign_what(e)
             rows.append([k, "c:" + e["prompt_id"], [str(k), who, what, "Running" if e.get("running") else "Waiting", "", "", ""],
                          glyphs({}), () if ours else ("other",), ("entry", e)])
+        for d in getattr(self, "_q_foreign_done", None) or ():     # Paket 3 (user 19.11., choice A): others' runs PxC saw
+            took = duration_text(d["finished"] - d["started"]) if d.get("started") else ""
+            rows.append([-far, "d:" + d["prompt_id"], ["", d.get("owner") or "unknown", self._foreign_what(d), "Done", "", "", took],
+                         glyphs({}), ("other",), ("done", d)])
         rows.sort(key=lambda r: r[0])           # stable: pictures without a place keep their order
         self._queue_times(rows, jobs)
         for _key, iid, values, acts, tags, _what in rows:
@@ -1091,6 +1103,37 @@ class BatchMixin:
         if keep:
             tree.selection_set(keep)
         self._queue_buttons()
+
+    @staticmethod
+    def _foreign_what(e: dict) -> str:
+        """The Picture text of another's run: "Batch" (no picture names of others), a Generate run's count, "ComfyUI"
+        for a run not sent by PxC."""
+        if e.get("kind") == "batch":
+            return "Batch"
+        return generate_label(e) if e.get("kind") == "generate" else "ComfyUI"
+
+    def _queue_note_foreign_done(self, old: list | None, new: list | None) -> None:
+        """Paket 3 (user 19.11., choice A): a run of another participant that PxC saw running and that has left ComfyUI's
+        queue stays in the list as "Done", with the time since PxC saw it start, until "Clear finished" (which removes
+        them too, user 19.11.). No extra request to ComfyUI: what ran while the queue window was closed is missing, and a
+        run the other one cancelled while it ran also reads "Done" (ComfyUI's /queue does not tell)."""
+        if old is None or new is None:              # not read (ComfyUI away): nothing can be said about what ended
+            return
+        me = getattr(getattr(getattr(self, "bridge", None), "comfy", None), "client_id", None)
+        still = {e["prompt_id"] for e in new}
+        done = getattr(self, "_q_foreign_done", None)
+        if done is None:
+            done = self._q_foreign_done = []
+        done[:] = [d for d in done if d["prompt_id"] not in still]      # back at ComfyUI (never seen live): not done after all
+        known = {d["prompt_id"] for d in done}
+        seen = getattr(self, "_q_seen", {})
+        now = time.time()
+        for e in old:
+            pid = e["prompt_id"]
+            if not e.get("running") or pid in still or pid in known or (me and e.get("client_id") == me):
+                continue
+            done.append(dict(e, running=False, started=seen.get(pid), finished=now))
+        del done[:-Q_FOREIGN_DONE_MAX]
 
     def _queue_times(self, rows: list, jobs: list) -> None:
         """The Time column, in the order the rows run (user 19.11.): what is done, its duration; what runs, the time it still
@@ -1114,6 +1157,8 @@ class BatchMixin:
         for row in rows:
             kind, x = row[5]
             values = row[2]
+            if kind == "done":                      # another's run that is through: its time is set already
+                continue
             if kind == "job":
                 st = x["status"]
                 if st in (jobqueue.DONE, jobqueue.ERROR, jobqueue.CANCELLED, jobqueue.PAUSED):
@@ -1165,7 +1210,8 @@ class BatchMixin:
             "pause_batch": any(x["status"] == jobqueue.WAITING for x in bjobs),
             "resume_batch": any(x["status"] == jobqueue.PAUSED for x in bjobs),
             "cancel_batch": bool(b) and b["state"] not in (jobqueue.B_DONE, jobqueue.B_CANCELLED),
-            "clear": any(x["status"] in jobqueue.FINISHED for x in self._q_jobs.values()),
+            "clear": any(x["status"] in jobqueue.FINISHED for x in self._q_jobs.values())
+                     or bool(getattr(self, "_q_foreign_done", None)),
         }
         for key, b_ in self.q_buttons.items():
             b_.configure(state="normal" if can.get(key) else "disabled")
@@ -1192,6 +1238,7 @@ class BatchMixin:
         ok = True
         if action == "clear":
             r.clear_finished()
+            self._q_foreign_done = []           # the finished runs of others go too (user 19.11.)
         elif action in ("pause_batch", "resume_batch", "cancel_batch"):
             if b is None:
                 return
@@ -1237,11 +1284,15 @@ class BatchMixin:
         return "break"
 
     def _escape_key(self, e=None):
-        """Escape in the plugin window: closes the queue when it is open, else stops the run as before."""
+        """Escape in the plugin window only closes windows (user 20.11.): the queue when it is open, else the settings
+        window; it never stops a run (that is the grey "Stop" on Generate or Ctrl+Alt+Enter)."""
         if self._alive(getattr(self, "_queue_win", None)):
             self._queue_close()
             return "break"
-        return self.stop()
+        if self._alive(getattr(self, "_settings_win", None)):
+            self._settings_close()
+            return "break"
+        return None
 
     def _queue_hover(self, e):
         iid, col = self._queue_cell(e)
@@ -1281,8 +1332,8 @@ class BatchMixin:
 
     @staticmethod
     def _q_movable(j: dict | None) -> bool:
-        """A picture that can be dragged: waiting or paused in PxC; one already at ComfyUI (pre-placed) stays fixed (19.11.)."""
-        return bool(j) and j["status"] in (jobqueue.WAITING, jobqueue.PAUSED) and not j.get("preplaced")
+        """A picture that can be dragged: waiting or paused in PxC."""
+        return bool(j) and j["status"] in (jobqueue.WAITING, jobqueue.PAUSED)
 
     def _queue_motion(self, e):
         if getattr(self, "_q_coldrag", None):
@@ -1587,6 +1638,7 @@ class BatchMixin:
         """ComfyUI's queue was read: the list above is filled anew (its "#" and the runs of others come from it), the lower
         list shows the participants, one row each with what they have running and waiting (user 18.11.)."""
         self._q_fetching = False
+        self._queue_note_foreign_done(getattr(self, "_q_entries", None), entries)
         self._q_entries = entries
         cv = getattr(self, "tv_comfy", None)
         if cv is None or not self._alive(getattr(self, "_queue_win", None)):

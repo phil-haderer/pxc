@@ -201,8 +201,9 @@ def test_fibo_no_ref_scribble():
     probe A2 is gone. Flux 3, Flux 2 and Qwen keep the tab, Fibo keeps Scribble on photo."""
     fibo = models.BY_KEY["fibo"]
     assert "scribble" in fibo.modes and not models.offers_ref_scribble(fibo)
-    others = [m for m in models.MODELS if "scribble" in m.modes and m.key != "fibo" and m.tag_style and m.max_refs > 0]
+    others = [m for m in models.MODELS if "scribble" in m.modes and m.key not in ("fibo", "minimax") and m.tag_style and m.max_refs > 0]
     assert others and all(models.offers_ref_scribble(m) for m in others)
+    assert not models.offers_ref_scribble(models.MINIMAX)      # MiniMax (21.11.): Scribble on photo, the reference tab not probed yet
     for gone in ("ref_scribble_step2_prompt", "ref_step2_box", "REF_STEP2_PROMPT", "REF_STEP2_CONTEXT"):
         assert not hasattr(bridge, gone), gone
     assert not hasattr(bridge.Bridge, "_ref_scribble_step2")
@@ -268,7 +269,7 @@ def test_window():
     app._edtab_clicked()
     assert app.v_sketch.get() == models.TEXT_SCRIBBLE_LABEL and not app._refs_wanted()
     # the two scribble functions are tabs since 15.11. (user): no chip row
-    assert app._edtab_layout[-1] == ["sketch", "scribble", "refscribble"] or "refscribble" in sum(app._edtab_layout, [])
+    assert app._edtab_shown[-3:] == ["sketch", "scribble", "refscribble"]      # the last entries of the list (20.11.)
     assert str(app.rb_edtabs["scribble"].cget("text")) == "Scribble on photo"
     assert str(app.rb_edtabs["refscribble"].cget("text")) == "Scribble with reference"
     assert not app.f_sketch.winfo_manager()

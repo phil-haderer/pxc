@@ -4,6 +4,7 @@ the gear and a line at the top of Other settings with "What's new" and "Skip thi
 and the steps (B1), or "Update now" (git pull) in a clone of the public repo (B3). The network part is pccomfy/update.py."""
 from __future__ import annotations
 
+import tkinter.font as tkfont
 import webbrowser
 
 from . import update
@@ -22,7 +23,8 @@ class UpdateMixin:
 
     def _update_init(self):
         """At the start (called from _build_settings): the blue dot of a release found earlier, then the daily check."""
-        self._update_found = update.to_show(self.state.get(update.KEY_FOUND), cfgmod.get_setting(update.KEY_SKIP, ""))
+        found = None if update.is_dev() else self.state.get(update.KEY_FOUND)      # the working folder: no dot (21.11.)
+        self._update_found = update.to_show(found, cfgmod.get_setting(update.KEY_SKIP, ""))
         self.lbl_update_dot = tk.Label(self.b_gear.master, text="●", bg=BG, fg=ACCENT, font=font(7), bd=0, padx=0, pady=0)
         self._update_dot_tip = Tooltip(self.lbl_update_dot, "")
         self._update_dot_sync()
@@ -30,7 +32,7 @@ class UpdateMixin:
             later(self.root, update.START_DELAY_MS, self._update_check_auto)
 
     def _update_check_auto(self):
-        if cfgmod.get_setting(update.KEY_OFF) or not update.due(self.state.get(update.KEY_LAST)):
+        if update.is_dev() or cfgmod.get_setting(update.KEY_OFF) or not update.due(self.state.get(update.KEY_LAST)):
             return
         self._update_check(manual=False)
 
@@ -122,11 +124,11 @@ class UpdateMixin:
                 return
             kids = list(box.master.pack_slaves() or ())
             box.pack(side="top", fill="x", padx=14, pady=(10, 0), **({"before": kids[0]} if kids and kids[0] is not box else {}))
-            head = ttk.Frame(box)
-            head.pack(fill="x")
-            ttk.Label(head, text=f"Update {found['version']} available", style="SetHead.TLabel").pack(side="left")
+            # one line (user 20.11.): a blue circle with "!", "Update X available", then What's new and Skip this version
             row = ttk.Frame(box)
-            row.pack(fill="x", pady=(4, 0))
+            row.pack(fill="x")
+            self._update_bang(row).pack(side="left", padx=(0, 6))
+            ttk.Label(row, text=f"Update {found['version']} available", style="SetHead.TLabel").pack(side="left", padx=(0, 10))
             kind = update.install_kind()
             b = self.b_update_news = ttk.Button(row, text="What's new", style="SetSmall.TButton",
                                                 command=lambda: webbrowser.open(found.get("url") or update.RELEASES_PAGE))
@@ -142,30 +144,54 @@ class UpdateMixin:
             self.lbl_update_steps = ttk.Label(box, text=update.UPDATE_STEPS[kind], style="SetMuted.TLabel",
                                               wraplength=self._px(380), justify="left")
             self.lbl_update_steps.pack(anchor="w", pady=(4, 0))
+            ttk.Frame(box, style="Sep.TFrame", height=1).pack(fill="x", pady=(12, 0))      # a line under it (user 20.11.)
         except tk.TclError:
             pass
 
-    def _update_check_row(self, parent):
-        """The tick "Check for updates" (A1, ticked from the factory) and "Check now" (A2) with its answer."""
-        row = ttk.Frame(parent)
-        row.pack(side="top", fill="x", padx=14, pady=(12, 0))
+    def _update_bang(self, parent) -> tk.Canvas:
+        """The blue circle with a white "!" left of "Update X available" (user 20.11.), as high as that heading."""
+        try:
+            d = tkfont.Font(root=parent, font=font(10, bold=True)).metrics("linespace")
+        except (tk.TclError, AttributeError):
+            d = 16
+        cv = tk.Canvas(parent, width=d, height=d, bg=BG, highlightthickness=0, bd=0)
+        cv.create_oval(1, 1, d - 1, d - 1, fill=ACCENT, outline=ACCENT)
+        cv.create_text(d / 2, d / 2, text="!", fill=ON_ACCENT, font=font(9, bold=True))
+        self.cv_update_bang = cv
+        return cv
+
+    def _update_check_row(self, row):
+        """The tick "Check for updates" (A1, ticked from the factory) and "Check now" (A2) in a frame for the right end of the chip
+        row of the settings window, shown while Other settings is open (user 20.11.); not packed here."""
+        box = self.f_update_check = ttk.Frame(row)
         self.v_update_check = tk.BooleanVar(value=not cfgmod.get_setting(update.KEY_OFF))
         cb = self.cb_update_check = ttk.Checkbutton(
-            row, text=CHECK_TEXT, variable=self.v_update_check, style="SetText.TCheckbutton",
+            box, text=CHECK_TEXT, variable=self.v_update_check, style="SetText.TCheckbutton",
             command=lambda: cfgmod.set_setting(update.KEY_OFF, None if self.v_update_check.get() else True))
         cb.pack(side="left")
         Tooltip(cb, CHECK_TIP)
-        b = self.b_update_check = ttk.Button(row, text="Check now", style="SetSmall.TButton", command=self._update_check)
+        b = self.b_update_check = ttk.Button(box, text="Check now", style="SetSmall.TButton", command=self._update_check)
         b.pack(side="left", padx=(8, 0))
         Tooltip(b, "Asks GitHub now whether a newer PxC is out.")
+        return box
+
+    def _update_status_row(self, parent):
+        """The answer of Check now, at the top of Other settings, packed only while it has text."""
         self.lbl_update_status = ttk.Label(parent, text="", style="SetMuted.TLabel")
-        self.lbl_update_status.pack(side="top", anchor="w", padx=14, pady=(2, 0))
 
     def _update_status(self, text: str, error: bool = False):
         lbl = getattr(self, "lbl_update_status", None)
         try:
             if lbl is not None and lbl.winfo_exists():
                 lbl.configure(text=text, style="SetRed.TLabel" if error else "SetMuted.TLabel")
+                if not text:
+                    lbl.pack_forget()
+                elif not lbl.winfo_manager():
+                    note = getattr(self, "f_update_note", None)
+                    after = {"after": note} if note is not None and note.winfo_manager() else {}
+                    kids = [k for k in lbl.master.pack_slaves() if k is not note]
+                    where = after or ({"before": kids[0]} if kids else {})
+                    lbl.pack(side="top", anchor="w", padx=14, pady=(10, 0), **where)
         except tk.TclError:
             pass
 

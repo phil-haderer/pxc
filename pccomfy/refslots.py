@@ -326,23 +326,7 @@ def preview_position(win: tuple[int, int, int, int], size: tuple[int, int], scre
 # The window part (Tk): one hook in gui.py puts RefSlotsMixin in front of the window's other mixins
 # ======================================================================================================================
 
-EDTAB_PADX = 2      # px left and right of each tab under the prompt; the Generate row reads it (gui_run._fit_go_row, user 18.11.)
-
-
-def edtab_rows(needs: list[int], room: int) -> list[list[int]]:
-    """The tabs under Edit in rows (indices into ``needs``): as few rows as fit, the tabs shared out evenly with the larger
-    rows first (four tabs that do not fit one row: 2 + 2, three: 2 + 1), so the first row always uses the full width and no
-    text is cut (user 10.11.). A row fits when its widths add up to at most ``room``; one tab per row as the last resort."""
-    n = len(needs)
-    for r in range(1, n + 1):
-        sizes = [n // r + (1 if i < n % r else 0) for i in range(r)]
-        rows, start = [], 0
-        for s in sizes:
-            rows.append(list(range(start, start + s)))
-            start += s
-        if all(sum(needs[i] for i in row) <= room for row in rows):
-            return rows
-    return [[i] for i in range(n)]
+EDTAB_PADX = 2      # px left and right of the Edit tab list under the prompt; the Generate row reads it (gui_run._fit_go_row, user 18.11.)
 
 
 MULTI_MODE = "multi_edit"     # the window mode that shows the slots (it runs as a whole-image edit)
@@ -554,27 +538,35 @@ class RefSlotsMixin:
             t.insert("1.0", new)
 
     # ---- the tabs of the Edit function (user 7.11.) ----
-    def _edtab_needs(self, keys):
-        """The width each tab needs with its text in bold (a chosen tab is bold) plus its gap, and the room of a row; None
-        when Tk cannot measure (the stubbed Tk of the tests)."""
+    def _edtab_show(self):
+        """The chip of the Edit tabs shows the chosen tab and the arrow at its right edge, like the function chip (user 20.11.);
+        its tooltip is the chosen tab's (with the missing file, _sketch_tab_state)."""
+        b = getattr(self, "b_edtab", None)
+        if b is None:
+            return
+        labels = dict(self.EDIT_TABS)
+        tab = self.v_edtab.get()
+        shown = getattr(self, "_edtab_shown", None) or [tab]
         try:
-            import tkinter.font as tkfont
-            from . import spacing
-            from .gui_common import MIN_W, font
-            self.root.update_idletasks()
-            plain, bold = tkfont.Font(root=self.root, font=font(9)), tkfont.Font(root=self.root, font=font(9, bold=True))
-            gap = 2 * spacing.scale(2)
-            needs = []
-            for k in keys:
-                rb, label = self.rb_edtabs[k], dict(self.EDIT_TABS)[k]
-                needs.append(int(rb.winfo_reqwidth()) - plain.measure(label) + bold.measure(label) + gap)
-            win = max(int(self.root.winfo_width()), self._px(MIN_W))
-            room = win - 2 * spacing.scale(10) - 2 * int(float(str(self.root.cget("highlightthickness")))) - 2
-            if room <= 0 or not all(n > gap for n in needs):
-                return None
-            return needs, room
-        except Exception:
-            return None
+            text = self._pick_text(labels.get(tab, tab), self._pick_room(b, [labels[k] for k in shown if k in labels]))
+            if str(b.cget("text")) != text:
+                b.configure(text=text)
+        except Exception:           # the stubbed Tk of the tests
+            pass
+        tt = self.tt_edtabs.get(tab)
+        self.tt_edtab.text = tt.text if tt is not None else ""
+
+    def _edtab_menu(self):
+        """The chip of the Edit tabs was clicked: the list of the tabs this model has, the chosen one light blue (not bold);
+        a tab whose file is missing is greyed out (its tooltip says which)."""
+        menu = self.m_edtab
+        menu.delete(0, "end")
+        labels = dict(self.EDIT_TABS)
+        for k in self._edtab_shown:
+            state = str(self.rb_edtabs[k].cget("state"))
+            menu.add_radiobutton(label=labels[k], value=k, variable=self.v_edtab,
+                                 state="disabled" if state == "disabled" else "normal", command=self._edtab_clicked)
+        self._menu_below(menu, self.b_edtab)
 
     # 2 + 2 (plan B, 10.11.): Edit canvas · Multi image edit / Sketch to image · Scribble on photo; under Fill (Flux 3 only,
     # plan B step 4, 11.11.): Fill selection · Insert reference. The same tab row serves both functions.
@@ -598,8 +590,6 @@ class RefSlotsMixin:
         self._refs_ensure()                  # makes v_bbox and the slot frame
         self.v_edtab = tk.StringVar(value="edit")
         self.f_edtabs = ttk.Frame(self.f_body)
-        # one frame per row, so each row shares out its own width (made before the tabs: a later sibling would cover them)
-        self.f_edtab_rows = [ttk.Frame(self.f_edtabs) for _ in self.EDIT_TABS]
         self.rb_edtabs, self.tt_edtabs = {}, {}
         tips = {"edit": _models.FUNCTION_TIPS["edit"], "multi": _models.FUNCTION_TIPS["multi_edit"], "bbox": BBOX_CHECK_TIP,
                 "fill": _models.FUNCTION_TIPS["inpaint"],
@@ -613,6 +603,18 @@ class RefSlotsMixin:
                                  command=self._edtab_clicked)
             self.rb_edtabs[key] = rb
             self.tt_edtabs[key] = Tooltip(rb, tips[key])
+        # the tabs are a list since 20.11. (user): one chip in the look of the function chip in the head, with its arrow, a
+        # little higher than the tabs were; a click opens the list of the tabs this model has. The radio buttons above are
+        # never shown: they keep each tab's state (greyed out when a file is missing) and tooltip for the list
+        from .gui_common import PICK_CHOSEN
+        from .popmenu import PopMenu
+        self.b_edtab = ttk.Button(self.f_edtabs, style="Pick.TButton", command=self._edtab_menu)
+        self.b_edtab.pack(fill="x", padx=EDTAB_PADX)
+        self.b_edtab.bind("<Configure>", lambda e: self._edtab_show(), add="+")
+        self.tt_edtab = Tooltip(self.b_edtab, "")
+        self.m_edtab = PopMenu(self.root, scale=getattr(self, "ui", 1.0), checks=False, chosen_fg=PICK_CHOSEN,
+                               font_size=10)     # as big as the chip's text (user 21.11.)
+        self._edtab_shown = []
         # Scribble on photo: its chips in one row under the tabs, Text at scribble and Reference at scribble (user 15.11.)
         self.v_sketch = tk.StringVar(value=_models.SCRIBBLE_PROMPTS[0][0])
         self.f_sketch = ttk.Frame(self.f_body)
@@ -655,6 +657,7 @@ class RefSlotsMixin:
         if not show:
             self.f_edtabs.pack_forget()
             self.f_sketch.pack_forget()
+            self._edtab_gaps(False)
             return
         tab = ({v: k for k, v in TAB_MODE.items() if k != "refscribble"}.get(mode)
                or ("bbox" if (bbox and self.v_bbox.get()) else "multi"))
@@ -669,49 +672,34 @@ class RefSlotsMixin:
             shown = [k for k, _l in self.EDIT_TABS if k not in FILL_TABS and (k != "multi" or MULTI_MODE in m.modes)
                      and (k not in ("sketch", "scribble", "refscribble") or TAB_MODE[k] in m.modes)
                      and (k != "refscribble" or _models.offers_ref_scribble(m))]
-        # as few rows as the texts allow, every row the full width, no text cut (user 10.11.): each tab as wide as its bold
-        # text needs, the room left over shared out; without a measure (tests) four tabs go into two rows of two
-        meas = self._edtab_needs(shown)
-        needs = meas[0] if meas else [0] * len(shown)
-        # all tabs the same width (window test 11.11.): each as wide as the widest; the long "Scribble on photo with
-        # reference" (15.11.) is left out of that, it takes a row of its own when it does not fit beside the others
-        wide = max((n for k, n in zip(shown, needs) if k != "refscribble"), default=0)
-        needs = [n if k == "refscribble" else wide for k, n in zip(shown, needs)]
-        # plan B (10.11.): always 2 + 2, the edit tabs in the first row, Sketch to image and Scribble on photo in the second;
-        # a row that does not fit is split again
-        rows = []
-        sk = ("sketch", "scribble", "refscribble")
-        for group in ([k for k in shown if k not in sk], [k for k in shown if k in sk]):
-            if group and meas:
-                idx = [shown.index(k) for k in group]
-                rows += [[group[i] for i in r] for r in edtab_rows([needs[i] for i in idx], meas[1])]
-            elif group:
-                rows.append(group)
-        self._edtab_layout = rows
-        need = dict(zip(shown, needs))
-        # all tabs the same width (window test 11.11.): the columns of a row are equal (uniform), each as wide as the widest tab
-        # needs, so rows of the same count line up
-        same = len({len(row) for row in rows}) == 1
-        for r, frame in enumerate(self.f_edtab_rows):
-            keys = rows[r] if r < len(rows) else []
-            for c in range(len(self.EDIT_TABS)):
-                used = c < len(keys)
-                frame.columnconfigure(c, weight=1 if used else 0, minsize=need[keys[c]] if used else 0,
-                                      uniform="edtab" if same and used else "")
-            frame.pack_forget()
-        for r in range(len(rows)):
-            self.f_edtab_rows[r].pack(fill="x")
-        for k, _l in self.EDIT_TABS:
-            if k in shown:
-                r = next(i for i, row in enumerate(rows) if k in row)
-                self.rb_edtabs[k].grid(in_=self.f_edtab_rows[r], row=0, column=rows[r].index(k), sticky="ew", padx=EDTAB_PADX, pady=2)
-            else:
-                self.rb_edtabs[k].grid_remove()
+        self._edtab_shown = shown           # the entries of the list (user 20.11.: a list instead of rows of tabs)
         for k in ("sketch", "scribble", "refscribble"):
             self._sketch_tab_state(m, k)
-        anchor = self.f_refs if self.f_refs.winfo_manager() else self.f_neg
-        self.f_edtabs.pack(fill="x", padx=10, pady=(6, 0), before=anchor)
+        self._edtab_show()
+        # right under the function and model chips, above the prompt (user 20.11.); the reference slots stay under the prompt
+        self.f_edtabs.pack(fill="x", padx=10, before=self.sep_prompt)
+        self._edtab_gaps(True)
         self.f_sketch.pack_forget()      # the two scribble chips are tabs now (user 15.11.): no chip row
+
+    # the gaps above the prompt with and without the Edit list: (pady of sep_prompt, pady of f_ptop)
+    PROMPT_GAPS = {False: ((6, 4), (0, 4)), True: ((0, 0), (0, 0))}
+
+    def _edtab_gaps(self, shown: bool):
+        """With the Edit list the gap above it (to the function and model chips) and the gap below it (to the prompt box) are
+        both as wide as the gap between the two chips (user 21.11.): f_tabs keeps its 2 px below, the empty sep_prompt and
+        f_ptop (1 px each) lose their padding while the list is shown."""
+        from . import spacing
+        from .gui_common import PICK_GAP
+        g = int(self._px(PICK_GAP))
+        across = spacing.scale(g - g // 2) + spacing.scale(g // 2)      # as the two chips are gridded (gui.py: padx of b_mode, b_model)
+        sep, ptop = self.PROMPT_GAPS[shown]
+        try:
+            if shown:          # in final pixels (Keep): above, f_tabs' scaled 2 px; below, the 1 px of sep_prompt and of f_ptop
+                self.f_edtabs.pack_configure(pady=(spacing.Keep(max(0, across - spacing.scale(2))), spacing.Keep(max(0, across - 2))))
+            self.sep_prompt.pack_configure(pady=sep)
+            self.f_ptop.pack_configure(pady=ptop)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _sketch_tab_state(self, m, tab: str = "sketch"):
         """The tabs Sketch to image and Scribble on photo are greyed out when a file of their own is missing (their writer:
@@ -1253,7 +1241,7 @@ class RefSlotsMixin:
             return
         seed = random.randint(1, 2**31 - 1) if src.description else None     # the first one: the likeliest words
         self._ref_busy.add(k)
-        self.b_stop.configure(state="normal")          # Cancel stops the text model too (user 2.11.)
+        self._go_stop(True)          # Generate is "Stop" and stops the text model too (user 2.11., 20.11.)
         box: dict = {}
 
         def work():
@@ -1274,7 +1262,7 @@ class RefSlotsMixin:
                 return
             self._ref_busy.discard(k)
             if not self._ref_busy and not getattr(self, "_describing", False) and not (self.worker and self.worker.is_alive()):
-                self.b_stop.configure(state="disabled")
+                self._go_stop(False)
             if "error" in box:
                 self._refs_say(box["error"] if box["error"] == "Cancelled." else "Describe failed: " + box["error"])
             else:

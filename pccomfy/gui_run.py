@@ -1,8 +1,6 @@
 """A run: build the request, generate, undo/redo, stop, poll, progress and status line. (moved out of gui.py unchanged; see PLAN.md, phase 0)."""
 from __future__ import annotations
 
-import contextlib
-
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 from . import icons
@@ -111,13 +109,15 @@ class RunMixin:
                        enhance=self._writer_runs(),
                        turbo=bool(self.v_turbo.get()), scale=self._scale(),
                        lora_strength=(round(float(self.v_lora_str.get()), 2) if self._has_lora_switch() else None),
-                       stage_on=bool(self.v_stage.get()) or not self._stage_label(), stages_off=self._stages_off(), stage_strengths=self._stage_strengths(), sampler_override=self._sampler_override(), doc_tag=self._doc_tag(), loras=[tuple(x) for x in self._loras()], detail=round(float(self.v_detail.get()), 2) if self.v_mode.get() in SCALE_MODES else 1.0,
+                       stage_on=bool(self.v_stage.get()) or not self._stage_label(), stages_off=self._stages_off(), stage_strengths=self._stage_strengths(), sampler_override=self._sampler_override(), variant=getattr(self._variant(), "file", ""), doc_tag=self._doc_tag(), loras=[tuple(x) for x in self._loras()], detail=round(float(self.v_detail.get()), 2) if self.v_mode.get() in SCALE_MODES else 1.0,
                        layer_mask=layer_mask_key(self.v_lmask.get()),
                        feather_pct=round(float(self.v_feather.get()) * 2) / 2,
                        mask_density=min(100, max(0, int(self.v_density.get()))),
                        seam_fixed=self._seam_mode() == "on" and self._run_mode() in ("inpaint", "remove", "outpaint"),
                        preview=bool(self.v_live.get()), preview_method=m.preview if m else "taesd")
         req.scribble = self.v_mode.get() == "scribble"      # its own tab since plan B (10.11.)
+        req.scribble_object = bool(req.scribble and spec is not None and spec.scribble_object_mask)   # MiniMax (user 21.11.)
+        req.fill_object = bool(spec is not None and spec.fill_object_mask and req.mode == "inpaint" and not req.remove)   # Qwen (user 21.11.)
         req.fill_box = bool(spec is not None and spec.fill_box and req.mode == "inpaint")    # Flux 3 Fill: the box <obj_1> (plan B step 4)
         return req
 
@@ -154,7 +154,7 @@ class RunMixin:
         return [s["id"] for s, var in zip(st[1:], self.stage_vars[1:]) if not var.get()]
 
     def _show_variants(self):
-        """The accent-coloured piece on the right of Generate says how many pictures a run makes: "×3 ▾", also "×1 ▾" (user 30.10.)."""
+        """The grey piece on the right of Generate says how many pictures a run makes: "×3 ▾", also "×1 ▾" (user 30.10.)."""
         try:
             n = int(self.v_variants.get())
         except (TypeError, ValueError, tk.TclError):
@@ -204,10 +204,9 @@ class RunMixin:
         self._running = True
         self._other_pc = self._other_photocraft()       # a second PhotoCraft open: the hint after the run (gui.py, 16.11.)
         self._run_label = self._model_label()           # the bar names the model of this run, not one picked meanwhile (window test E)
-        self.b_go.configure(state="disabled")
-        self.w_variants.configure(state="disabled")     # part of Generate: grey with it while a run is on
+        self.w_variants.configure(state="disabled")     # part of Generate: grey while a run is on
         self._sync_history_buttons()
-        self.b_stop.configure(state="normal")
+        self._go_stop(True)
         self.bridge.reset_cancel_all()
         self._reset_progress()
 
@@ -220,18 +219,11 @@ class RunMixin:
             if req.params.seed is None or req.params.seed < 0:
                 req.params.seed = random.randint(0, 10**8 - 1)   # one seed for the whole series: only the value differs
 
-        # runs that follow one another (variants of Upscale / Refine, a comparison): "Stop all" is offered besides "Stop"
+        # runs that follow one another (variants of Upscale / Refine, a comparison): Generate says "Stop run", "Stop batch" beside it
         if len(runs) > 1 or (req.mode in SCALE_MODES and int(req.variants) > 1):
             self._show_stop_all(True)
 
-        clicked = time.time()       # ComfyUI's `number` of every job of this Generate (decision 18.11.): its click
-
         def work():
-            order = getattr(self.bridge.comfy, "order", None)
-            with (order(clicked) if callable(order) else contextlib.nullcontext()):
-                generate_work()
-
-        def generate_work():
             try:
                 total = docs = 0
                 res = None
@@ -468,10 +460,9 @@ class RunMixin:
             self._status(f"{', '.join(missing)} is missing (optional file): download it in the gear window, Models, Additional.", error=True)
             return
         self._running = True
-        self.b_go.configure(state="disabled")
         self.w_variants.configure(state="disabled")
         self._sync_history_buttons()
-        self.b_stop.configure(state="normal")
+        self._go_stop(True)
         self.bridge.reset_cancel_all()
         self._reset_progress()
 
@@ -505,26 +496,80 @@ class RunMixin:
         self.tt_cut.text = CUTOUT_TIP if ok else CUTOUT_TIP + "\n\n" + CUTOUT_MISSING
 
     def stop(self):
-        """Stop: the run, or the text model while it describes a picture (the LLM and Describe buttons, the slots' Describe)."""
+        """Stop: the run, or the text model while it describes a picture (the LLM and Describe buttons, the slots' Describe);
+        while a batch of the ⋯ menu is on, its picture at ComfyUI now (the next one follows, user 20.11.)."""
         if (self.worker and self.worker.is_alive()) or getattr(self, "_describing", False) or getattr(self, "_ref_busy", None):
             self.bridge.cancel()
             self._status("Cancelling…")
+        elif self._batch_busy():
+            job = self.runner.running_job
+            if job:
+                self.runner.cancel(job["id"])
+                self._status("Cancelling…")
+            else:
+                self._status("No picture of the batch is running right now.")
+
+    def _stop_click(self, batch: bool = False):
+        """A click on the grey "Stop" / "Stop run" (batch=False) or "Stop batch" (user 20.11.): taken only STOP_GUARD_S after
+        the run started, so a double click on Generate does not stop the run it just started. The keys stop at once."""
+        if time.monotonic() - getattr(self, "_stop_armed", 0.0) < STOP_GUARD_S:
+            return
+        (self.stop_all if batch else self.stop)()
+
+    def _go_stop(self, on: bool):
+        """Generate during a run (user 20.11., no Stop button any more): grey, "Stop" (or "Stop run" while "Stop batch" is
+        shown), a click stops; afterwards blue "Generate" again. A text model run (Describe) makes it "Stop" too; it stays
+        "Stop" while a run or a text model run is still on."""
+        if not on and (getattr(self, "_running", False) or getattr(self, "_describing", False)
+                       or getattr(self, "_ref_busy", None) or self._batch_keeps_stop()):
+            return
+        batch = on and self.b_stop_all.winfo_manager() == "grid"
+        try:
+            if on:
+                if not getattr(self, "_go_stopping", False):
+                    self._stop_armed = time.monotonic()       # the double-click guard starts when Generate turns into Stop
+                self.b_go.configure(text=GO_STOP_RUN_TEXT if batch else GO_STOP_TEXT, style="GoStop.TButton",
+                                    command=self._stop_click, state="normal")
+                if self.w_variants.winfo_manager():
+                    self.w_variants.grid_remove()           # the variants piece is gone while a run is on (user 20.11.)
+            else:
+                self.b_go.configure(text="Generate", style="Accent.TButton", command=self.generate)
+                if not self.w_variants.winfo_manager():
+                    self.w_variants.grid()
+        except (tk.TclError, AttributeError):
+            return
+        tt = getattr(self, "tt_go", None)
+        if tt is not None:
+            tt.text = (GO_STOP_RUN_TIP if batch else GO_STOP_TIP) if on else GO_TIP
+        self._go_stopping = on
+        self._fit_go_row()
+
+    def _batch_keeps_stop(self) -> bool:
+        """A batch of the ⋯ menu is still on: Generate stays "Stop run" when a Describe ends meanwhile (review 21.11.; it was
+        blue and clickable until the next _batch_sync)."""
+        try:
+            return bool(getattr(self, "_batch_stopping", False) and self._batch_busy())
+        except Exception:
+            return False
 
     def _show_stop_all(self, on: bool):
-        """"Stop all" beside "Stop"; the row shares out its width anew, so it still fits the window with Undo and Redo."""
+        """"Stop batch" beside Generate (which says "Stop run" then); the row shares out its width anew, so it still fits
+        the window with Undo and Redo."""
         if on:
             self.b_stop_all.grid(row=0, column=GO_COL_STOP_ALL, sticky="nsew", padx=(self._keep(6), 0))
         else:
             self.b_stop_all.grid_forget()
+        if getattr(self, "_go_stopping", False):
+            self._go_stop(True)          # the text follows: "Stop run" with "Stop batch", "Stop" without
         self._fit_go_row()
 
     def _fit_go_row(self):
         """The Generate row over the full width (user 18.11., decisions 1a and 3): Generate and the variants piece together
-        are as wide as the tab "Edit canvas" under the prompt (half the row less the tabs' padding; user 18.11.), the
-        variants piece at VARIANTS_GROW_MAX of its natural width, Generate the rest; Stop grows up to STOP_GROW_MAX; what is
-        left goes to the empty column before Undo. Undo and Redo are squares as high as Generate. Where the row is short
-        ("Stop all" shown, a large scale), Stop, then Generate, then the variants piece give room back, down to their
-        natural width."""
+        are half the row less the tabs' padding (user 18.11.: as wide as the tab "Edit canvas"; since 20.11. the Edit tabs are
+        a list and never shown, so the half row is what counts), the
+        variants piece at VARIANTS_GROW_MAX of its natural width, Generate the rest; what is left goes to the empty column
+        before Undo. Undo and Redo are squares as high as Generate. Where the row is short ("Stop batch" shown, a large
+        scale), Generate, then the variants piece give room back, down to their natural width."""
         bf = getattr(self, "f_go", None)
         if bf is None or not hasattr(self, "b_redo"):
             return
@@ -539,8 +584,10 @@ class RunMixin:
         try:
             total = int(bf.winfo_width())
             side = int(self.b_go.winfo_reqheight())
-            n_go, n_var, n_stop = (int(w.winfo_reqwidth()) for w in (self.b_go, self.w_variants, self.b_stop))
-            p_go, p_var, p_stop = (pad(w) for w in (self.b_go, self.w_variants, self.b_stop))
+            n_go, n_var = (int(w.winfo_reqwidth()) for w in (self.b_go, self.w_variants))
+            p_go, p_var = (pad(w) for w in (self.b_go, self.w_variants))
+            if not self.w_variants.winfo_manager():     # hidden during a run (user 20.11.): Generate takes its room
+                n_var = p_var = 0
             tabs = getattr(self, "rb_edtabs", None)          # the tabs' padding (refslots.py), read back once they exist
             p_tab = pad(tabs["edit"]) if tabs and tabs["edit"].winfo_manager() == "grid" else 2 * EDTAB_PADX
             tab_w = 0           # the tab "Edit canvas" as it really is on screen (user 19.11.: the pair was a little narrower)
@@ -550,26 +597,23 @@ class RunMixin:
                     tabs["edit"].bind("<Configure>", lambda e: self._fit_go_row(), add="+")
                     tabs["edit"]._pcc_go_bound = True
             pair = pad(self.b_redo)
-            fixed = p_stop + self._px(GO_GAP_MIN_PX) + 2 * side + pair      # beside Generate and the variants piece
+            fixed = self._px(GO_GAP_MIN_PX) + 2 * side + pair      # beside Generate and the variants piece
             if self.b_stop_all.winfo_manager() == "grid":
                 fixed += pad(self.b_stop_all) + int(self.b_stop_all.winfo_reqwidth())
         except (tk.TclError, AttributeError, ValueError, KeyError, TypeError):      # TypeError: no real Tk (the test stubs)
             return
-        key = (total, side, n_go, n_var, n_stop, p_tab, tab_w, fixed)
+        key = (total, side, n_go, n_var, p_tab, tab_w, fixed)
         if total <= 1 or key == getattr(self, "_go_row_key", None):
             return
         self._go_row_key = key
         var = n_var + int(n_var * (VARIANTS_GROW_MAX - 1)) + p_var       # the variants column (its padding included)
         go = max(n_go + p_go, (tab_w or (total - 2 * p_tab) // 2) - var)  # Generate + variants = the tab "Edit canvas"
-        rest = total - fixed - go - var                                    # what Stop may take
-        stop = max(n_stop, min(rest, n_stop + int(n_stop * (STOP_GROW_MAX - 1))))
-        short = max(0, stop - rest)                                        # the row is too short: Generate, then variants give back
-        cut = min(short, go - n_go - p_go)
+        short = max(0, go + var + fixed - total)                           # the row is too short: Generate, then variants give back
+        cut = min(short, max(0, go - n_go - p_go))
         go, short = go - cut, short - cut
-        var -= min(short, var - n_var - p_var)
+        var -= min(short, max(0, var - n_var - p_var))
         bf.grid_columnconfigure(0, minsize=go)
         bf.grid_columnconfigure(1, minsize=var)
-        bf.grid_columnconfigure(2, minsize=stop + p_stop)
         bf.grid_columnconfigure(GO_COL_GAP, minsize=self._px(GO_GAP_MIN_PX))
         bf.grid_columnconfigure(GO_COL_UNDO, minsize=side)
         bf.grid_columnconfigure(GO_COL_UNDO + 1, minsize=side + pair)
@@ -606,10 +650,33 @@ class RunMixin:
             pass
 
     def stop_all(self):
-        """Stop all: the run that is on and every variant / comparison run still to come."""
+        """Stop all: the run that is on and every variant / comparison run still to come; while a batch of the ⋯ menu is
+        on, the batch of the picture that runs (user 21.11.; every batch not over until then)."""
         if self.worker and self.worker.is_alive():
             self.bridge.cancel_all()
             self._status("Cancelling…")
+        elif self._batch_busy():
+            bid = self._batch_now()
+            if bid:
+                self.runner.cancel_batch(bid)
+            self._status("Cancelling the batch…")
+
+    def _batch_now(self) -> str:
+        """The batch "Stop batch" ends (user 21.11.: only this one, other batches go on): the batch of the picture at
+        ComfyUI now; between two pictures, the batch of the next one in the line; else the oldest one not over."""
+        job = self.runner.running_job
+        if job and job.get("batch_id"):
+            return str(job["batch_id"])
+        try:
+            for j in self.runner.jobs():
+                if j.get("status") == "waiting" and j.get("batch_id"):
+                    return str(j["batch_id"])
+        except Exception:
+            pass
+        for b in self.runner.batches():
+            if b.get("state") not in ("done", "cancelled"):
+                return str(b["id"])
+        return ""
 
     def _poll(self):
         frame = None                # the newest live preview frame of this round (older ones are skipped)
@@ -640,13 +707,12 @@ class RunMixin:
                     if ok and getattr(self, "_other_pc", False):
                         self._status(self.OTHER_PC_HINT, error=True)
                     self._running = False
-                    self.b_go.configure(state="normal")
                     self.w_variants.configure(state="normal")
                     if ok:
                         self._last_step = None      # a new result: Undo is the blue one again (decision 2a, 18.11.)
                     self._sync_history_buttons()
-                    self.b_stop.configure(state="disabled")
                     self._show_stop_all(False)
+                    self._go_stop(False)
                     self._history_end(ok)
                     self._ahead_stop()
                     self._batch_sync()          # a batch that waited for this run keeps Generate grey
@@ -656,7 +722,7 @@ class RunMixin:
                     self._last_result = data
                 elif kind == "vgl":
                     self._last_vgl = str(data or "")      # not shown in the window; the copy button next to the LLM checkbox takes it
-                    self.b_copy.configure(state="normal" if self._last_vgl.strip() else "disabled")
+                    self._sync_copy()
                     if getattr(self, "_hist_run", None):
                         self._hist_run["llm"] = self._last_vgl.strip()
                 elif kind == "refresh":

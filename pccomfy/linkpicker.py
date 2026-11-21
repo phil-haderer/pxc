@@ -1,7 +1,10 @@
 """The window of a file's field (Settings, Model Links; the chain symbol until 19.11.): a search field over the files ComfyUI lists for the kind of the expected file.
-Typing narrows the list (every word, any case), the list is alphabetical, files that equal the expected file come first with a
-line below them (user 7.11.). The mouse wheel scrolls the list and never closes the window; Escape, a pick or a click into
+Typing narrows the list (every word, any case), the list is alphabetical, files that can stand in for the expected file come first,
+then a solid line and the grey, unclickable heading "Other models" above all the others (user 7.11., 21.11.). The mouse wheel scrolls the list and never closes the window; Escape, a pick or a click into
 another window closes it. A tk.Menu could do none of this (no search, the wheel closed it, a long list ran off the screen).
+Marks (user 21.11., choice 10A): a green ● in front of the file in use, a blue ● in front of files with the same size and header
+as the expected file (a renamed copy; user 21.11.: no longer for files of other PxC models), and a grey legend under the list for the
+marks it shows. No row is marked blue when the window opens; the blue bar follows the mouse and the arrow keys (user 21.11.).
 
 ``order`` is plain Python (no Tk) and is what the tests pin."""
 from __future__ import annotations
@@ -10,12 +13,16 @@ import tkinter as tk
 from collections.abc import Callable
 
 from . import hostos
-from .gui_common import ACCENT, DONE_GREEN, FG, MUTED, ON_ACCENT, PANEL, bind_wheel, font, wheel_up
+from .gui_common import ACCENT, DONE_GREEN, FG, MUTED, ON_ACCENT, PANEL, ThinScrollbar, bind_wheel, font, later, wheel_up
 from .popmenu import BORDER, MARGIN, PAD_X, PAD_Y   # the look of the menus: same border, margin, row padding
 
-SEPARATOR = "─" * 24         # the unselectable row between the matches of the expected file and the rest
+LEGEND_IN_USE = "in use"
+LEGEND_SAME = "same size as the expected file (a renamed copy)"
+OTHER = "Other models"       # the grey heading above the files that are no replacement (user 21.11.), not clickable
+LINE = "#5c5c5c"             # the solid line above that heading (a frame laid over an empty row: a Listbox draws no lines)
 ROWS = 16                    # rows shown before the list scrolls
 NL = chr(10)
+CLOSE_ON_FOCUS_LOSS = True     # tests switch it off: other test windows take the focus on a busy machine (as in stylegrid)
 
 
 def _key(name: str) -> str:
@@ -33,7 +40,7 @@ def order(cands, pinned=(), typed: str = "") -> tuple[list[str], list[str]]:
 
 
 def rows(cands, pinned=(), typed: str = "") -> list[str | None]:
-    """The names to show, ``None`` for the line between the two groups (only when both have files)."""
+    """The names to show, ``None`` for the line and the heading "Other models" between the two groups (only when both have files)."""
     top, rest = order(cands, pinned, typed)
     return [*top, *([None] if top and rest else []), *rest]
 
@@ -43,9 +50,11 @@ class LinkPicker:
 
     def __init__(self, root, anchor_xy, cands: list[str], pinned=(), hints: dict | None = None, mapped: str | None = None,
                  explain: str = "", unlink: str = "", on_pick: Callable[[str], None] | None = None, scale: float = 1.0,
-                 strong=(), note: str = ""):
+                 strong=(), note: str = "", same=()):
         self.root, self.cands, self.pinned, self.hints = root, list(cands), list(pinned), dict(hints or {})
         self.strong = set(strong)      # files shown in green with a dot (the one in use): easy to see in a long list
+        self.same = set(same) - self.strong      # files shown in blue with a dot (same size and header as an expected file)
+        self.legend: list[tuple[str, str]] = []  # (colour, text) of the legend under the list, for the tests
         self.mapped, self.on_pick, self.closed, self.shown = mapped, on_pick, False, []
         px = lambda n: round(n * scale)  # noqa: E731
         top = self.top = tk.Toplevel(root, **hostos.TOP_KW)
@@ -71,10 +80,12 @@ class LinkPicker:
         self.lb = tk.Listbox(body, height=ROWS, width=self._chars(root, px),
                              exportselection=False, activestyle="none", bg=PANEL, fg=FG, selectbackground=ACCENT,
                              selectforeground=ON_ACCENT, relief="flat", highlightthickness=0, font=font(9))
-        sb = tk.Scrollbar(body, orient="vertical", command=self.lb.yview)
-        self.lb.configure(yscrollcommand=sb.set)
-        sb.pack(side="right", fill="y")
         self.lb.pack(side="left", fill="both", expand=True)
+        self.sb = ThinScrollbar(body, self.lb, px(6), PANEL, auto=True)      # the plugin's thin bar, no arrows (user 21.11.)
+        self.lb.configure(yscrollcommand=lambda a, b: (self.sb.set(a, b), self._place_line()))
+        self.line = tk.Frame(self.lb, height=max(1, px(1)), bg=LINE)       # the solid line, laid over its row
+        self._line_row: int | None = None
+        self._legend(outer, px)
         if unlink:
             b = tk.Label(outer, text=unlink, bg=PANEL, fg=MUTED, font=font(9), cursor="hand2", anchor="w", padx=px(PAD_X), pady=px(PAD_Y))
             b.bind("<Button-1>", lambda e: self._take(""))
@@ -84,11 +95,14 @@ class LinkPicker:
         self.entry.bind("<Up>", lambda e: self._move(-1))
         self.entry.bind("<Return>", lambda e: self._pick_selected())
         self.lb.bind("<ButtonRelease-1>", lambda e: self._pick_clicked(e))
+        self.lb.bind("<Motion>", self._hover)
+        self.lb.bind("<Leave>", lambda e: self.lb.selection_clear(0, "end"))
         self.lb.bind("<Return>", lambda e: self._pick_selected())
         # the wheel only moves the list: "break" keeps it from reaching the window under the pointer (the old menu closed here)
         bind_wheel(self.lb, lambda e: (self.lb.yview_scroll(-3 if wheel_up(e) else 3, "units"), "break")[1])
         self.refill()
         self._finish(top, anchor_xy, px, self.entry)
+        later(top, 50, lambda: None if self.closed else self._place_line())    # the row has its place only once the window is drawn
 
     def _finish(self, top, anchor_xy, px, focus_widget):
         """Closing (Escape, lost focus, a click outside), place the window inside the screen, take the keyboard."""
@@ -121,28 +135,64 @@ class LinkPicker:
         except (tk.TclError, TypeError, ValueError):
             return max(40, min(120, max((len(self._line(n)) for n in self.cands), default=40) + 8))
 
+    def _legend(self, outer, px):
+        """One grey line under the list for each mark the list has (green: in use, blue: same file as an expected one)."""
+        have = set(self.cands)
+        for on, colour, text in ((self.strong & have, DONE_GREEN, LEGEND_IN_USE), (self.same & have, ACCENT, LEGEND_SAME)):
+            if not on:
+                continue
+            row = tk.Frame(outer, bg=PANEL)
+            row.pack(fill="x", pady=(0, px(2)))
+            tk.Label(row, text="●", bg=PANEL, fg=colour, font=font(9)).pack(side="left", padx=(px(PAD_X), px(4)))
+            tk.Label(row, text=text, bg=PANEL, fg=MUTED, font=font(9), anchor="w").pack(side="left")
+            self.legend.append((colour, text))
+
     def _line(self, n: str) -> str:
         tag = f"   ({self.hints[n]})" if n in self.hints else ""
-        return ("● " if n in self.strong else "✓ " if n == self.mapped else "") + n + tag
+        mark = "● " if n in self.strong or n in self.same else "✓ " if n == self.mapped else ""
+        return mark + n + tag
 
     # ---------- the list ----------
 
     def refill(self):
-        self.shown = rows(self.cands, self.pinned, self.v.get())
+        self.shown, self._line_row = [], None
         self.lb.delete(0, "end")
-        for n in self.shown:
-            if n is None:
-                self.lb.insert("end", SEPARATOR)
-                self.lb.itemconfigure("end", foreground=MUTED, selectforeground=MUTED, selectbackground=PANEL)
+        for n in rows(self.cands, self.pinned, self.v.get()):
+            if n is None:          # an empty row with the line over it, then the grey heading; neither can be chosen
+                self._line_row = len(self.shown)
+                for text in ("", OTHER):
+                    self.shown.append(None)
+                    self.lb.insert("end", text)
+                    self.lb.itemconfigure("end", foreground=MUTED, selectforeground=MUTED, selectbackground=PANEL)
                 continue
+            self.shown.append(n)
             self.lb.insert("end", self._line(n))
             if n in self.strong:
                 self.lb.itemconfigure("end", foreground=DONE_GREEN)
+            elif n in self.same:
+                self.lb.itemconfigure("end", foreground=ACCENT)
+        self.lb.selection_clear(0, "end")
         first = next((i for i, n in enumerate(self.shown) if n is not None), None)
-        if first is not None:
-            self.lb.selection_clear(0, "end")
+        if first is not None and self.v.get().strip():      # only while typing: Return takes the best hit (none marked on opening)
             self.lb.selection_set(first)
             self.lb.activate(first)
+        self._place_line()
+
+    def _place_line(self):
+        """The solid line in the middle of its empty row; hidden while that row is scrolled out of view."""
+        box = self.lb.bbox(self._line_row) if self._line_row is not None else None
+        if not box:
+            self.line.place_forget()
+            return
+        self.line.place(x=0, y=box[1] + box[3] // 2, relwidth=1.0)
+
+    def _hover(self, e):
+        """The blue bar under the mouse (like the menus); not on the line or the heading."""
+        i = self.lb.nearest(e.y)
+        self.lb.selection_clear(0, "end")
+        if 0 <= i < len(self.shown) and self.shown[i] is not None:
+            self.lb.selection_set(i)
+            self.lb.activate(i)
 
     def _move(self, step: int):
         sel = self.lb.curselection()
@@ -205,7 +255,7 @@ class LinkPicker:
             self.on_pick(name)
 
     def _lost_focus(self):
-        if self.closed:
+        if self.closed or not CLOSE_ON_FOCUS_LOSS:
             return
         try:
             if self.top.focus_displayof() is not None:

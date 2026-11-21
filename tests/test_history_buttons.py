@@ -31,11 +31,14 @@ def states(app):
 
 
 def pump(app, until, timeout=5.0):
+    """Runs the window until `until()` holds AND the worker thread has ended. A step's thread lives on for a moment after its
+    last event, and a click in that moment is ignored (gui_run._history_step); a person never clicks that fast, but the test
+    did: red on Tk 9 / Python 3.14 in the install matrix (19.11.)."""
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         app._poll()
         app.root.update()
-        if until():
+        if until() and not (app.worker and app.worker.is_alive()):
             return True
         time.sleep(0.02)
     return False

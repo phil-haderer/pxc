@@ -20,22 +20,29 @@ class LoraMixin:
         words = typed.lower().split()
         return [n for n in names if all(w in n.lower() for w in words)]
 
-    def _add_lora_row(self, name: str = "", strength: float = 1.0):
+    def _add_lora_row(self, name: str = "", strength: float = 1.0, on: bool = True):
         if len(self.lora_rows) >= self.LORA_MAX:
             return
         row = ttk.Frame(self.f_xl_rows)
         row.pack(fill="x", pady=1)
-        row.columnconfigure(0, weight=1)
+        row.columnconfigure(1, weight=1)
         v_name, v_str = tk.StringVar(value=name), tk.StringVar(value=f"{float(strength):g}")   # text: "0,2" can be typed
-        rec = {"frame": row, "name": v_name, "strength": v_str, "list": None, "box": None}
+        v_on = tk.BooleanVar(value=bool(on))
+        rec = {"frame": row, "name": v_name, "strength": v_str, "on": v_on, "list": None, "box": None}
+        # the tick in front (user 20.11.): unticked, the row stays (grey) but its LoRA is not sent; the state is saved
+        cb = ttk.Checkbutton(row, variable=v_on, command=lambda: self._lora_on_changed(rec))
+        cb.grid(row=0, column=0, padx=(0, 2))
+        rec["cb"] = cb
+        Tooltip(cb, "Use this LoRA. Untick to switch it off without removing it.")
         ent = ttk.Entry(row, textvariable=v_name)
-        ent.grid(row=0, column=0, sticky="ew")
+        ent.grid(row=0, column=1, sticky="ew")
         rec["entry"] = ent
         btn = ttk.Button(row, image=self._icon("chevron-down", MUTED), style="Link.TButton", command=lambda: self._lora_toggle(rec))
-        btn.grid(row=0, column=1, padx=(2, 0))
+        btn.grid(row=0, column=2, padx=(2, 0))
         rec["btn"] = btn
         sp = ttk.Spinbox(row, textvariable=v_str, from_=0.0, to=1.5, increment=0.05, width=5)
-        sp.grid(row=0, column=2, padx=4)
+        sp.grid(row=0, column=3, padx=4)
+        rec["spin"] = sp
         try:      # numbers only, comma or point (user 28.10.); the arrows and Up/Down step from the typed value
             sp.configure(validate="key", validatecommand=(sp.register(number_typed_ok), "%d", "%S", "%P"))
         except (AttributeError, tk.TclError):
@@ -43,7 +50,7 @@ class LoraMixin:
         for ev in ("<FocusOut>", "<Return>", "<Up>", "<Down>", "<ButtonPress-1>"):
             sp.bind(ev, lambda e, r=rec: self._lora_strength_text(r), add="+")
         rm = ttk.Button(row, image=self._icon("remove", MUTED), style="Link.TButton", command=lambda: self._remove_lora_row(rec))
-        rm.grid(row=0, column=3)
+        rm.grid(row=0, column=4)
         # typing opens a list under the row that narrows with every key; a click (or Down, Enter) takes the entry
         ent.bind("<KeyRelease>", lambda e: self._lora_key(rec, e))
         ent.bind("<Down>", lambda e: self._lora_focus_list(rec))
@@ -52,7 +59,21 @@ class LoraMixin:
         Tooltip(btn, "Show all LoRAs")
         Tooltip(ent, "Type to search, click a LoRA to take it.")
         self.lora_rows.append(rec)
+        self._lora_on_changed(rec)
         self.b_addlora.configure(state="normal" if len(self.lora_rows) < self.LORA_MAX else "disabled")
+
+    def _lora_on_changed(self, rec: dict):
+        """The row's tick: unticked, its name, list button and strength are grey (the tick and the × stay usable)."""
+        on = bool(rec["on"].get())
+        if not on:
+            self._lora_hide(rec)
+        for k in ("entry", "btn", "spin"):
+            try:
+                rec[k].configure(state="normal" if on else "disabled")
+            except (KeyError, tk.TclError):
+                pass
+        if hasattr(self, "_adv_dots"):
+            self._adv_dots(later=True)      # the blue "changed" dot of Custom LoRAs
 
     def _lora_key(self, rec: dict, e):
         if getattr(e, "keysym", "") in ("Return", "Escape", "Tab", "Up", "Down", "Left", "Right", "Shift_L", "Shift_R", "Control_L", "Control_R"):
@@ -148,12 +169,16 @@ class LoraMixin:
         self._fit_height()
 
     def _loras(self) -> list[list]:
-        """What the rows say: [[file, strength], ...] for the rows with a name."""
+        """What a run sends: [[file, strength], ...] for the ticked rows with a name."""
+        return [x[:2] for x in self._lora_saved() if len(x) < 3 or x[2]]
+
+    def _lora_saved(self) -> list[list]:
+        """What is saved: [[file, strength], ...] for the rows with a name; an unticked row gets a third item False."""
         out = []
         for r in self.lora_rows:
             n = r["name"].get().strip()
             if n:
-                out.append([n, self._lora_strength(r)])
+                out.append([n, self._lora_strength(r)] + ([] if r["on"].get() else [False]))
         return out
 
     @staticmethod
@@ -173,8 +198,9 @@ class LoraMixin:
     def _set_loras(self, items):
         for r in list(self.lora_rows):
             self._remove_lora_row(r)
-        for n, st in (items or [])[: self.LORA_MAX]:
-            self._add_lora_row(str(n), float(st))
+        for item in (items or [])[: self.LORA_MAX]:
+            n, st = item[0], item[1]
+            self._add_lora_row(str(n), float(st), on=bool(item[2]) if len(item) > 2 else True)
 
     def _on_lora_str(self, _value=None):
         self.lbl_lora_str.configure(text=f"{float(self.v_lora_str.get()):.2f}")
@@ -189,9 +215,29 @@ class LoraMixin:
     def _update_options_box(self, has_lora: bool, stages: list):
         """The box with the workflow's LoRA / stage switches is shown only when there is something in it: under the prompt,
         or (see _opts_in_advanced) in the Advanced settings, below Sampler and Scheduler."""
-        want = bool(has_lora or stages)
         m = self._model()
-        # Qwen (user 17.11.): in the finishing options at the top of the Advanced settings, where "Sharpen result" was
+        # MOSS (user 20.11.): its Turbo LoRA alone at the top of the Advanced settings, UltraReal stays under the prompt
+        turbo_post = bool(has_lora and m is not None and m.key == "moss")
+        turbo = getattr(self, "f_turbo", None)
+        if turbo is not None and hasattr(turbo, "winfo_manager"):
+            now_t = turbo.winfo_manager()
+            if turbo_post and now_t != "pack":
+                turbo.grid_forget()
+                turbo.pack(in_=self.f_samp, fill="x", pady=(2, 0))      # under "Sampling" (user 20.11., B)
+                turbo.lift()           # a child of the window body: without this it hides behind the Advanced settings
+            elif has_lora and not turbo_post and now_t != "grid":
+                turbo.pack_forget()
+                turbo.grid(in_=self.f_opts, row=1, column=1, columnspan=2, sticky="ew", pady=(2, 0))
+                turbo.lift()
+            elif not has_lora and now_t:
+                turbo.pack_forget()
+                turbo.grid_forget()
+            if now_t != turbo.winfo_manager():
+                self._sync_post_box()
+                if getattr(self, "_sized", False):
+                    self.root.after_idle(self._fit_height)
+        want = bool((has_lora and not turbo_post) or stages)
+        # Qwen (user 17.11.): at the top of the Advanced settings, under "Sampling" since 20.11. (f_samp)
         place = (("post" if m is not None and m.key == "qwen" else "adv") if self._opts_in_advanced() else "main") if want else ""
         now = {"pack": "main", "grid": "adv"}.get(self.f_opts.winfo_manager(), "")      # read from Tk
         if now == "main" and getattr(self, "_opts_place", "") == "post":
@@ -203,16 +249,20 @@ class LoraMixin:
             if place == "main":
                 self.f_opts.pack(fill="x", padx=10, pady=4, after=self.f_scale if self.f_scale.winfo_manager() else self._below_prompt())
             elif place == "post":
-                self._pack_post(self.f_opts)
+                self.f_opts.pack(in_=self.f_samp, fill="x", pady=(2, 0))     # under "Sampling" (user 20.11., B)
                 self._opts_place = "post"
                 self.f_opts.lift()     # a child of the window body: without this it hides behind the Advanced settings
             elif place == "adv":
-                self.f_opts.grid(in_=self.adv_body, row=4, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+                self.f_opts.grid(in_=self.adv_body, row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0))
                 self.f_opts.lift()     # it is a child of the window body, not of adv_body: without this it hides behind the Advanced settings (blank line)
         if place == "main":
             # directly under the LLM row only the rows' own 2 px (like between two LoRAs, user 12.11.); elsewhere 4 px more
             under_llm = not self.f_scale.winfo_manager() and self._below_prompt() is self.f_enh
             self.f_opts.pack_configure(pady=(0 if under_llm else 4, 4))
+        if turbo is not None and hasattr(turbo, "winfo_manager") and turbo.winfo_manager():
+            turbo.lift()           # always above the switch box it sits in (that box is lifted above the Advanced settings)
+        if place != now:
+            self._sync_post_box()
         if place != now and getattr(self, "_sized", False):
             self._fit_height()
 

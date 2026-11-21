@@ -99,7 +99,7 @@ def test_start_state():
     assert app.v_model.get() == "" and app.start_state() == "choose"
     app._apply_refresh(det(inventory.Inventory({})))
     assert app.start_state() == "none_linked" and app.v_model.get() == ""
-    # no model linked: no "Live preview" tick and no idle "Ready" (user 2.11.)
+    # no model linked: no "Live preview" tick (user 2.11.)
     assert app._live_shown is False and app.v_status.get() == ""
     # a tab that is not available does not open from the empty state either: its settings do
     app.v_model.set("krea2")
@@ -111,7 +111,7 @@ def test_start_state():
     app.v_model.set("flux3")
     app._on_model()
     assert app.v_model.get() == "flux3" and app.start_state() == "" and cfgmod.load_state()["model"] == "flux3"
-    assert app._live_shown and app.v_status.get() == "Ready"      # back with a model
+    assert app._live_shown and app.v_status.get() == ""      # back with a model (no "Ready" since 21.11.)
 
     # next start: the last model is chosen again (and its mode comes with the saved state)
     cfgmod.save_state({"model": "krea2", "mode": "txt2img", "workflow": "krea2-turbo-t2i.json"})
@@ -332,11 +332,11 @@ def main():
     app._on_model()
     assert app.v_model.get() == "flux3" and app._last_model == "flux3"
     assert all(app.rb_modes[k]["state"] == "normal" for k in models.FLUX3.modes)    # functions are never greyed
-    assert [k for k, rb in app.rb_tabs.items() if rb["state"] == "normal"] == [m.key for m in models.MODELS if "edit" in m.modes]   # models that cannot edit are
+    assert [k for k, rb in app.rb_tabs.items() if not rb.dim] == [m.key for m in models.MODELS if "edit" in m.modes]   # models that cannot edit are
 
     # a full install: nothing is grey
     app._apply_refresh({"_detect": True, "_inv": inventory.Inventory(td.full_lists(), NODES)})
-    assert all(rb["style"] == "Chip.Toolbutton" for rb in app.rb_tabs.values())
+    assert not any(rb.missing for rb in app.rb_tabs.values())
     assert app.comfy.name_fixer is not None
     assert app._preflight() == []
 
@@ -344,18 +344,18 @@ def main():
     # for every function, user 30.10.)
     inv = inventory.Inventory(lists_without(lora="Flux 3__flux-3-image-klein-restore.safetensors"), NODES)
     app._apply_refresh({"_detect": True, "_inv": inv})
-    assert app.rb_tabs["flux3"]["style"] == "Missing.Chip.Toolbutton" and inv.tab_status("flux3").state == "missing"
+    assert app.rb_tabs["flux3"].missing and inv.tab_status("flux3").state == "missing"
     assert app.rb_modes["upscale"]["state"] == "normal" and app.rb_modes["edit"]["state"] == "normal"
     app.v_mode.set("upscale"); app._update_mode_radios()
-    assert app.rb_tabs["flux3"]["style"] == "Missing.Chip.Toolbutton" and app.rb_tabs["qwen"]["state"] == "normal"      # Qwen can upscale too (2.11.)
+    assert app.rb_tabs["flux3"].missing and app.rb_tabs["qwen"]["state"] == "normal"      # Qwen can upscale too (2.11.)
     app.v_mode.set("edit"); app._update_mode_radios()
     app._update_mode_radios()          # called again (a tab switch does that): the chip stays red
-    assert app.rb_tabs["flux3"]["style"] == "Missing.Chip.Toolbutton"
+    assert app.rb_tabs["flux3"].missing
 
     # Krea 2's VAE missing: the tab is grey; the Flux 3 tab is still the selected one
     inv = inventory.Inventory(lists_without(vae="qwen_image_vae.safetensors"), NODES)
     app._apply_refresh({"_detect": True, "_inv": inv})
-    assert app.rb_tabs["krea2"]["style"] == "Missing.Chip.Toolbutton" and app.rb_tabs["flux3"]["style"] == "Chip.Toolbutton"
+    assert app.rb_tabs["krea2"].missing and not app.rb_tabs["flux3"].missing
     assert app.rb_modes["upscale"]["state"] == "normal"            # the SeedVR2 problem is gone with the new reading
 
     # a click on the grey tab opens the settings instead of switching
@@ -391,14 +391,14 @@ def main():
     # the cached reading is old: the file was copied and ComfyUI restarted. One fresh look lets the run through
     app.comfy = td.FakeComfy(td.full_lists())
     app.generate()
-    assert called == ["krea2"] and app.rb_tabs["krea2"]["style"] == "Chip.Toolbutton" and app.inv.tab_status("krea2").state == "ready"
+    assert called == ["krea2"] and not app.rb_tabs["krea2"].missing and app.inv.tab_status("krea2").state == "ready"
 
     # a workflow of your own (no tab) and an unreachable ComfyUI never stop a run
     app.v_model.set("")
     app.generate()
     assert called == ["krea2", ""]
     app._apply_refresh({"_detect": True, "_inv": None, "_inv_error": "No connection to ComfyUI"})
-    assert app.inv is None and app.comfy.name_fixer is None and all(rb["style"] == "Chip.Toolbutton" for rb in app.rb_tabs.values())
+    assert app.inv is None and app.comfy.name_fixer is None and not any(rb.missing for rb in app.rb_tabs.values())
     app.v_model.set("krea2")
     app.generate()
     assert called == ["krea2", "", "krea2"]
@@ -471,7 +471,7 @@ def main():
     lists["vae"].remove("flux2-vae.safetensors")
     lists["vae"].append("my_vae.safetensors")
     app._apply_refresh({"_detect": True, "_inv": inventory.Inventory(lists, NODES)})
-    assert app.rb_tabs["flux3"]["style"] == "Missing.Chip.Toolbutton" and app.rb_tabs["fibo"]["style"] == "Missing.Chip.Toolbutton"
+    assert app.rb_tabs["flux3"].missing and app.rb_tabs["fibo"].missing
     app.open_settings()
     # the chain next to every file (found or missing) lists the other files of its kind, the most similar name first
     cands = app._link_candidates("flux2-vae.safetensors")
@@ -481,6 +481,8 @@ def main():
     assert app._link_candidates("no-such-file") == []
     app._link_models("flux2-vae.safetensors", "my_vae.safetensors")       # one click on an entry links at once
     def usable(label):                                    # an entry of the menu "⋯" (user 19.11., K2) can be used now
+        if label == "Undo":                               # Undo is the button over the page since 21.11.
+            return bool(app._map_undo)
         return next(e[2] for e in app._links_menu_entries() if e and e[0] == label)
     assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors"} and usable("Undo")
     app._link_undo()                                      # Undo: back to no link
@@ -515,7 +517,7 @@ def main():
     app._link_models("flux2-vae.safetensors", "my_vae.safetensors")
     assert cfgmod.model_map() == {"flux2-vae.safetensors": "my_vae.safetensors"}
     assert "/vae/flux2-vae.safetensors  (your file: my_vae.safetensors)" in rows_text(app)
-    assert app.rb_tabs["flux3"]["style"] == "Chip.Toolbutton" and app.inv.tab_status("flux3").state == "ready"
+    assert not app.rb_tabs["flux3"].missing and app.inv.tab_status("flux3").state == "ready"
     g = {"1": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}}}
     app.comfy.name_fixer(g)
     assert g["1"]["inputs"]["vae_name"] == "my_vae.safetensors"
@@ -525,7 +527,7 @@ def main():
     assert ("head", "Relinked models:") not in app._settings_rows() and not hasattr(ui_settings, "RELINKED_HEAD")
     app._link_models("flux2-vae.safetensors", "")         # the arrow in the field, or "Use the expected file again" in the list
     assert app._settings_rows()[0] == ("links", 0)
-    assert cfgmod.model_map() == {} and app.rb_tabs["flux3"]["style"] == "Missing.Chip.Toolbutton"
+    assert cfgmod.model_map() == {} and app.rb_tabs["flux3"].missing
     app._settings_close()
 
     # the settings window is an owned window of the bridge window (hidden / minimised / closed with it), never "always on top"

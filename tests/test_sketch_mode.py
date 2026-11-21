@@ -101,6 +101,12 @@ def test_models_and_texts():
     assert bridge.sketch_text(models.SKETCH_SCRIBBLE).startswith("Replace the coloured scribbles with what they show, realistic")
     assert models.SKETCH_MARK not in bridge.sketch_text("A " + models.SKETCH_MARK + " here")
     assert bridge.sketch_text("make it night") == "make it night"
+    # 21.11. (user): the mark is SUBJECT everywhere; a prompt saved with the old <WHAT IT SHOWS> still works and is a stock text
+    assert models.SKETCH_MARK == "SUBJECT" and "<WHAT IT SHOWS>" in models.OLD_SKETCH_MARKS
+    old_scribble = models.SKETCH_SCRIBBLE.replace(models.SKETCH_MARK, "<WHAT IT SHOWS>")
+    assert bridge.sketch_text(old_scribble) == bridge.sketch_text(models.SKETCH_SCRIBBLE)
+    assert old_scribble in models.STOCK_PROMPTS
+    assert models.SCRIBBLE_TIP == "Scribble in bright red or green and replace SUBJECT with what goes there."
 
 
 def test_manifest_lock_only_the_tab():
@@ -152,6 +158,28 @@ def test_scribble_on_its_own_layer():
     assert next(l for l in d.layers if l.get("name") == "L1")["visible"]
     assert len(pc.docs) == 1                                                 # the throw-away duplicates are closed
 
+
+def test_minimax_scribble_object_mask():
+    """MiniMax Scribble on photo (user 21.11., "Mask follows object"): it draws larger than the scribble, so the layer mask
+    follows the object (scribble.object_mask) instead of fading out from the scribble's box; the other models keep the fade."""
+    flags = {m.key: m.modes["scribble"].scribble_object_mask for m in models.MODELS if "scribble" in m.modes}
+    assert flags.pop("minimax") is True and not any(flags.values()), flags
+    from pccomfy import scribble as scr
+    calls, real = [], scr.object_mask
+    scr.object_mask = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+    try:
+        for on in (False, True):
+            base = photo()
+            base.alpha_composite(strokes((252, 2, 2), box=(20, 20, 70, 70), width=3))
+            pc, b = doc([base])
+            req = Request(mode="edit", workflow=str(ROOT / "workflows" / "minimax-h3-image-edit.json"), enhance=False,
+                          layer_mask="none", scribble=True, scribble_object=on, gen_mp=4)
+            req.params = workflows.GenParams(prompt=models.SKETCH_SCRIBBLE.replace(models.SKETCH_MARK, "a car"), seed=7)
+            b.run(req)
+            assert pc.docs[0].layers[-1].get("mask") is not None
+            assert len(calls) == (1 if on else 0), (on, calls)
+    finally:
+        scr.object_mask = real
 
 def test_scribble_by_colour():
     base = photo()
@@ -226,20 +254,15 @@ def test_window():
     def prompt():
         return app.t_prompt.get("1.0", "end").strip()
 
-    def where(key):         # (row, column) from the row layout (one frame per row since 10.11.); None when not shown
-        if app.rb_edtabs[key].__dict__.get("_grid") is None:
-            return None
-        return next((r, row.index(key)) for r, row in enumerate(app._edtab_layout) if key in row)
+    def where(key):         # the place in the list of the Edit tabs (a list since 20.11.); None when not offered
+        return app._edtab_shown.index(key) if key in app._edtab_shown else None
 
     pick("flux3", "edit")
     app._edtabs_ensure()
-    for rb in app.rb_edtabs.values():      # the stub keeps no grid places: record them (as test_model_chip_menu)
-        rb.grid = lambda *a, w=rb, **k: w.__dict__.__setitem__("_grid", (k["row"], k["column"]))
-        rb.grid_remove = lambda w=rb: w.__dict__.pop("_grid", None)
     app._edtabs_update()
-    # plan B (10.11.): the edit tabs in the first row, Sketch to image and Scribble on photo in the second; Insert reference
-    # is a tab of Fill since 11.11. (step 4)
-    assert [where(k) for k in ("edit", "multi", "sketch", "scribble")] == [(0, 0), (0, 1), (1, 0), (1, 1)]
+    # plan B (10.11.): the edit tabs first, then Sketch to image and Scribble on photo; Insert reference is a tab of Fill
+    # since 11.11. (step 4)
+    assert [where(k) for k in ("edit", "multi", "sketch", "scribble")] == [0, 1, 2, 3]
     assert where("bbox") is None and where("fill") is None
     app.t_prompt.delete("1.0", "end")
     tab("sketch")
@@ -260,7 +283,7 @@ def test_window():
     # Flux 2 (no Insert reference): 2 + 2
     pick("flux2", "sketch")
     assert app.v_mode.get() == "sketch" and app.v_edtab.get() == "sketch"
-    assert [where(k) for k in ("edit", "multi", "sketch", "scribble")] == [(0, 0), (0, 1), (1, 0), (1, 1)] and where("bbox") is None
+    assert [where(k) for k in ("edit", "multi", "sketch", "scribble")] == [0, 1, 2, 3] and where("bbox") is None
     # Fibo: no writer, so no LLM enhancement
     pick("fibo", "sketch")
     req = app._request()
@@ -329,27 +352,13 @@ def test_window():
     assert str(app.rb_edtabs["sketch"].cget("state")) == "normal"
 
 
-def test_edtab_rows():
-    """The tabs under Edit in rows (user 10.11.): as few rows as fit, larger rows first, no text cut."""
-    from pccomfy.refslots import edtab_rows
-    assert edtab_rows([80, 100, 100], 300) == [[0, 1, 2]]                  # three fit: one row
-    assert edtab_rows([80, 100, 100, 60], 360) == [[0, 1, 2, 3]]           # four fit: one row
-    assert edtab_rows([80, 100, 100, 60], 300) == [[0, 1], [2, 3]]         # four do not: 2 + 2, never 3 + 1
-    assert edtab_rows([120, 130, 90], 250) == [[0, 1], [2]]                # 2 + 1: the first row is the larger one
-    assert edtab_rows([120, 130, 90], 200) == [[0], [1], [2]]
-    assert edtab_rows([500], 300) == [[0]]                                 # wider than the room: still shown
-    for needs, room in (([70, 95, 95, 50], 309), ([90, 120, 120, 60], 270), ([70, 95, 50], 230)):
-        for row in edtab_rows(needs, room):
-            assert len(row) == 1 or sum(needs[i] for i in row) <= room, (needs, room, row)
-
-
 def main():
     test_window()           # first: importing test_settings_ui swaps the stub's Text for one that reads back empty
     test_models_and_texts()
-    test_edtab_rows()
     test_manifest_lock_only_the_tab()
     test_scribble_on_its_own_layer()
     test_scribble_by_colour()
+    test_minimax_scribble_object_mask()
     test_no_scribble_no_run()
     test_whole_sketch()
     print("ALL OK (sketch mode)")

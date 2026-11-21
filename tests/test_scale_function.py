@@ -55,10 +55,10 @@ def main():
     app._on_model()
     app.root.update()
 
-    # the grid: one button in Upscale's place (last of the six: Multi Image Edit is a tab of Edit, 7.11.); Upscale and Refine themselves are hidden
-    assert shown(app.rb_scale_fn) and not shown(app.rb_modes["upscale"]) and not shown(app.rb_modes["refine"])
-    info = app.rb_scale_fn.grid_info()
-    assert (info["row"], info["column"]) == (2, 1), info
+    # the function list (one chip since 20.11.): one entry in Upscale's place (last of the six: Multi Image Edit is a tab of
+    # Edit, 7.11.); Upscale and Refine themselves are not listed
+    assert app.rb_scale_fn.shown and not app.rb_modes["upscale"].shown and not app.rb_modes["refine"].shown
+    assert app._mode_order == ["txt2img", "outpaint", "inpaint", "remove", "edit", "scale"], app._mode_order
     assert app.rb_scale_fn["text"] == "Upscale / Refine", app.rb_scale_fn["text"]
     assert str(app.rb_scale_fn["state"]) == "normal", str(app.rb_scale_fn["state"])
     assert app.v_fn.get() == "inpaint"                                  # not chosen while Fill is on (Fill lights its own button)
@@ -232,7 +232,8 @@ def main():
     app._on_factor()
     assert app._prompt_text() == models.FLUX3_RESTORE and app.v_fac.get() == "r:Restore"
 
-    assert shown(app.rb_scale_fn) and not shown(app.rb_modes["upscale"])
+    assert app.rb_scale_fn.shown and not app.rb_modes["upscale"].shown
+    assert app.b_mode["text"].startswith("Upscale / Refine")      # the function chip shows the merged function
     app.root.destroy()
     print("ALL OK (Upscale / Refine function button)")
 

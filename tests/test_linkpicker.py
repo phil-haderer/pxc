@@ -24,6 +24,7 @@ def real_tk_checks():
     except tk.TclError:
         print("  (no display: window checks skipped)")
         return
+    linkpicker.CLOSE_ON_FOCUS_LOSS = False      # other test windows running at the same time take the focus
     try:
         root.withdraw()
         btn = tk.Button(root, text="x")
@@ -36,8 +37,41 @@ def real_tk_checks():
         while time.time() - t0 < 0.4:
             root.update()
         lines = p.lb.get(0, "end")
-        assert lines[0].startswith("● moss.safetensors") and "(in use)" in lines[0] and lines[1].startswith("─"), lines
-        assert p.lb.itemcget(0, "foreground") != p.lb.itemcget(2, "foreground")                      # the file in use stands out
+        # then an empty row with a solid line over it and the grey heading "Other models" (user 21.11.), neither can be chosen
+        assert lines[0].startswith("● moss.safetensors") and "(in use)" in lines[0] and lines[1] == "" and lines[2] == linkpicker.OTHER, lines
+        assert p.shown[1] is None and p.shown[2] is None and p._line_row == 1
+        assert p.line.winfo_manager() == "place" and p.line.cget("bg") == linkpicker.LINE                # drawn, not dashes
+        assert p.lb.itemcget(0, "foreground") != p.lb.itemcget(3, "foreground")                      # the file in use stands out
+        assert p.lb.curselection() == ()                    # no blue bar on the first row when the window opens (user 21.11.)
+        assert isinstance(p.sb, linkpicker.ThinScrollbar)   # the thin bar without arrows (user 21.11.)
+        assert "Scrollbar" not in (ROOT / "pccomfy" / "linkpicker.py").read_text(encoding="utf-8").replace("ThinScrollbar", "")
+        hov = type("E", (), {})()
+        hov.y = p.lb.bbox(2)[1] + 1
+        p._hover(hov)
+        assert p.lb.curselection() == ()                    # the heading takes no blue bar
+        hov.y = p.lb.bbox(0)[1] + 1
+        p._hover(hov)
+        assert p.lb.curselection() == (0,)                  # a file under the mouse does
+        p.v.set("moss")
+        p.refill()
+        assert p.lb.curselection() == (0,) and p._line_row is None    # while typing the best hit is ready for Return
+        p.v.set("")
+        p.refill()
+        assert p.legend == [(linkpicker.DONE_GREEN, linkpicker.LEGEND_IN_USE)], p.legend              # only the marks it shows
+        # a blue dot for a file with the same size and header as an expected one, a grey legend under the list (user 21.11., 10A)
+        q = linkpicker.LinkPicker(root, (50, 50), ["copy.safetensors", "moss.safetensors", "z.safetensors"],
+                                  ["moss.safetensors", "copy.safetensors"], {}, None, strong=["moss.safetensors"],
+                                  same=["copy.safetensors", "moss.safetensors"])
+        root.update()
+        ql = q.lb.get(0, "end")
+        assert ql[0] == "● moss.safetensors" and ql[1] == "● copy.safetensors" and ql[4] == "z.safetensors", ql
+        assert q.lb.itemcget(0, "foreground") == linkpicker.DONE_GREEN and q.lb.itemcget(1, "foreground") == linkpicker.ACCENT
+        assert q.legend == [(linkpicker.DONE_GREEN, "in use"), (linkpicker.ACCENT, linkpicker.LEGEND_SAME)]
+        q.close()
+        r = linkpicker.LinkPicker(root, (50, 50), ["a.safetensors"], [], {}, None)
+        root.update()
+        assert r.legend == []                                                                         # no marks: no legend
+        r.close()
         import tkinter.font as tkfont
         need = tkfont.Font(root=root, font=linkpicker.font(9)).measure(lines[-1])
         assert p.lb.winfo_reqwidth() >= need, (p.lb.winfo_reqwidth(), need)                           # no name is cut off

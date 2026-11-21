@@ -262,6 +262,27 @@ def main():
     check(m._tip_win is None and m._tip_job is None, "closing before the delay cancels the tip")
     popmenu.TIP_MS = 450
 
+    # ---- min_width and font_size (the head's lists, user 21.11.): as wide as the chip, entries in the chip's 10 pt ----
+    from pccomfy.gui_common import font as _font
+    w = PopMenu(root, font_size=10)
+    w.add_command(label="Edit")
+    w.tk_popup(50, 50)
+    narrow = w.geometry()[2]
+    w.unpost()
+    w.min_width = narrow + 137
+    w.tk_popup(50, 50)
+    check(w.geometry()[2] == narrow + 137, f"min_width: the popup is exactly that wide ({w.geometry()[2]} != {narrow + 137})")
+    from tkinter import font as tkfont
+    want = tkfont.Font(root=root, font=_font(10)).actual("size")
+    got = tkfont.Font(root=root, font=w._cv.itemcget("fg0", "font")).actual("size")
+    check(got == want and w._font.actual("size") == want, f"font_size 10: the row text in font(10) ({got} != {want})")
+    w.unpost()
+    w.min_width = 5
+    w.tk_popup(50, 50)
+    check(w.geometry()[2] == narrow, "min_width smaller than the content: the content width stays")
+    w.unpost()
+    check(PopMenu(root).font_size == 9, "the other menus keep font 9")
+
     # ---- no dark text on the accent, no hard-coded orange ----
     src = (ROOT / "pccomfy" / "popmenu.py").read_text(encoding="utf-8").lower()
     check("#1b1b1b" not in src, "no #1b1b1b in popmenu.py")
