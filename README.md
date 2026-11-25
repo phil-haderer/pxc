@@ -3,13 +3,13 @@
 <h1><img src="readme-images/logo.png" alt="PxC" width="418"></h1>
 
 [![License: MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue)](#license)
-[![Platform: Windows and Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](#install-on-windows)
+[![Platform: Windows and Linux Mint](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20Mint-lightgrey)](#install-on-windows)
 [![Python 3.11 or newer, on Linux 3.10 or newer](https://img.shields.io/badge/python-3.11%2B%20%C2%B7%20Linux%203.10%2B-blue)](#install-on-windows)
 
 **A companion app that brings Photoshop-style generative AI to PhotoCraft, running on your own PC.**
 Pick a function, type a prompt, press Generate: the result arrives as a new layer in your document.
 
-Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI 0.45.0
+Tested: Windows 11 · Linux Mint (X11, Cinnamon Wayland) · PhotoCraft 0.23.1 · ComfyUI 0.45.0
 
 <img src="readme-images/plugin-window.webp" alt="The PxC window next to PhotoCraft: Text to Image with MiniMax H3 Image, the result as a new layer" width="900">
 
