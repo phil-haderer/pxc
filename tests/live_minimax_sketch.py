@@ -46,6 +46,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from PIL import Image  # noqa: E402
 
+from live_progress import Left  # noqa: E402  (what is left of the round)
 import live_minimax_fill_multi as lfm  # noqa: E402  (window_request, page, rate)
 import live_style_test as base  # noqa: E402  (make_app)
 import test_reference_mode as T  # noqa: E402  (the PhotoCraft simulator and FakeComfy)
@@ -290,6 +291,7 @@ def cmd_run(a):
         write_key()
         from live_expand_remote import Timed
         comfy = Timed(url)
+        left = Left(len(js))
         for i, (variant, c) in enumerate(js, 1):
             fid = f"{c['id']}_{variant}"
             t0 = time.time()
@@ -303,7 +305,7 @@ def cmd_run(a):
             res.save(out / "bilder" / f"{fid}.png")
             note(fid, variant, c, secs)
             write_key()
-            print(f"{i}/{len(js)} {fid}: {secs} s", flush=True)
+            print(f"{i}/{len(js)} {fid}: {secs} s" + left(i), flush=True)
         print(f"Results: {(out / 'index.html').as_uri()}")
     finally:
         app.root.destroy()

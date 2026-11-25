@@ -1,3 +1,4 @@
+# tags: moss, t2i
 """MOSS Text to image: switching the DMD2 LoRA on or off sets Steps and CFG to the workflow's values for that case (8 / 1.5
 with it, 25 / 3.0 without: pc_no_lora, CFG test 29.10.), so nothing stale is sent as an override; the Steps field has MOSS's tooltip.
 

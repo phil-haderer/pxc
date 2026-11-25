@@ -1,3 +1,4 @@
+# tags: expand, window
 """Expand has no "Original size, up to" row (user 13.11.): fixed cap 1 MP, Flux 3 Expand 2 MP; a saved value never counts.
 The row stays in the other functions.
 

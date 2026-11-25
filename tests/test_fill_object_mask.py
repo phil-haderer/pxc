@@ -1,3 +1,4 @@
+# tags: mask, fill, qwen
 """Qwen Fill: the layer mask follows the object (user 21.11., "Mask follows object"). Qwen often drew the object larger
 than the selection and the soft layer mask cut it off; scribble.change_mask adds, opaque, what the result clearly changed
 in an area that reaches into the selection. Only Qwen's Fill has it; Remove never.

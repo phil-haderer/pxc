@@ -1,4 +1,4 @@
-"""Scribble on photo (Sketch, docs/sketch-plan.md, decisions of 9.11. evening): find the scribble, cut the crop around it, and
+"""Scribble on photo (Sketch, docs/archiv/sketch-plan.md, decisions of 9.11. evening): find the scribble, cut the crop around it, and
 put the result back only there. No Tk, no PhotoCraft: the bridge hands in pictures and gets pictures back.
 
 The settings are the ones the blind test rounds 5 to 7 rated best (docs/tests/sketch-ergebnis.md):

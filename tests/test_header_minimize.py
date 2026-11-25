@@ -1,3 +1,4 @@
+# tags: window
 """Header with the minimise button (option A of the user, 29.10.): minimised, only the header stays (functions, models,
 body, status and footer go); a second click brings them back, and a start-state change meanwhile does not unpack them.
 
@@ -41,6 +42,24 @@ def main():
     assert app._minimized and not any(shown.values()), shown
     dbl[1](None)
     assert not app._minimized and all(shown.values()), shown
+    # a run's live preview goes with the rest and comes back with it (user 24.11.: it stayed under the header)
+    pv = {"on": False}
+    app.f_preview.pack = lambda *a, **k: pv.__setitem__("on", True)
+    app.f_preview.pack_forget = lambda: pv.__setitem__("on", False)
+    app.f_preview.winfo_manager = lambda: "pack" if pv["on"] else ""
+    app._preview_photo = object()
+    pv["on"] = True
+    app.toggle_minimize()
+    assert not pv["on"], "minimised: the preview must be hidden"
+    app._show_preview(None)                              # a new frame while minimised shows nothing
+    assert not pv["on"]
+    app.toggle_minimize()
+    assert pv["on"], "back: the run's preview shows again"
+    app.toggle_minimize()
+    app._hide_preview()                                  # the run ends while minimised
+    assert app._preview_photo is None
+    app.toggle_minimize()
+    assert not pv["on"], "an ended run's preview must not come back"
     print("test_header_minimize: ok")
 
 

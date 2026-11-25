@@ -1,3 +1,4 @@
+# tags: expand, prompt
 """Krea 2 / MOSS Expand need a prompt (user 29.10., A/B test docs/tests/krea-moss-expand-ab.md): their own tip under the
 field, a Describe button under it that writes a description of the surroundings (Qwen 3.5 9B, SCENE_QUESTION) into the
 field, and Generate refuses an empty prompt with a message. Other models' Expand stays as it was. Since the blind test

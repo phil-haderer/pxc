@@ -71,19 +71,16 @@ FLUX2_DEFAULT_OLD = "A sharp, natural photograph of the same scene: clean detail
 FIBO_UPSCALE_DEFAULT = "A sharp, high-resolution version of the same photograph: clean detail and texture. Keep the composition, the subjects, the colors and the light exactly as they are."
 FLUX3_DEFAULT = "Restore the photo: remove blur, noise and compression artifacts and recover sharp, natural detail, keeping the same composition and colors."
 RELIGHT_NEUTRAL = "A crystal-clear, high-fidelity photograph of the subject captured under perfectly neutral, even lighting. The scene utilizes soft global illumination to eliminate harsh shadows and high contrast, resulting in a balanced, flat-field exposure. The white balance is calibrated to 5500K (daylight neutral), ensuring absolutely accurate, true-to-life colors with no warm or cool color casts. Photographed with a Sony A7R V using a 55mm f/8 lens for maximum sharpness from edge to edge and zero distortion. The aesthetic is objective, documentary-style, and ultra-realistic. 8k resolution, clean ISO 100, raw output. Remove watermarks and checkerboard patterns."
+# RELIGHT_STUDIO: out of the Flux 2 Refine choice since 22.11. (user: "ja nur bei flux 2 entfernen"); kept in STOCK_PROMPTS
 RELIGHT_STUDIO = "Transform the image into a professionally lit studio portrait with soft, diffused lighting. Remove harsh sunlight, strong contrast, and directional shadows."
-FLUX2_REFINE_PROMPTS = (
-    ("Default", FLUX2_DEFAULT, "The workflow's own prompt: a sharp, natural photograph of the same scene."),
-    ("Neutral", RELIGHT_NEUTRAL, "Relight: soft, even, neutral light without harsh shadows, true-to-life colours."),
-    ("Studio portrait", RELIGHT_STUDIO, "Relight: a professionally lit studio portrait with soft, diffused light."),
-)
+# Refine Image has ONE prompt per model since 24.11. (user: "alle refines genau einen modus ... keine schalter mehr"; comparison
+# data/vergleich-refine-raster.html): Qwen Keep colors, Flux 2 Neutral, Flux 3 Restore (with its LoRA), Fibo and MiniMax FLUX2_DEFAULT
 FLUX3_RESTORE = "Restore this old photo: remove scratches, white lines, dust, folds and stains, and bring back sharp facial detail. Keep the people, their faces, their expressions, their poses and the framing exactly unchanged."   # after Pixaroma's "Restore and Colorize" (wording agreed with the user 1.11.)
-FLUX3_REFINE_PROMPTS = (
-    ("Default", FLUX3_DEFAULT, "The workflow's own prompt: restore sharp, natural detail."),
-    ("Restore", FLUX3_RESTORE, "Repair an old or damaged photo: scratches, dust, folds and stains go, faces get their detail back."),
-)
 # Qwen Image 2.1 Upscale and Refine (workflow qwen212KUpscale_v10): the generic prompt of the workflow is the standard setting (user 2.11.: perfect)
 QWEN_UPSCALE_DEFAULT = "Enhance this image to high resolution while preserving the original composition, lighting, and atmosphere. Image can be illustration or real photo, keep the original input style."
+# Qwen Refine "Keep colors" (prompt B of refine round 3, user 22.11. "Default + Keep colors"): phone photos 5 of 6, old slides
+# 4 of 6 keeping 90 % of their colour cast, where Default keeps 80 % (docs/tests/refine-alte-fotos-ergebnis.md)
+QWEN_KEEP_COLORS = "A sharper, cleaner version of the same image: clean detail and texture, the same style, composition, colors and light."
 FIBO_REFINE = "relight the scene to natural lighting"   # Fibo Refine's old prompt (now FLUX2_DEFAULT, user 28.10.); kept as a stock text
 FILL_TIP = "Draw a selection and prompt e.g. “add a red flower”."   # wording from the user (3.11.; "Always hide the layers ..." dropped 17.11.)
 QWEN_SMALL = "Small selections don't work well with Qwen."   # user 30.10.: small fills came out shifted (helikopter.psd)
@@ -91,7 +88,7 @@ REMOVE_NAME_TIP = "Name what to remove (e.g. “car”)."
 REMOVE_PLACEHOLDER = "Name what to remove"   # grey in the empty field, Remove with remove_style (user 16.11.: the longer one was cut off)
 REMOVE_AGAIN = "If the first try doesn't work, try removing it a second time."   # idea of the user (28.10.), for all models since 3.11.
 REMOVE_TIP = REMOVE_NAME_TIP + " " + REMOVE_AGAIN    # Qwen; Flux 3, Flux 2 and Fibo only REMOVE_AGAIN (the placeholder names it, user 16.11.)
-MULTI_TIP = "Example: “Place the bag from {tag} on the table.” Use “Cut out” on the object first."   # {tag}: the model's name for reference image 1 (user 3.11., wording 21.11.)
+# Multi image edit has no tip under the prompt since 23.11. (user): the @ tip under the slots replaced it (atpick.TIP)
 EDIT_TIP = "Example: “Make the person smile.”"   # the same for every model (user 3.11.; wording 21.11.)
 # Krea 2 / MOSS Expand (wording chosen by the user 29.10.; A/B test docs/tests/krea-moss-expand-ab.md)
 EXPAND_DESCRIBE_TIP = ("This model needs a prompt: describe the surroundings only (place, light, style), not the main subject. "
@@ -99,10 +96,10 @@ EXPAND_DESCRIBE_TIP = ("This model needs a prompt: describe the surroundings onl
 # Upscale has no tip under the prompt since 12.11. (user, after the P8 round): the old advice "Add a short description of
 # your image in front of the default prompt" helped nowhere, and with tiles it put objects into tiles
 # (docs/tests/p8-upscale-prompt-ergebnis.md: all 7 "object doubled or made up" came with a description)
-REFINE_TIP = "Refine keeps the size and redraws fine detail."   # Refine, every model (user 3.11.; description advice dropped 12.11.)
+REFINE_TIP = "Refine Image keeps the size and redraws fine detail."   # Refine, every model (user 3.11.; description advice dropped 12.11.)
 T2I_TIP = "A new image is added to the canvas."   # user 3.11.
 FLUX3_DEFAULT_OLD = "Restore the photo: remove blur, noise and compression artifacts and recover sharp, natural detail, keeping the same composition, people and colors."
-# Sketch (docs/sketch-plan.md; tab "Sketch" under Edit): the whole prompt stands in the field and can be edited (user 10.11.); the
+# Sketch (docs/archiv/sketch-plan.md; tab "Sketch" under Edit): the whole prompt stands in the field and can be edited (user 10.11.); the
 # user replaces SKETCH_MARK with what the sketch shows. Left in, the bridge turns it into the generic sentence
 # (bridge.sketch_text). The wordings are the ones of the blind test rounds 1 to 7 (docs/tests/sketch-ergebnis.md): Photo,
 # the animated-film look without "expressive faces" (round 3b) and Scribble on photo (rounds 5 to 7).
@@ -128,7 +125,8 @@ SCRIBBLE_MODE = "scribble"      # the window mode of the tab Scribble on photo (
 # appended to what it wrote (bridge.ref_scribble_split); "It" there becomes "The <typed object>", as in the round.
 TEXT_SCRIBBLE_LABEL = "Scribble on photo"      # tab names since the window test of 15.11. (user)
 REF_SCRIBBLE_LABEL = "Scribble with reference"
-REF_MARK = "<WHAT IS IN THE REFERENCE>"
+REF_MARK = SKETCH_MARK     # "SUBJECT" like Scribble on photo (user 22.11.); was "<WHAT IS IN THE REFERENCE>" until then
+OLD_REF_MARKS = ("<WHAT IS IN THE REFERENCE>",)   # still read in saved prompts (bridge.begin, the stop before a run)
 REF_SCRIBBLE = ("Replace the coloured scribbles with " + REF_MARK + ", realistic and matching the light and perspective of the "
                 "photo. Remove every scribble line and keep everything else unchanged. It fills the scribbled area and looks like {tag}.")     # the user's sentence (window test 15.11.: Flux 3 and
 # Flux 2 "very good" with it and a pose in the object, "the man sitting on a rock")
@@ -160,8 +158,8 @@ SKETCH_FRAME = "Turn this sketch of " + SKETCH_MARK + " into {look}. Keep the co
 SKETCH_NO_LINES = " No drawing lines left."     # after the frame of every Sketch style whose look wants no lines (user 18.11.)
 SKETCH_PLACEHOLDER = "Choose a style under Style prompts"
 NO_STYLE = "Choose a style under Style prompts, or type a prompt."
-SKETCH_TIP = ("Replace " + SKETCH_MARK + " with what the sketch shows, with its surroundings: "
-              "“a house and a road in a green summer meadow”.")
+SKETCH_TIP = ("Replace " + SKETCH_MARK + " with what your sketch shows and include its surroundings: "
+              "“a dog in an empty street”.")     # shorter example (user 25.11.)
 WRITTEN_TIP = "Loaded the written prompt: it runs as it is, without the prompt writer. Choose a style or a template to start fresh."   # Sketch after the history (user 10.11.)
 SCRIBBLE_TIP = "Scribble in bright red or green and replace " + SKETCH_MARK + " with what goes there."   # shorter (user 21.11.)
 NO_SCRIBBLE = "No scribble found. Scribble in bright red or green, or on its own layer."
@@ -212,7 +210,7 @@ def legacy_sketch_mode(mode: str, prompt: str, version=None) -> str:
     ``edit_tabs`` version) in mode "sketch" whose prompt is the scribble sentence belongs to the tab Scribble on photo now."""
     old = version is None and mode == SKETCH_MODE and str(prompt).lstrip().startswith(SCRIBBLE_PREFIX)
     return SCRIBBLE_MODE if old else mode
-STOCK_PROMPTS = {FIBO_UPSCALE_DEFAULT, FLUX2_DEFAULT_PREV, FLUX2_DEFAULT_OLD, FLUX3_DEFAULT_OLD, PLACEHOLDER, FLUX2_DEFAULT, FLUX3_DEFAULT, FLUX3_RESTORE, QWEN_UPSCALE_DEFAULT, RELIGHT_NEUTRAL, RELIGHT_STUDIO, FIBO_REFINE,
+STOCK_PROMPTS = {QWEN_KEEP_COLORS, FIBO_UPSCALE_DEFAULT, FLUX2_DEFAULT_PREV, FLUX2_DEFAULT_OLD, FLUX3_DEFAULT_OLD, PLACEHOLDER, FLUX2_DEFAULT, FLUX3_DEFAULT, FLUX3_RESTORE, QWEN_UPSCALE_DEFAULT, RELIGHT_NEUTRAL, RELIGHT_STUDIO, FIBO_REFINE,
                  SKETCH_PHOTO, SKETCH_ILLUSTRATION, SKETCH_SCRIBBLE}   # texts the window may replace when the mode changes
 # the same templates with the mark used until 21.11. (a page or run saved before): still stock texts
 STOCK_PROMPTS |= {s.replace(SKETCH_MARK, old) for s in (SKETCH_PHOTO, SKETCH_ILLUSTRATION, SKETCH_SCRIBBLE) for old in OLD_SKETCH_MARKS}
@@ -234,7 +232,7 @@ QWEN = Model(
     {
         "txt2img": Mode("qwen-image-21-t2i.json", dict(native=True, base_res=1024, turbo=False, layer_mask="none", enhance=False), prompt_tip=T2I_TIP),   # LLM off like the others (user 30.10.)
         "edit": Mode("qwen-image-21-edit.json", dict(base_res=1024, turbo=False, layer_mask="none"), prompt_tip=EDIT_TIP),
-        "multi_edit": Mode("qwen-image-21-edit.json", dict(base_res=1024, turbo=False, layer_mask="none"), prompt_tip=MULTI_TIP, run_as="edit"),
+        "multi_edit": Mode("qwen-image-21-edit.json", dict(base_res=1024, turbo=False, layer_mask="none"), run_as="edit"),
         "sketch": Mode("qwen-image-21-sketch.json", dict(base_res=1024, turbo=False, layer_mask="none", enhance=True), prompt_tip=SKETCH_TIP, run_as="edit"),   # Sketch to image: a style from Styles (plan B, 10.11.)
         "scribble": Mode("qwen-image-21-sketch.json", dict(base_res=1024, turbo=False, layer_mask="none", enhance=True), SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP, run_as="edit"),   # its own tab (plan B)
         # soft: opaque over the selection, fading out to the crop's side (Bridge: soft_layer_mask; Fill mask test round 30.10.)
@@ -246,7 +244,7 @@ QWEN = Model(
         "upscale": Mode("qwen-image-21-upscale.json", dict(scale=1.5, turbo=False, context=0.0), QWEN_UPSCALE_DEFAULT),
         # the upscale graph at the size of the canvas (factor 1), with the Turbo LoRA as a switch (own file so Upscale stays
         # as it is)
-        "refine": Mode("qwen-image-21-refine.json", dict(turbo=False, context=0.0), QWEN_UPSCALE_DEFAULT, prompt_tip=REFINE_TIP),
+        "refine": Mode("qwen-image-21-refine.json", dict(turbo=False, context=0.0), QWEN_KEEP_COLORS, prompt_tip=REFINE_TIP),
     },
     requires=(
         "qwen_image_2.1_int8_convrot.safetensors",
@@ -259,7 +257,7 @@ FLUX2 = Model(
     {
         "txt2img": Mode("flux2-klein-t2i.json", dict(native=True, base_res=1024, layer_mask="none", enhance=False), prompt_tip=T2I_TIP),
         "edit": Mode("flux2-klein-edit.json", dict(base_res=1024, layer_mask="none"), prompt_tip=EDIT_TIP),
-        "multi_edit": Mode("flux2-klein-edit.json", dict(base_res=1024, layer_mask="none"), prompt_tip=MULTI_TIP, run_as="edit"),
+        "multi_edit": Mode("flux2-klein-edit.json", dict(base_res=1024, layer_mask="none"), run_as="edit"),
         "sketch": Mode("flux2-klein-sketch.json", dict(base_res=1024, layer_mask="none", enhance=True), prompt_tip=SKETCH_TIP, run_as="edit"),   # Sketch to image: a style from Styles (plan B, 10.11.)
         "scribble": Mode("flux2-klein-sketch.json", dict(base_res=1024, layer_mask="none", enhance=True), SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP, run_as="edit"),   # its own tab (plan B)
         # Fill (user 10.11.): the way its Remove runs, the edit graph with the red outline and the start values of Remove,
@@ -270,7 +268,7 @@ FLUX2 = Model(
         # Upscale always in tiles, no switch (user 12.11.; upscale stage round 9.11.: 2 of 3 good with tiles, 0 of 3 without;
         # needs KJNodes, manifest ModeSpec.nodes); Refine keeps the graph without tiles as its own file, unchanged
         "upscale": Mode("flux2-klein-upscale.json", dict(scale=1.5, turbo=True, context=0.0), FLUX2_DEFAULT),
-        "refine": Mode("flux2-klein-refine.json", dict(turbo=True, context=0.0), FLUX2_DEFAULT, FLUX2_REFINE_PROMPTS, REFINE_TIP),
+        "refine": Mode("flux2-klein-refine.json", dict(turbo=True, context=0.0), RELIGHT_NEUTRAL, prompt_tip=REFINE_TIP),
     },
     requires=(
         "flux-2-klein-9b_int8_convrot.safetensors",
@@ -284,7 +282,7 @@ FLUX3 = Model(
     {
         "txt2img": Mode("flux3-klein-t2i.json", dict(native=True, base_res=1536, layer_mask="none", enhance=False), prompt_tip=T2I_TIP),
         "edit": Mode("flux3-klein-edit.json", dict(base_res=1536, layer_mask="none"), prompt_tip=EDIT_TIP),
-        "multi_edit": Mode("flux3-klein-edit.json", dict(base_res=1536, layer_mask="none"), prompt_tip=MULTI_TIP, run_as="edit"),
+        "multi_edit": Mode("flux3-klein-edit.json", dict(base_res=1536, layer_mask="none"), run_as="edit"),
         "sketch": Mode("flux3-klein-sketch.json", dict(base_res=1536, layer_mask="none", enhance=True), prompt_tip=SKETCH_TIP, run_as="edit"),   # Sketch to image: a style from Styles (plan B, 10.11.)
         "scribble": Mode("flux3-klein-sketch.json", dict(base_res=1536, layer_mask="none", enhance=True), SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP, run_as="edit"),   # its own tab (plan B)
         # Fill through the layout box (plan B step 4; Fill round 5, 11.11.: 16 of 16 good in the crop, "Place", user's choice):
@@ -295,7 +293,8 @@ FLUX3 = Model(
         # it Flux 3 slid or zoomed the picture instead of filling the margin): grey margin, ~1 megapixel, Context 1.0 (confirmed 4.11.)
         "outpaint": Mode("flux3-klein-outpaint.json", dict(base_res=1024, context=1.0, layer_mask="soft")),   # Context 100 % fits (user 4.11. evening); soft mask: only the new area is returned
         "upscale": Mode("flux3-klein-upscale.json", dict(scale=1.5, turbo=True, stage_on=False, stage2_on=True, context=0.0, detail=0.7), FLUX3_DEFAULT),
-        "refine": Mode("flux3-klein-refine.json", dict(turbo=False, context=0.0), FLUX3_DEFAULT, FLUX3_REFINE_PROMPTS, REFINE_TIP),
+        # Refine with the Restore LoRA of Upscale (0.5, the switch "Restore LoRA", on; user 22.11.: round 3, 4 of 6 against 0)
+        "refine": Mode("flux3-klein-refine.json", dict(turbo=True, context=0.0), FLUX3_RESTORE, prompt_tip=REFINE_TIP),
     },
     requires=(
         "flux3-image-klein-int8-convrot.safetensors",
@@ -358,7 +357,7 @@ FIBO = Model(
     {
         "txt2img": Mode("fibo2-t2i.json", dict(native=True, base_res=1224, layer_mask="none", enhance=False), prompt_tip=T2I_TIP),
         "edit": Mode("fibo2-edit.json", dict(base_res=1024, layer_mask="none", enhance=False), prompt_tip=EDIT_TIP),
-        "multi_edit": Mode("fibo2-edit.json", dict(base_res=1024, layer_mask="none", enhance=False), prompt_tip=MULTI_TIP, run_as="edit"),
+        "multi_edit": Mode("fibo2-edit.json", dict(base_res=1024, layer_mask="none", enhance=False), run_as="edit"),
         "sketch": Mode("fibo2-edit.json", dict(base_res=1024, layer_mask="none", enhance=False), prompt_tip=SKETCH_TIP, run_as="edit"),   # no writer (sketch round 2: best without)   # Sketch to image: a style from Styles (plan B, 10.11.)
         "scribble": Mode("fibo2-edit.json", dict(base_res=1024, layer_mask="none", enhance=False), SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP, run_as="edit", ref_scribble=False),   # its own tab (plan B)
         "refine": Mode("fibo2-edit.json", dict(base_res=1024, layer_mask="none", enhance=False), FLUX2_DEFAULT, run_as="edit",
@@ -400,7 +399,7 @@ MINIMAX = Model(
         # Edit and Multi image edit (step 4, user 11.11.): the size row as in Text to image, "Downsize to canvas" starts ON (a
         # layer in the canvas like every edit model; off = a new document in the chosen size)
         "edit": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, prompt_tip=EDIT_TIP, steps_tip=MINIMAX_STEPS_TIP),
-        "multi_edit": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, prompt_tip=MULTI_TIP, steps_tip=MINIMAX_STEPS_TIP, run_as="edit"),
+        "multi_edit": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, steps_tip=MINIMAX_STEPS_TIP, run_as="edit"),
         # Sketch to image and Scribble on photo (step 8, user 21.11.: "Ja, ohne Schreiber"; docs/tests/minimax-sketch-ergebnis.md:
         # without the writer 25 of 26 good at 27 s, like Flux 3): the Edit graph and its start values. Scribble with
         # reference is not offered yet (not probed with MiniMax)
@@ -408,6 +407,10 @@ MINIMAX = Model(
         "scribble": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, SKETCH_SCRIBBLE, SCRIBBLE_PROMPTS, SCRIBBLE_TIP,
                          steps_tip=MINIMAX_STEPS_TIP, run_as="edit", ref_scribble=False,
                          scribble_object_mask=True),   # the mask follows the object (user 21.11., "Mask follows object")
+        # Refine (user 22.11. "Ja, mit Default"): the Edit graph and its start values with the Flux 2 Default text, as Fibo
+        # Refine (MiniMax refine round 2: 5 of 6, docs/tests/minimax-refine-ergebnis.md); one button, no own files
+        "refine": Mode("minimax-h3-image-edit.json", MINIMAX_EDIT, FLUX2_DEFAULT, run_as="edit", prompt_tip=REFINE_TIP,
+                       steps_tip=MINIMAX_STEPS_TIP),
     },
     requires=(
         "minimax_h3_image_pruned_int8_convrot.safetensors",
@@ -420,7 +423,10 @@ MINIMAX = Model(
     preview="latent2rgb")   # <Picture 1> is the picture, the references follow (<Picture 2> ...)
 
 MODELS = [FLUX3, FLUX2, QWEN, FIBO, KREA2, MOSS, MINIMAX]      # the order of the tabs
-PICK_ORDER = [MINIMAX] + [m for m in MODELS if m is not MINIMAX]      # the list of the model chip: MiniMax first (user 21.11.)
+# the list of the model chip and the model field of the gear window, the same order in both (user 22.11.: "minimax, moss,
+# krea 2, qwen, flux 3, flux 2, fibo"; 21.11. only MiniMax first); MODELS keeps the old order for the replacement choice
+PICK_ORDER = [MINIMAX, MOSS, KREA2, QWEN, FLUX3, FLUX2, FIBO]
+assert sorted(m.key for m in PICK_ORDER) == sorted(m.key for m in MODELS), "PICK_ORDER must hold every model once"
 BY_KEY = {m.key: m for m in MODELS}
 # the unedited text of Reference at scribble is a stock text in every naming rule (a model change replaces it like the others)
 STOCK_PROMPTS.update(ref_scribble_text(m.tag_style) for m in MODELS if m.tag_style)

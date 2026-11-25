@@ -1,3 +1,4 @@
+# tags: window
 """Number fields: typing, deleting, comma or point, the unit kept while editing, Up/Down steps, LoRA strengths
 (stubbed Tk, no display needed).
 

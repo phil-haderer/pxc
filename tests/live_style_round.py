@@ -1,5 +1,5 @@
-"""Manual check (not part of run_all.py): plan B step 2, the style pilot (docs/plan-edit-sketch-stile.md; test plan
-docs/tests/stil-pilot-testplan.md, user 10.11.). Do the edit models carry a style over the whole picture and keep the
+"""Manual check (not part of run_all.py): plan B step 2, the style pilot (docs/archiv/plan-edit-sketch-stile.md; test plan
+docs/archiv/tests/stil-pilot-testplan.md, user 10.11.). Do the edit models carry a style over the whole picture and keep the
 people and the layout? Through the real plugin path (the window's request with the start settings of the mode, the
 bridge with the PhotoCraft simulator of test_reference_mode, the real ComfyUI), Flux 3 and Qwen Image 2.1 (pilot 7a) or Flux 2 and Fibo (round 7b, the default), one seed:
 

@@ -1,3 +1,4 @@
+# tags: multiedit, photocraft
 """Insert reference image: the whole bridge run against a small PhotoCraft simulator and a fake ComfyUI.
 
 The top layer is the reference (image_2); all layers below it, flattened in a throw-away duplicate, are the picture

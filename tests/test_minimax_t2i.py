@@ -1,3 +1,4 @@
+# tags: minimax, t2i
 """MiniMax H3 Image, Text to image (PLAN 2.0b, step 3; docs/plan-minimax-h3-image.md).
 
 - the workflow is the official template as an API graph: 6 steps, CFG 1, lcm / simple (the template has euler; lcm by the user 14.11.), no negative prompt, the user's

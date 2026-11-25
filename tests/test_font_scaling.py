@@ -1,3 +1,4 @@
+# tags: window, linux
 """``font`` on Linux: untouched (points) until set_font_scaling gives a scaling, then pixel sizes (points x scaling), so the text
 follows the interface scale there (a later ``tk scaling`` does not reach fonts in points on X11).
 

@@ -170,8 +170,30 @@ def set_writer_seed(graph: dict, seed: int) -> dict:
     return graph
 
 
+_TEXT_CACHE: dict[str, tuple[int, int, str]] = {}      # path -> (mtime_ns, size, text)
+
+
+def _cached_text(path: str | Path) -> str:
+    """The file's text, read from disk only when it is new or changed (time or size; tempo plan P1, 24.11.: the window read
+    the same workflow hundreds of times per function switch). Raises OSError like read_text."""
+    p = Path(path)
+    st = p.stat()
+    key = str(p)
+    hit = _TEXT_CACHE.get(key)
+    if hit is not None and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+        return hit[2]
+    text = p.read_text(encoding="utf-8")
+    _TEXT_CACHE[key] = (st.st_mtime_ns, st.st_size, text)
+    return text
+
+
+def read_graph(path: str | Path) -> dict:
+    """The JSON of a workflow file as a new dict (the caller may change it), without the checks of load_template."""
+    return json.loads(_cached_text(path))
+
+
 def load_template(path: str | Path) -> dict:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = read_graph(path)
     if "nodes" in data and "links" in data:
         raise ValueError(f"{Path(path).name}: this is a UI-format save. In ComfyUI use Workflow → Export (API).")
     if not all(isinstance(v, dict) and "class_type" in v for v in data.values()):

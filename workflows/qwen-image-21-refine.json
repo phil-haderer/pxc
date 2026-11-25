@@ -119,7 +119,7 @@
   },
   "_meta": {
    "title": "pc:prompt Prompt encode",
-   "pc_default_prompt": "Enhance this image to high resolution while preserving the original composition, lighting, and atmosphere. Image can be illustration or real photo, keep the original input style."
+   "pc_default_prompt": "A sharper, cleaner version of the same image: clean detail and texture, the same style, composition, colors and light."
   }
  },
  "10": {

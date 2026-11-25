@@ -1,3 +1,4 @@
+# tags: window, workflows
 """The tick in front of each custom LoRA row (user 20.11.): unticked, the row stays grey, its LoRA is not sent, and the
 state is saved with the page (a third item False). Hidden Tk window.
 

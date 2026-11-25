@@ -1,3 +1,4 @@
+# tags: expand, flux3, workflows
 """Flux 3 Expand with ausboss' outpaint LoRA (29.10., after Pixaroma's "14. Flux 3 Klein - Outpaint"): without the LoRA
 Flux 3 slid or zoomed the picture instead of filling the margin. Expand runs its own graph (the LoRA at 1.5, 16 steps,
 no reference slots), the new margin goes in mid grey (the colour the LoRA was trained on), the prompt is the LoRA's own

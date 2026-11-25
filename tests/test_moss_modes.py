@@ -1,3 +1,4 @@
+# tags: moss, t2i, workflows
 """MOSS in the bridge: Text to image on the whole canvas (a selection is ignored), the LoRA files under the names the
 server lists, the extra stages, and the model/options in the name of an upscaled document.
 

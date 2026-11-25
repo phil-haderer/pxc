@@ -10,7 +10,7 @@ from .refslots import BBOX_TIP, MULTI_MODE, SCRIBBLE_MODE, TAB_MODE, retag
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 
-REFINE_DEFAULT_TIP = "Refine with the default prompt: same size, as a new layer."
+REFINE_DEFAULT_TIP = "Refine Image with the default prompt: same size, as a new layer."
 
 
 def put_in_front(t, text: str) -> None:
@@ -95,6 +95,17 @@ class PromptMixin:
     def _show_enhance_box(self, on: bool):
         """The "Enhance my Prompt with LLM" row (with the copy button): not in Expand, Remove, Refine and Upscale (NO_LLM_MODES). It sits directly under the negative
         prompt, above the Upscale factor and the LoRA switches (user 30.10.)."""
+        # Sketch and Scribble: the writer always runs there, so the row holds only "Reroll prompt" and the copy icon,
+        # no Enhance tick (user 25.11., "Nur Reroll-Knopf zeigen")
+        only = self._writer_only()
+        on = on or only
+        if only and self.cb_enhance.winfo_manager():
+            self.cb_enhance.pack_forget()
+        elif not only and not self.cb_enhance.winfo_manager():
+            if getattr(self, "b_reroll", None) is not None and self.b_reroll.winfo_manager():   # Reroll sits left without the tick: it goes back to its place
+                self.b_reroll.pack_forget()
+            first = self.f_enh.pack_slaves()
+            self.cb_enhance.pack(side="left", **({"before": first[0]} if first else {}))
         shown = bool(self.f_enh.winfo_manager())
         if on and not shown:
             self.f_enh.pack(fill="x", padx=10, pady=(6, 0), after=self.f_neg)
@@ -176,6 +187,8 @@ class PromptMixin:
             text = text.replace("{tag}", m.tag_style.format(n=2, i=1) if m and m.tag_style else "the reference image")
         on = bool(text)
         self._hint_text = text
+        if mode in ("sketch", "scribble") and hasattr(self, "f_enh"):
+            self._show_enhance_box(self._llm_row_wanted())      # Reroll follows whether the writer runs (user 25.11.)
         self._update_llm_button()
         self._update_styles_button()
         # no blue frame round the field any more, with a tip or in focus (user 20.11.): the tip under it says it
@@ -334,9 +347,22 @@ class PromptMixin:
             self._status("Described. The text is at the start of the prompt.")
         self.root.after(200, check)
 
+    def _writer_only(self) -> bool:
+        """Sketch and Scribble with a writer that runs and samples (Flux 3, Flux 2, Qwen; not Fibo or MiniMax, not with a
+        written prompt loaded from the history): "Reroll prompt" without the Enhance tick (user 25.11.)."""
+        if self.v_mode.get() not in ("sketch", "scribble"):
+            return False
+        try:
+            return self._writer_runs() and any(workflows.writer_samples(t) for t in self._wf_templates())
+        except Exception:
+            return False
+
     def _reroll_wanted(self) -> bool:
         """"Reroll prompt" (user 18.11., choice A): wherever the "Enhance my Prompt with LLM" row is shown (MiniMax too), while
-        Enhance is ticked, and only when the writer samples (Fibo's takes the likeliest words: a new seed would change nothing)."""
+        Enhance is ticked, and only when the writer samples (Fibo's takes the likeliest words: a new seed would change nothing).
+        Sketch and Scribble: whenever their writer runs (_writer_only, user 25.11.)."""
+        if self._writer_only():
+            return True
         if not (self._llm_row_wanted() and bool(self.v_enhance.get())):
             return False
         try:
@@ -350,8 +376,12 @@ class PromptMixin:
             return
         if self._reroll_wanted():
             if not self.b_reroll.winfo_manager():
-                after = self.b_copy if self.b_copy.winfo_manager() else self.cb_enhance     # the copy icon may be hidden
-                self.b_reroll.pack(side="left", padx=(10, 0), after=after)
+                if not self.cb_enhance.winfo_manager():       # Sketch / Scribble: no Enhance tick, Reroll comes first
+                    kw = {"before": self.b_copy} if self.b_copy.winfo_manager() else {}
+                    self.b_reroll.pack(side="left", padx=(0, 0), **kw)
+                else:
+                    after = self.b_copy if self.b_copy.winfo_manager() else self.cb_enhance     # the copy icon may be hidden
+                    self.b_reroll.pack(side="left", padx=(10, 0), after=after)
         elif self.b_reroll.winfo_manager():
             self.b_reroll.pack_forget()
 
@@ -373,7 +403,12 @@ class PromptMixin:
         want = bool((getattr(self, "_last_vgl", "") or "").strip())
         try:
             if want and not b.winfo_manager():
-                b.pack(side="left", padx=(8, 0), after=self.cb_enhance)
+                if self.cb_enhance.winfo_manager():
+                    b.pack(side="left", padx=(8, 0), after=self.cb_enhance)
+                elif self.b_reroll.winfo_manager():          # Sketch / Scribble: the copy icon after Reroll
+                    b.pack(side="left", padx=(8, 0), after=self.b_reroll)
+                else:
+                    b.pack(side="left")
             elif not want and b.winfo_manager():
                 b.pack_forget()
         except tk.TclError:
@@ -394,7 +429,7 @@ class PromptMixin:
 
     def _update_prompt_choices(self):
         """The Refine row under the Upscale factor (user 6.11.): one small switch per ready-made prompt of the model's Refine
-        (Flux 2: Default, Neutral, Studio portrait; Flux 3: Default, Restore), a lone "Default" for the others. The lit one is the
+        (Flux 2: Default, Neutral; Flux 3: Default, Restore), a lone "Default" for the others. The lit one is the
         Refine button that was chosen (v_fac); the prompt may be edited afterwards."""
         m = self._model()
         spec = m.modes.get("refine") if m else None
@@ -619,13 +654,13 @@ class PromptMixin:
     def _remember_pxc_text(self):
         self._pxc_text = self.t_prompt.get("1.0", "end").strip()
 
-    # ---------- Custom prompts (custom_prompts.py, docs/prompt-saver-konzept.md; user 11.11.) ----------
+    # ---------- Custom prompts (custom_prompts.py, docs/archiv/prompt-saver-konzept.md; user 11.11.) ----------
 
     def _cp_tag(self) -> tuple:
         """(model, function) as the window shows them, for the tag of a saved prompt."""
         m = self._model()
         mode = self.v_mode.get()
-        fn = "Edit canvas" if mode == "edit" else SCALE_FN_LABEL if mode in SCALE_MODES else dict(MODE_LABELS).get(mode, mode)
+        fn = "Edit canvas" if mode == "edit" else dict(MODE_LABELS).get(mode, mode)
         return (m.label if m else "Own workflow"), fn
 
     def _cp_context(self) -> dict:
@@ -717,7 +752,7 @@ class PromptMixin:
             return
         e = entries[i]
         ctx = custom_prompts.context(e, {x.label: x.key for x in models.MODELS},
-                                     {**{lab: k for k, lab in MODE_LABELS}, "Edit canvas": "edit"})
+                                     {**OLD_MODE_LABELS, **{lab: k for k, lab in MODE_LABELS}, "Edit canvas": "edit"})
         note = "" if append else self._cp_switch(ctx)       # only Use goes back to function, model and tab (user 15.11.)
         note = note.strip()
         if str(t.cget("state")) == "disabled":            # (Remove: the field is off)

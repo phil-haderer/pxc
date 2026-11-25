@@ -1,3 +1,4 @@
+# tags: window
 """The window's height (user 3.11. to 5.11.): it always gets the height its content needs, even when that is more than the screen
 (PC C: it was cut off at a fixed height). It does not scroll, does not move and ignores the screen's size. Also with Tk 9,
 whose winfo_reqheight of the root does not follow a child that grew. Also the Linux mouse wheel helpers. Real Tk window

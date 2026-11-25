@@ -1,3 +1,4 @@
+# tags: window
 """Timers of short-lived widgets belong to the Tk root (gui_common.later / idle / cancel_later, 14.11.2026).
 
 Tk keeps a timer of a widget that is destroyed while tkinter deletes the name of its callback; a new callback at the same

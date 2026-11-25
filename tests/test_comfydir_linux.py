@@ -1,3 +1,4 @@
+# tags: comfy, linux
 """Finding ComfyUI's folder on Linux from /proc (pccomfy/comfydir.py): the listening socket, its process, the working folder.
 The /proc part runs on a fake tree (symlinks, so not on Windows); the rest runs everywhere.
 

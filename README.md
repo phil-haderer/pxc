@@ -10,10 +10,9 @@
 **A companion app that brings Photoshop-style generative AI to PhotoCraft, running on your own PC.**
 Pick a function, type a prompt, press Generate: the result arrives as a new layer in your document.
 
-<img src="readme-images/plugin-window.png" alt="The PxC window: six functions, seven models, prompt box and Generate button" width="330">
-<img src="readme-images/plugin-window-edit.png" alt="The PxC window with Edit chosen: the five Edit modes under the Generate button" width="330">
-
 Tested: Windows 11 · PhotoCraft 0.23.1 · ComfyUI 0.45.0
+
+<img src="readme-images/plugin-window.webp" alt="The PxC window next to PhotoCraft: Text to Image with MiniMax H3 Image, the result as a new layer" width="900">
 
 [Examples](#examples) · [Features](#features) · [Before you start](#before-you-start) · [Install on Windows](#install-on-windows) · [Install on Linux](#install-on-linux) · [Model downloads](#model-downloads) · [Functions](#functions) · [Help](#help) · [Technical details](#technical-details)
 
@@ -28,7 +27,7 @@ Many test rounds went into PxC, and every line of it was written with Claude Cod
 
 <table>
 <tr>
-<td width="50%" valign="top"><b>Text to image</b><br><a href="EXAMPLES.md"><img src="readme-images/examples/text-to-image-1.jpg" width="100%"></a><br><small>Flux 3 Klein Edit · Built-in style: Tilt-shift, miniature look · “a busy harbour with colourful fishing boats, stacked containers, a red crane and tiny people on the quay”</small></td>
+<td width="50%" valign="top"><b>Text to Image</b><br><a href="EXAMPLES.md"><img src="readme-images/examples/text-to-image-1.jpg" width="100%"></a><br><small>Flux 3 Klein Edit · Built-in style: Tilt-shift, miniature look · “a busy harbour with colourful fishing boats, stacked containers, a red crane and tiny people on the quay”</small></td>
 <td width="50%" valign="top"><b>Edit canvas</b><br><a href="EXAMPLES.md"><img src="readme-images/examples/edit-canvas-1.jpg" width="100%"></a><br><small>Flux 3 Klein Edit · “Make it a snowy winter day, with snow on the leaves and soft falling snowflakes.”</small></td>
 </tr>
 </table>
@@ -39,19 +38,20 @@ Many test rounds went into PxC, and every line of it was written with Claude Cod
 ## Features
 
 - **Seven SOTA models:** Flux 3 Klein, Flux 2 Klein, Qwen Image 2.1, Fibo 2.0 Edit Turbo, Krea 2 Turbo, MOSS Image and the newly released MiniMax H3 Image. Local only: of course the models run in ComfyUI on your GPU.
-- **Six generation modes:**
-  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/text-to-image-dark.png"><img src="readme-images/icons/text-to-image-light.png" alt="" width="20" height="20"></picture>&nbsp; Text to image
-  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/expand-dark.png"><img src="readme-images/icons/expand-light.png" alt="" width="20" height="20"></picture>&nbsp; Expand
+- **Seven generation modes:**
+  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/text-to-image-dark.png"><img src="readme-images/icons/text-to-image-light.png" alt="" width="20" height="20"></picture>&nbsp; Text to Image
+  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/expand-dark.png"><img src="readme-images/icons/expand-light.png" alt="" width="20" height="20"></picture>&nbsp; Expand Image
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/fill-dark.png"><img src="readme-images/icons/fill-light.png" alt="" width="20" height="20"></picture>&nbsp; Fill
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/remove-dark.png"><img src="readme-images/icons/remove-light.png" alt="" width="20" height="20"></picture>&nbsp; Remove
   - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/edit-dark.png"><img src="readme-images/icons/edit-light.png" alt="" width="20" height="20"></picture>&nbsp; Edit, with five modes in a list: Edit canvas · Multi image edit · Sketch to image · Scribble on photo · Scribble with reference
-  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/upscale-refine-dark.png"><img src="readme-images/icons/upscale-refine-light.png" alt="" width="20" height="20"></picture>&nbsp; Upscale / Refine
+  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/refine-dark.png"><img src="readme-images/icons/refine-light.png" alt="" width="20" height="20"></picture>&nbsp; Refine Image
+  - <picture><source media="(prefers-color-scheme: dark)" srcset="readme-images/icons/upscale-dark.png"><img src="readme-images/icons/upscale-light.png" alt="" width="20" height="20"></picture>&nbsp; Upscale
 
-  Not every model offers every function or mode: MOSS and Krea, for example, only do Text to image.
+  Not every model offers every function or mode: MOSS and Krea, for example, only do Text to Image.
 - **LLMs included:** one tick lets a text model improve your prompt. It also describes the canvas and reference images, turns sketches and scribbles into prompts, and names what to remove.
 - **Your own prompts:** save a prompt under a name and use it again later, with the function and model it was made for.
 - **Tested settings:** every function and model starts with its tested settings; change them under Advanced settings if you like.
-- **Your models, organised:** **Download missing files** fetches each model as one pack and puts every file into the right ComfyUI folder. Already have a model in another version? Choose your own file in the file's field in the gear window (Model Links) instead of downloading it again: besides the int8 ConvRot files PxC downloads, the bf16, fp8 and nvfp4 versions of the same model can be used, and GGUF for the main model with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) node pack. PxC also recognises six other versions of the main models and uses the settings from their model cards: Qwen Image 2.1 Turbo int8, MOSS Image Base int8, Kromoss int8 (a fine-tune of MOSS), Fibo 2.0 Dev int8, Krea 2 Turbo fp8 and MiniMax H3 Image w4a8. Pick one in Model Links, or keep it in the folder instead of the file PxC downloads. Qwen Image 2.1 Turbo and Fibo 2.0 Dev are tested in every function, MiniMax H3 Image w4a8 in Text to image and Edit, Kromoss not yet, the others in Text to image.
+- **Your models, organised:** **Download missing files** fetches each model as one pack and puts every file into the right ComfyUI folder. Already have a model in another version? Choose your own file in the file's field in the gear window (Model Links) instead of downloading it again: besides the int8 ConvRot files PxC downloads, the bf16, fp8 and nvfp4 versions of the same model can be used, and GGUF for the main model with the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) node pack. PxC also recognises six other versions of the main models and uses the settings from their model cards: Qwen Image 2.1 Turbo int8, MOSS Image Base int8, Kromoss int8 (a fine-tune of MOSS), Fibo 2.0 Dev int8, Krea 2 Turbo fp8 and MiniMax H3 Image w4a8. Pick one in Model Links, or keep it in the folder instead of the file PxC downloads. Qwen Image 2.1 Turbo and Fibo 2.0 Dev are tested in every function, MiniMax H3 Image w4a8 in Text to Image and Edit, Kromoss not yet, the others in Text to Image.
 - **Team use:** run ComfyUI on one strong PC or server and point several PxC installations at it (gear window ▸ ComfyUI address). The queue lists your own jobs and, read-only, the jobs of the others, and the progress bar shows how many jobs are ahead of yours.
 
 > Unofficial community project, not affiliated with PhotoCraft, ArtCraft or Storyteller. PhotoCraft is in early alpha
@@ -63,7 +63,7 @@ Many test rounds went into PxC, and every line of it was written with Claude Cod
 
 The Style prompts button beside the prompt adds a ready-made style text. A few of the built-in styles:
 
-**Text to image** (80 styles in 13 groups)
+**Text to Image** (83 styles in 13 groups)
 
 - **Photo:** Tilt-shift, miniature look · Golden hour travel photo · Drone shot from above · Night light trails, long exposure
 - **Studio & product:** Studio portrait · Business headshot · Product photo, glass on white · Food photography
@@ -79,7 +79,7 @@ The Style prompts button beside the prompt adds a ready-made style text. A few o
 - **Fantasy & sci-fi:** Dark fantasy, glowing neon · Cyberpunk neon, rain · Cosmic glow
 - **Surreal:** Floating objects, blue sky · Surreal reflections, pastel
 
-**Edit** (34 styles in 7 groups; a style that Text to image has too carries the same name and look)
+**Edit** (34 styles in 7 groups; a style that Text to Image has too carries the same name and look)
 
 - **Photo:** Realistic photo · Studio portrait · Vintage black-and-white photo · Cyanotype blue print, glowing
 - **Film look:** Film look, warm dusk · Film look, cool blue night
@@ -109,7 +109,7 @@ You need (the software is free):
 - **[PhotoCraft](https://github.com/storytold/photocraft/releases) 0.20.2 or newer**: the image editor where you work. PxC adds AI functions to it.
 - **[ComfyUI](https://github.com/comfyanonymous/ComfyUI#installing)**: runs the AI models; leave it running while you work. Flux 2 and Upscale (Flux 3, Fibo) also need the add-on [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) ([ComfyUI Easy Install](https://github.com/Tavris1/ComfyUI-Easy-Install) includes it).
 - **[Python](https://www.python.org/downloads/windows/) 3.11 or newer** (Linux: 3.10 or newer). No Python yet? On Windows the setup offers to install it for you.
-- **About 13 to 19 GB of free disk space per model you want to use, MiniMax about 38 GB** (the models are large files; one model is enough to start).
+- **About 13 to 19 GB of free disk space per model you want to use, MiniMax about 38 GB, or about 30 GB with its smaller variant** (the models are large files; one model is enough to start).
 
 Then follow [Install on Windows](#install-on-windows) or [Install on Linux](#install-on-linux).
 
@@ -147,7 +147,7 @@ Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface 
 
 ## Model downloads
 
-**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder, then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
+**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder, then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works. The same lists as a page of their own: [docs/model-downloads.md](docs/model-downloads.md).
 
 **Custom nodes** (small add-ons for ComfyUI; install them from the ComfyUI Manager or the link, then restart ComfyUI):
 - [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): needed for Flux 2 and for Upscale with Flux 3 and Fibo.
@@ -161,11 +161,11 @@ Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface 
 | File and its ComfyUI folder | Needed for | Size | Download |
 |---|---|---|---|
 | `flux3-image-klein-int8-convrot.safetensors`<br>`models/diffusion_models` | all functions | 5.8 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
-| `qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors`<br>`models/text_encoders` | Remove, Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | 6.7 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
+| `qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors`<br>`models/text_encoders` | Remove Selection, Enhance my Prompt with LLM, Describe Canvas, Describe Multi Image Slot, Sketch to image, Scribble on photo | 6.7 GB | [Hugging Face: black-forest-labs/flux-3-image-klein-comfy](https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors) (needs a free Hugging Face login and acceptance of the licence) |
 | `qwen3vl_4b_int8_convrot.safetensors`<br>`models/text_encoders` | all functions | 4.9 GB | [Hugging Face: Comfy-Org/Krea-2](https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors) |
 | `flux2-vae.safetensors`<br>`models/vae` | all functions | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
-| `flux-3-image-klein-outpaint.safetensors`<br>`models/loras/Flux 3` | Expand | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Outpaint-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Outpaint-LoRA/resolve/main/flux-3-image-klein-outpaint.safetensors) |
-| `flux-3-image-klein-restore.safetensors`<br>`models/loras/Flux 3` | Upscale | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Restore-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Restore-LoRA/resolve/main/flux-3-image-klein-restore.safetensors) |
+| `flux-3-image-klein-outpaint.safetensors`<br>`models/loras/Flux 3` | Expand Image | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Outpaint-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Outpaint-LoRA/resolve/main/flux-3-image-klein-outpaint.safetensors) |
+| `flux-3-image-klein-restore.safetensors`<br>`models/loras/Flux 3` | Upscale, Refine Image | 161 MB | [Hugging Face: ausboss/FLUX-3-Image-Klein-Restore-LoRA](https://huggingface.co/ausboss/FLUX-3-Image-Klein-Restore-LoRA/resolve/main/flux-3-image-klein-restore.safetensors) |
 | `4x-UltraSharpV2.safetensors`<br>`models/upscale_models` | Upscale | 140 MB | [Hugging Face: Kim2091/UltraSharpV2](https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
@@ -188,7 +188,7 @@ Optional (the model works without them, the named feature is greyed out):
 | `flux-2-klein-9b_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 9.4 GB | [Hugging Face: obsxrver/ComfyUI-Native-INT8_ConvRot](https://huggingface.co/obsxrver/ComfyUI-Native-INT8_ConvRot/resolve/main/diffusion_models/flux-2-klein-9b_int8_convrot.safetensors) |
 | `qwen_3_8b_fp8mixed.safetensors`<br>`models/text_encoders` | all functions | 8.7 GB | [Hugging Face: Comfy-Org/Flux-2-Klein-9B](https://huggingface.co/Comfy-Org/Flux-2-Klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors) |
 | `flux2-vae.safetensors`<br>`models/vae` | all functions | 336 MB | [Hugging Face: Comfy-Org/Flux-2-Dev](https://huggingface.co/Comfy-Org/Flux-2-Dev/resolve/main/split_files/vae/flux2-vae.safetensors) |
-| `ultra_real_v4.safetensors`<br>`models/loras/Flux 2` | Upscale, Refine | 166 MB | [Civitai](https://civitai.com/api/download/models/2846977) (Civitai may ask you to log in) |
+| `ultra_real_v4.safetensors`<br>`models/loras/Flux 2` | Upscale, Refine Image | 166 MB | [Civitai](https://civitai.com/api/download/models/2846977) (Civitai may ask you to log in) |
 
 Optional (the model works without them, the named feature is greyed out):
 
@@ -265,7 +265,7 @@ Optional (the model works without them, the named feature is greyed out):
 | `moss_image_sft_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 5.4 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_sft_int8_convrot.safetensors) |
 | `qwen3.5_9b_w4a8_gptq.safetensors`<br>`models/text_encoders` | all functions | 7.3 GB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors) |
 | `flux2-vae_small.safetensors`<br>`models/vae` | all functions | 250 MB | [Hugging Face: Comfy-Org/MOSS-Image](https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/vae/flux2-vae_small.safetensors) |
-| `lenovo_moss.safetensors`<br>`models/loras/Moss` | Text to image | 65 MB | [Hugging Face: Danrisi/lenovo_moss](https://huggingface.co/Danrisi/lenovo_moss/resolve/main/lenovo_moss.safetensors) |
+| `lenovo_moss.safetensors`<br>`models/loras/Moss` | Text to Image | 65 MB | [Hugging Face: Danrisi/lenovo_moss](https://huggingface.co/Danrisi/lenovo_moss/resolve/main/lenovo_moss.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
@@ -277,13 +277,19 @@ Optional (the model works without them, the named feature is greyed out):
 </details>
 
 <details>
-<summary><b>MiniMax H3 Image</b>: about 37.8 GB needed</summary>
+<summary><b>MiniMax H3 Image</b>: about 37.8 GB needed (about 29.4 GB with the smaller variant)</summary>
 
 | File and its ComfyUI folder | Needed for | Size | Download |
 |---|---|---|---|
 | `minimax_h3_image_pruned_int8_convrot.safetensors`<br>`models/diffusion_models` | all functions | 21.0 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors) |
 | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`<br>`models/text_encoders` | all functions | 15.7 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors) |
 | `minimax_h3_image_vae_fp16.safetensors`<br>`models/vae` | all functions | 1.2 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/vae/minimax_h3_image_vae_fp16.safetensors) |
+
+Smaller variant (less disk space and VRAM; in our test about as good and as fast). Take it instead of the file it names; when both are in the folder, PxC uses the larger one:
+
+| File and its ComfyUI folder | Use | Size | Download |
+|---|---|---|---|
+| `minimax_h3_image_pruned_w4a8.safetensors`<br>`models/diffusion_models` | instead of `minimax_h3_image_pruned_int8_convrot.safetensors` | 12.5 GB | [Hugging Face: Comfy-Org/MiniMax-H3-Image](https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_w4a8.safetensors) |
 
 Optional (the model works without them, the named feature is greyed out):
 
@@ -312,18 +318,21 @@ RMBG-2.0 is a community copy of the official file, which needs a Hugging Face lo
 You pick a **function** at the top, type a prompt and press **Generate**. PxC sends the picture (or the selection)
 to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, with a soft layer mask where that makes sense.
 
+MiniMax H3 Image draws in a size you pick in megapixels (4 to 20 MP, best at about 16 MP); **Downsize to canvas** scales the result down to your canvas and adds it as a layer, otherwise it opens as a new document in the chosen size.
+
 | Function | What it does |
 |---|---|
-| **Text to image** | A new picture from text only, as a new layer. |
-| **Expand image** | Extend the canvas with the Crop tool, fill the new area white; PxC paints it. |
+| **Text to Image** | A new picture from text only, as a new layer. |
+| **Expand Image** | Extend the canvas with the Crop tool, fill the new area white; PxC paints it. |
 | **Fill Selection** | Select an area and type what should appear there. With Flux 3, the tab **Insert reference** puts a reference image into your rectangular selection (using Flux 3's bounding-box feature). |
 | **Remove Selection** | Draw a selection around any object, with a little margin, and name it in the prompt field ("car"). It is removed and the background is filled in. With Flux 3 Klein, Flux 2 Klein and Fibo you can leave the prompt empty: their text model names the subject itself. |
 | **Edit** › Edit canvas | Changes the whole picture based on your prompt, or use one of the many **Style prompts** (painting, comic, film look …). |
 | **Edit** › Multi image edit | Edits the picture with reference images (drop or paste images into the slots). A click on the tag on a slot puts it where your cursor is in the prompt. |
 | **Edit** › Sketch to image | Turns a sketch on a white canvas into a picture in the style you choose under **Style prompts** (photo, painting, comic …). Simply replace `SUBJECT` in the prompt box with the subject. Needs the model's prompt writer file (see [Model downloads](#model-downloads)); without it this entry of the Edit list is greyed out. MiniMax runs it without a prompt writer. |
 | **Edit** › Scribble on photo | Turns scribbles on a photo into real objects: scribble in bright red or green, or on a layer of its own; only that place changes. Replace `SUBJECT` in the prompt with what goes there. |
-| **Edit** › Scribble with reference | Like Scribble on photo, but with a reference image: what it shows is placed where you scribbled. Replace `<WHAT IS IN THE REFERENCE>` with what it shows ("a beagle dog"). |
-| **Upscale / Refine** | Pick a factor (1.5x to 4x) in the row "Upscale factor": the whole picture is enlarged into a new document, up to 16 MP. Or pick **Refine**: the picture is cleaned up at the same size, as a new layer. |
+| **Edit** › Scribble with reference | Like Scribble on photo, but with a reference image: what it shows is placed where you scribbled. Replace `SUBJECT` with what it shows ("a beagle dog"). |
+| **Refine Image** | The picture is cleaned up at the same size, as a new layer. Each model has one ready-made prompt for it in the prompt field (Flux 2: neutral light, Flux 3: restore old photos, Qwen Image 2.1: keep the colours; Fibo and MiniMax use the Flux 2 text); you can edit it. |
+| **Upscale** | Pick a factor (1.5x to 4x) in the row "Upscale factor": the whole picture is enlarged into a new document, up to 16 MP. |
 
 <details>
 <summary>Which model offers which function</summary>
@@ -333,24 +342,24 @@ to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, w
 | Fill Selection | ✓ | ✓ | ✓ | ✓ | | | |
 | Fill › Insert reference | ✓ | | | | | | |
 | Remove Selection | ✓ | ✓ | ✓ | ✓ | | | |
-| Expand image | ✓ | ✓ | ✓ | ✓ | | | |
+| Expand Image | ✓ | ✓ | ✓ | ✓ | | | |
 | Edit › Edit canvas | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Edit › Multi image edit | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Upscale (new file) | ✓ | ✓ | ✓ | ✓ (up to 3x) | | | |
-| Refine (same size) | ✓ | ✓ | ✓ | ✓ | | | |
+| Refine Image (same size) | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Edit › Sketch to image | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Edit › Scribble on photo | ✓ | ✓ | ✓ | ✓ | | | ✓ |
 | Edit › Scribble with reference | ✓ | ✓ | ✓ | | | | |
-| Text to image | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Text to Image | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 </details>
 
 ## More features
 
-- **Results & history:** **Variants** give several results as layers in one group. **Last runs** (the clock at the bottom right) bring back earlier settings. **Undo** and **Redo** beside Generate take back or bring back the last AI result. The seed button brings back the seed of the last run; **Copy canvas** and **Save image** are in the bottom-right menu.
-- **Prompts:** **Style prompts** and **Enhance my Prompt with LLM**; next to it, **Reroll prompt** has the text model write a new prompt. **Save** keeps a prompt under a name, **Describe Canvas** writes what the picture shows, the copy button copies the prompt the text model wrote, and Ctrl+Z in the field brings back a deleted prompt.
-- **Pictures & references:** drop, paste (Ctrl+V) or add pictures to the **reference slots**; click a slot's tag or drag its picture into the prompt to name it. **Cut out:** the scissors at the bottom right remove the background with **BiRefNet**, **RMBG-2.0** or **Both**: a copy of the picture is added as a new layer with an editable layer mask. Every reference slot has its own cut-out button. It needs the optional files under [Model downloads](#model-downloads) ▸ Remove background. A **live preview** shows the picture while it is being made.
-- **Work faster:** Ctrl+Enter generates, Ctrl+Alt+Enter stops a run, Esc closes the queue or the settings, Ctrl+S saves the picture, Q opens the queue. **Batch** runs Refine, Upscale or Edit on all open pictures or a whole folder (optional dry run on the first picture); the **queue** shows what is waiting. **Startup settings:** right-click a model chip and choose "Set current settings as startup settings"; **Reset page** in the bottom-right menu goes back. **Hide this model** for models you do not use, and a **Tip of the day** at start (can be switched off).
+- **Results & history:** **Variants** give several results as layers in one group. **History** (in the ⋯ menu at the bottom right) brings back earlier settings. **Undo** and **Redo** beside Generate take back or bring back the last AI result; results of queued runs are hidden and shown again one by one. The seed button brings back the seed of the last run; **Copy canvas** and **Save image** are in the bottom-right menu.
+- **Prompts:** **Style prompts** and **Enhance my Prompt with LLM**; next to it, **Reroll prompt** has the text model write a new prompt (in Sketch to image and Scribble, where the text model always writes, Reroll prompt stands alone). **Save** keeps a prompt under a name, **Describe Canvas** writes what the picture shows, the copy button copies the prompt the text model wrote, and Ctrl+Z in the field brings back a deleted prompt.
+- **Pictures & references:** drop, paste (Ctrl+V) or add pictures to the **reference slots**; click a slot's tag, type **@** in the prompt to pick it from a list, or drag its picture into the prompt to name it. **Cut out:** the scissors at the bottom right remove the background with **BiRefNet**, **RMBG-2.0** or **Both**: a copy of the picture is added as a new layer with an editable layer mask. Every reference slot has its own cut-out button. It needs the optional files under [Model downloads](#model-downloads) ▸ Remove background. A **live preview** shows the picture while it is being made.
+- **Work faster:** Ctrl+Enter generates, Ctrl+Alt+Enter stops a run, Esc closes the queue or the settings, Ctrl+S saves the picture, Q or the list symbol at the bottom right opens the queue. **Batch** runs Refine Image, Upscale or Edit on all open pictures or a whole folder (optional dry run on the first picture); the **queue** shows what is waiting. While a run is on, Generate becomes **Add to queue** for the same function (Text to Image, Edit, Refine Image or Upscale; any model, e.g. Text to Image prompts on several models one after the other): the picture in front and the settings are taken at the click, and the result comes as a new layer; Variants ×n become n jobs. The other functions wait until the run is over. **Startup settings:** right-click a model chip and choose "Set current settings as startup settings"; **Reset page** in the bottom-right menu goes back. **Hide this model** for models you do not use, and a **Tip of the day** at start (can be switched off).
 - **Files & settings:** **Check files** (gear window ▸ Model Links ▸ ⋯) compares the model files on your disk with their checksums; a damaged file is named, never deleted. **Advanced settings:** edge feather, context size, mask density, sampling, custom LoRAs; the head row names the model and function they belong to, a blue dot marks a changed value and **Reset** brings back their startup settings.
 
 <a id="help"></a>

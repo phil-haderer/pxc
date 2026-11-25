@@ -1,5 +1,6 @@
+# tags: sketch
 """pccomfy/scribble.py: finding the scribble (own layer, green first, red; minimum size) and putting the result back only
-there, exactly as the blind test rounds 5 to 7 did it in tests/live_sketch.py (docs/sketch-plan.md, 9.11. evening)."""
+there, exactly as the blind test rounds 5 to 7 did it in tests/live_sketch.py (docs/archiv/sketch-plan.md, 9.11. evening)."""
 import os
 import sys
 from pathlib import Path

@@ -1,3 +1,4 @@
+# tags: linux
 """Pins what each system gets (PLAN.md 18c): the Windows values must never change by accident while the Linux port grows.
 
 Run on Windows and on Linux: each system checks its own column. The Windows column is what always ran.

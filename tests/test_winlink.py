@@ -1,3 +1,4 @@
+# tags: photocraft
 """Window linking: picking PhotoCraft's main window and (un)linking through a fake API.
 
     python tests/test_winlink.py

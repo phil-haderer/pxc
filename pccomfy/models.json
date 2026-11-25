@@ -164,7 +164,7 @@
    "name": "Flux 3\\flux-3-image-klein-restore.safetensors",
    "kind": "lora",
    "url": "https://huggingface.co/ausboss/FLUX-3-Image-Klein-Restore-LoRA/resolve/main/flux-3-image-klein-restore.safetensors",
-   "note": "Flux 3 Upscale: ausboss' restore LoRA (on at 0.5)",
+   "note": "Flux 3 Upscale and Refine: ausboss' restore LoRA (on at 0.5)",
    "size": 160697064,
    "sha256": "7b758f5c1d494da7675dbebd8309f36c3dcaf4aa67a3349f667403c7a681187e"
   },

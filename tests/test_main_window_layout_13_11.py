@@ -1,3 +1,4 @@
+# tags: window
 """Main window layout wishes of 13.11., measured in the real Tk window (shown for a moment; skipped when Tk cannot open one):
 the status line as wide as the lines above Advanced settings, the tip text level with its icon, the placeholder where typed
 text starts, the MiniMax size row without a label and left-aligned.
@@ -7,6 +8,7 @@ text starts, the MiniMax size row without a label and left-aligned.
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,10 +52,19 @@ def status_checks(app):
     app._on_model()
     app.v_status.set("A long message that has to wrap onto a second line because it is longer than the window is wide. " * 2)
     app.root.update()
+    # the text wraps at the right edge of that line (it used to wrap 20 px short), less the red "!" and its gap while an
+    # error shows it. Since T5 (24.11.) port 1 fails at once, so "ComfyUI is not running" (with "!") can arrive during this
+    # check; before, it came 4 s later. The window sets the length in its <Configure> handler: wait for it, at most 2 s.
+    def wanted():
+        w = app.f_status.winfo_width()
+        return w - (app.lbl_err.winfo_reqwidth() + app._px(8)) if app.lbl_err.winfo_manager() else w
+    end = time.time() + 2
+    while time.time() < end and int(app.lbl_status.cget("wraplength")) != wanted():
+        app.root.update()
+        time.sleep(0.02)
     assert abs(left(app.f_status) - left(app.sep_adv)) <= 1 and abs(right(app.f_status) - right(app.sep_adv)) <= 1, \
         (left(app.f_status), right(app.f_status), left(app.sep_adv), right(app.sep_adv))
-    # the text wraps at the right edge of that line (it used to wrap 20 px short)
-    assert int(app.lbl_status.cget("wraplength")) == app.f_status.winfo_width(), (app.lbl_status.cget("wraplength"), app.f_status.winfo_width())
+    assert int(app.lbl_status.cget("wraplength")) == wanted(), (app.lbl_status.cget("wraplength"), wanted(), app.f_status.winfo_width())
     app.v_status.set("")
     app.root.update()
 

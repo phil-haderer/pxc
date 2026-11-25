@@ -1,3 +1,4 @@
+# tags: refine, fibo
 """Mix source/new image also for Fibo Refine, which runs as an edit: the result is mixed with the original (stubbed
 PhotoCraft and ComfyUI; user 28.10.).
 

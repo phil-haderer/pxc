@@ -1,3 +1,4 @@
+# tags: release, photocraft
 """Desktop shortcut (user 28.10., option B): "PxC" starts PhotoCraft with the control channel like the starter
 .bat, then the PxC window, without a console window. The shortcut itself is made in a temporary folder here, never
 on the desktop.

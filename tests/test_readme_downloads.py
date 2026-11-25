@@ -1,3 +1,4 @@
+# tags: release, models
 """README download menus (7.11.2026): the block between the model-downloads markers is exactly what
 tools/update_readme_downloads.py makes from manifest.py and models.json, every model has a menu, every download link
 of the manifest appears, and the custom node packs are named with their links.
@@ -40,5 +41,16 @@ for n in sorted(used):
 for name, url in (("ComfyUI-KJNodes", "https://github.com/kijai/ComfyUI-KJNodes"), ("ComfyUI-GGUF", "https://github.com/city96/ComfyUI-GGUF")):
     assert f"[{name}]({url})" in text, f"custom node {name} without a link"
 assert any(url == "https://github.com/kijai/ComfyUI-KJNodes" for _p, _n, url in manifest.NODE_PACKS)
+
+# the smaller variants (user 22.11.): only tested ones that unlock the model alone, each with its link, the base in the needed list
+from pccomfy import variants  # noqa: E402
+for key, items in u.SMALLER.items():
+    assert key in manifest.TABS
+    for name, folder, size, url, base in items:
+        v = next((v for v in variants.VARIANTS if v.file == name), None)
+        assert v is not None and v.alias and v.base == base, f"{name} is no tested variant of {base}"
+        assert base in manifest.TABS[key].required and 0 < size < manifest.FILES[base].size
+        assert url in block and url.endswith("/" + name) and folder.startswith("models/")
+assert "about 29.4 GB with the smaller variant" in block
 
 print("ALL OK (readme downloads)")

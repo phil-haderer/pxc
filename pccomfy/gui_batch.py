@@ -1,95 +1,33 @@
 """Batch and the local queue in the window (docs/plan/speichern-queue-batch.md, steps 3 and 4; decisions of 12.11.).
 
-The window owns one jobqueue.QueueRunner (self.runner, made in gui.py). This mixin builds what the user sees of it: the batch
-dialog (⋯ menu: "Batch: open images", "Batch: folder…"), the dry-run dialog, the queue window (⋯ menu: "Queue") with what
-waits at ComfyUI, the hint at the progress bar ("Batch 3 of 12 · ~4 min", "N jobs of others ahead"), and the lock of
-Generate and the other worker actions while a batch is on. The runner's events arrive through RunMixin._poll
-(_batch_event); nothing here waits for ComfyUI or PhotoCraft in the Tk thread."""
+The window owns one jobqueue.QueueRunner (self.runner, made in gui.py). This mixin builds the batch dialog (⋯ menu: "Batch:
+open images", "Batch: folder…"), the dry-run dialog, the small windows in the look of the settings window, the hint at the
+progress bar ("Batch 3 of 12 · ~4 min", "N jobs of others ahead"), and the lock of Generate and the other worker actions
+while a batch is on. The queue window itself (⋯ menu: "Queue") is gui_queuewin.py (tempo plan S1, 24.11.). The runner's
+events arrive through RunMixin._poll (_batch_event); nothing here waits for ComfyUI or PhotoCraft in the Tk thread."""
 from __future__ import annotations
 
 import sys
-import tkinter.font as tkfont
 
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
-from . import comfyaddr, hostos, icons, inventory, jobqueue, savefile, winlink
-from .popmenu import PopMenu
+from . import hostos, icons, inventory, jobqueue, savefile, winlink
 from .ui_settings import SET_STYLES
 
 # the window modes a batch can run (the run mode must be one of jobqueue.BATCH_MODES too: Fibo Refine runs as Edit)
-BATCH_WINDOW_MODES = {"refine": "Refine", "upscale": "Upscale", "edit": "Edit", "multi_edit": "Edit"}
-Q_PICTURE_MIN = 90      # the Picture column of the queue never gets narrower (px before scaling)
-Q_COL_MIN = 40          # a text column of the queue never gets narrower ("#": 30; px before scaling)
-Q_FILLER = "pic"        # the column that takes what the others leave (user 13.11.: no gap, the symbols stay in sight)
-Q_COL_DEFAULT = {"idx": 34, "who": 100, "pic": 200, "status": 80, "prog": 90, "fn": 130, "time": 110}   # px before scaling
-Q_TREE_INSET = 4         # the list's frame in the clam theme: 2 px on each side (measured 19.11.; with 2 Tk squeezed Picture)
-Q_GRID_HEAD, Q_GRID_BODY = "#6e6e6e", "#3d3d3d"   # the light lines between the columns (user 19.11.): heading, rows
-Q_NOT_CONNECTED_LOCAL = "ComfyUI not connected. Is ComfyUI running?"
-Q_NOT_CONNECTED_NET = "ComfyUI not connected. Set its host address in: Settings › Other settings."
-TYPING = ("Entry", "TEntry", "Text", "Spinbox", "TSpinbox", "TCombobox", "Listbox")     # widgets where Q is a letter, not the queue
-BATCH_ONLY = "Batch works with Refine, Upscale and Edit. Choose one of them first."
-BATCH_NO_BBOX = "Batch can't place a reference in a selection (BBOX). Untick BBOX first."
+BATCH_WINDOW_MODES = {"refine": "Refine Image", "upscale": "Upscale", "edit": "Edit", "multi_edit": "Edit"}
+BATCH_ONLY = "Batch works with Refine Image, Upscale and Edit. Choose one of them first."
+BATCH_NO_BBOX = "Batch can't use Insert reference: it needs a selection in each picture. Pick another Edit tab first."   # the tab's name (user 23.11.)
 BATCH_BUSY = "A batch is running. Wait for it, or click Stop batch."
 AHEAD_POLL_S = 2.0           # Generate: GET /queue this often while our job waits at ComfyUI (decisions 12.11.)
-QUEUE_COMFY_MS = 2000        # the queue window: "At ComfyUI" is read again this often, only while the window is open
-Q_FOREIGN_DONE_MAX = 200     # finished runs of others kept in the queue window until "Clear finished" (Paket 3, 19.11.)
 SYNC_MS = 1000               # while a batch is on: Generate's lock is checked again this often
 THUMB_PX = 320               # the dry run's picture fits in this square (before the display scaling)
-
-BAR_CELLS = 5                # the text bar of the Progress column: "▰▰▰▱▱ 60 %"
-STATUS_TEXT = {jobqueue.WAITING: "Waiting", jobqueue.RUNNING: "Running", jobqueue.PAUSED: "Paused", jobqueue.DONE: "Done",
-               jobqueue.ERROR: "Error", jobqueue.CANCELLED: "Cancelled"}
-BATCH_STATE_TEXT = {jobqueue.B_PREPARING: "Collecting", jobqueue.B_RUNNING: "Running", jobqueue.B_CONFIRM: "Dry run",
-                    jobqueue.B_DONE: "Done", jobqueue.B_CANCELLED: "Cancelled"}
-
-
-def batch_state_text(b: dict) -> str:
-    """The state of a batch row: "Waiting" until the batch really starts: a preparing batch before it collects its pictures
-    (that happens only between two jobs; user 13.11.), and a batch whose pictures are all there but none has begun, because
-    the batch before it still runs (user 13.11.: its pictures said Waiting, the batch said Running). "Collecting" while it
-    collects, "Running" from its first picture on."""
-    state = b.get("state")
-    if state == jobqueue.B_PREPARING and not b.get("collecting"):
-        return "Waiting"
-    if state == jobqueue.B_RUNNING:
-        counts = (b.get("progress") or {}).get("counts")
-        if counts is not None and not counts.get(jobqueue.RUNNING) and not counts.get(jobqueue.DONE)                 and counts.get(jobqueue.WAITING):
-            return "Waiting"
-    return BATCH_STATE_TEXT.get(state, state)
-
 
 PLACED_TEXT = {"layer": "Added as a new layer.", "document": "Opened as a new document.", "file": "Saved as a file."}
 
 
-def progress_text(fraction) -> str:
-    """The Progress column of our own run that runs (19.11.): a text bar and the percent, "▰▰▰▱▱ 60 %"."""
-    try:
-        f = min(1.0, max(0.0, float(fraction or 0.0)))
-    except (TypeError, ValueError):
-        f = 0.0
-    full = int(round(f * BAR_CELLS))
-    return "▰" * full + "▱" * (BAR_CELLS - full) + f" {int(f * 100)} %"
-
-
-def running_text(seconds: float) -> str:
-    """The Progress column of another participant's run that runs: no bar (ComfyUI sends the progress only to the one who
-    queued it), the time since PxC saw it start, "running 0:42"."""
-    s = max(0, int(seconds))
-    return f"running {s // 60}:{s % 60:02d}"
-
-
 def plural(n: int, word: str) -> str:
     return f"{n} {word}" + ("" if n == 1 else "s")
-
-
-def generate_label(e: dict) -> str:
-    """The Picture text of a Generate run in the queue window: how many pictures it makes, or which variant of how many
-    it is when they run one after the other (user 18.11.: "2 variants sent, I want to see that")."""
-    k, _, n = str(e.get("variant") or "").partition("/")
-    if k.isdigit() and n.isdigit():
-        return f"Generate · variant {int(k)} of {int(n)}"
-    images = int(e.get("images") or 1)
-    return f"Generate · {images} variants" if images > 1 else "Generate"
 
 
 def folder_counts(folder) -> tuple[int, int]:
@@ -148,6 +86,12 @@ class BatchMixin:
                     self._show_stop_all(False)
                     self._go_stop(False)
             widgets = (self.w_variants,) if getattr(self, "_go_stopping", False) else (self.b_go, self.w_variants)   # "Stop" stays usable
+            if getattr(self, "_go_queueing", False):
+                widgets = ()            # "Add to queue" and ×n stay usable (docs/plan/generate-queue.md) ...
+                locked = self._queue_row_kind() == "locked"     # ... or grey for Fill, Remove, Expand (user 23.11.)
+                for w in (self.b_go, self.w_variants):
+                    if str(w.cget("state")) != ("disabled" if locked else "normal"):
+                        w.configure(state="disabled" if locked else "normal")
             if busy:
                 for w in widgets:
                     w.configure(state="disabled")
@@ -203,7 +147,10 @@ class BatchMixin:
             self._ahead_n = int(data or 0)
             self._refresh_bar_text()
             return
-        if kind == "queue-job":
+        if kind == "batch-placed":           # a queued Generate's result layer: Undo hides it next
+            if data.get("batch") in getattr(self, "_batch_mine", set()):
+                self._undo_push_layers(data)
+        elif kind == "queue-job":
             self._batch_job_event(data)
         elif kind == "batch-progress":
             if data.get("id") == getattr(self, "_batch_shown", None):
@@ -224,18 +171,33 @@ class BatchMixin:
         elif kind == "batch-error":
             msg = str(data.get("message") or "")
             if msg and data.get("batch") in getattr(self, "_batch_mine", set()) | {""}:
-                self._status(f"Batch: {msg}", error=True)
+                word = "Queue" if self._batch_kind(data.get("batch")) == jobqueue.K_GENERATE else "Batch"
+                self._status(f"{word}: {msg}", error=True)
         self._queue_dirty()
         self._batch_sync_soon()
+
+    def _batch_kind(self, bid) -> str:
+        """K_GENERATE for a queued Generate, K_BATCH otherwise (also when the runner does not know it)."""
+        try:
+            b = self.runner.batch(bid) if bid else None
+        except Exception:
+            b = None
+        return str((b or {}).get("kind") or jobqueue.K_BATCH)
 
     def _batch_job_event(self, job: dict):
         if job.get("id") in getattr(self, "_rescue_ids", set()) and job.get("status") == jobqueue.DONE:
             self._rescue_ids.discard(job["id"])
             self._rescued = getattr(self, "_rescued", 0) + 1
             self._status(f"Picked up {plural(self._rescued, 'batch result')} that finished while PxC was closed.")
+        if job.get("status") == jobqueue.DONE and job.get("batch_id") in getattr(self, "_batch_mine", set()):
+            self._queued_done(job)          # a queued Generate: its run goes into the history (the clock)
         if job.get("status") == jobqueue.RUNNING and job.get("batch_id") in getattr(self, "_batch_mine", set()):
             if job.get("batch_id") != getattr(self, "_batch_shown", None) or job.get("id") != getattr(self, "_batch_job", None):
                 self._batch_shown, self._batch_job, self._ahead_n = job["batch_id"], job["id"], 0
+                try:            # the bar names the model the job was queued with
+                    self._queue_label = str((self.runner.batch(job["batch_id"]) or {}).get("model") or "") or None
+                except Exception:
+                    self._queue_label = None
                 self._reset_progress()
                 self._set_progress(0.0, "", "prepare", -1.0, None)
 
@@ -247,6 +209,17 @@ class BatchMixin:
         counts = (b.get("progress") or {}).get("counts") or {}
         done, failed = int(counts.get(jobqueue.DONE, 0)), int(counts.get(jobqueue.ERROR, 0))
         total = int((b.get("progress") or {}).get("total") or b.get("total") or 0)
+        if b.get("kind") == jobqueue.K_GENERATE:     # a queued Generate (docs/plan/generate-queue.md)
+            label = str(b.get("label") or "queued run")
+            if b.get("state") == jobqueue.B_CANCELLED:
+                self._reset_progress()
+                self._status(f"Cancelled: {label}" + (f" ({done} of {total} done)." if total > 1 else "."))
+            else:
+                self._reset_progress(done=True, text=f"Done · {label}" + (f" · {done} of {total}" if total > 1 else "")
+                                     + (f" · {failed} failed" if failed else ""))
+                if not failed:
+                    self._status("")
+            return
         if b.get("state") == jobqueue.B_CANCELLED:
             self._reset_progress()
             self._status(f"Batch cancelled ({done} of {total} done).")
@@ -329,7 +302,7 @@ class BatchMixin:
     # ---------- a small window in the look of the settings window ----------
 
     def _small_window(self, title: str, on_close, at: str = ""):
-        """A Toplevel like the settings window: no title bar, the blue line on top, the title and an X (dragging the header
+        """A Toplevel like the settings window: no title bar, no blue line on top (user 22.11.), the title and an X (dragging the header
         moves it). Returns (window, body frame). `at`: "settings" opens it where the settings window opens (the queue,
         user 12.11.); "menu" keeps it hidden until the caller has filled it and calls _place_at_menu (the batch window);
         "" a little inside the plugin window (the dry run)."""
@@ -343,7 +316,6 @@ class BatchMixin:
             win.transient(self.root)
         except tk.TclError:
             pass
-        tk.Frame(win, height=self._px(3), bg=ACCENT).pack(fill="x", side="top")
         bar = ttk.Frame(win)
         bar.pack(fill="x", side="top", pady=(self._px(4), 0))
         head = ttk.Label(bar, text=title, foreground="#ffffff", font=font(12))
@@ -446,7 +418,7 @@ class BatchMixin:
 
     def _batch_function(self) -> str:
         mode = self.v_mode.get()
-        return BATCH_WINDOW_MODES.get(mode) or SHORT_MODES.get(mode, mode)
+        return BATCH_WINDOW_MODES.get(mode) or FN_NAMES.get(mode, mode)
 
     def _batch_refusal(self) -> str:
         """Why the chosen function cannot run as a batch ("" = it can)."""
@@ -472,7 +444,7 @@ class BatchMixin:
             return inventory.short_message(lines, m.label if m else "")
         slots = getattr(self, "refslots", None)
         if self._refs_wanted() and (slots is None or not slots.active):
-            return "Multi Image Edit needs at least one reference image: drop, paste or add one in a slot."
+            return "Multi image edit needs at least one reference image: drop, paste or add one in a slot."
         return ""
 
     def _batch_request(self):
@@ -791,885 +763,3 @@ class BatchMixin:
         self.runner.discard(getattr(self, "_dry_batch", ""))
         self._dry_close()
         self._batch_sync_soon()
-
-    # ---------- the queue window ----------
-
-    # what a row can do sits in the row itself (user 13.11.): pause / resume, retry and ✕ as small columns at the end
-    Q_ACT_COLS = ("pr", "retry", "x")
-    Q_TEXT_COLS = ("idx", "who", "pic", "status", "prog", "fn", "time")   # "#" first, "Sent by" second; Progress (user 19.11.)
-    Q_GLYPH = {"pause": "⏸", "resume": "▶", "retry": "↻", "cancel": "✕", "pause_batch": "⏸", "resume_batch": "▶",
-               "cancel_batch": "✕"}
-
-    def open_queue(self):
-        """⋯ menu (and the start of a batch): the queue window. It can stay open; opening it again brings it to the front."""
-        win = getattr(self, "_queue_win", None)
-        if self._alive(win):
-            self._raise_small(win)
-            self._queue_fill()
-            return
-        self._queue_style()
-        win, body = self._small_window("Queue", self._queue_close, at="settings")     # where the settings open (user 12.11.)
-        self._queue_win = win
-        self._queue_apply_size(win)
-        for key in ("<KeyPress-q>", "<KeyPress-Q>"):        # a small window is no part of the plugin window's bindings
-            win.bind(key, self._queue_key)
-        self._q_fill_job = self._q_tick = None
-        self._q_fetching = False
-        self._q_entries = None         # ComfyUI's queue as last read (comes within the first tick)
-        self._q_drag = None
-        self._q_anchor = self._root_xy()
-        if not getattr(self, "_q_follow_bound", False):          # the queue moves with the plugin (user 13.11.)
-            self.root.bind("<Configure>", self._queue_follow, add="+")
-            self._q_follow_bound = True
-        # the list and "At ComfyUI" share the height; the line between them can be dragged (user 13.11.)
-        pw = self.pw_queue = ttk.Panedwindow(body, orient="vertical", style="Queue.TPanedwindow")
-        pw.pack(fill="both", expand=True)
-        top, bottom = ttk.Frame(pw), ttk.Frame(pw)
-        pw.add(top, weight=3)
-        pw.add(bottom, weight=1)
-        # every run on the ComfyUI of the network in one flat list, own and others', batch and Generate; "#" is the order
-        # in which they run, "Sent by" the participant (user 18.11.); "#" first, no folding (user 19.11.)
-        cols = self.Q_TEXT_COLS + self.Q_ACT_COLS
-        tree = self.tv_queue = ttk.Treeview(top, columns=cols, show="headings", style="Queue.Treeview",
-                                            height=10, selectmode="browse")
-        saved = self._q_saved_cols()
-        for c, text in (("idx", "#"), ("who", "Sent by"), ("pic", "Picture"), ("status", "Status"), ("prog", "Progress"),
-                        ("fn", "Function"), ("time", "Time")):
-            tree.heading(c, text=text, anchor="w")
-            tree.column(c, width=saved.get(c, self._px(Q_COL_DEFAULT[c])), minwidth=self._q_min(c), stretch=c == Q_FILLER,
-                        anchor="w")
-        tree.tag_configure("other", foreground=DISABLED)       # runs of other participants: only to look at
-        for c in self.Q_ACT_COLS:
-            tree.heading(c, text="")
-            tree.column(c, width=self._px(24), minwidth=self._px(24), stretch=False, anchor="center")
-        self._q_want = {c: int(tree.column(c, "width")) for c in self.Q_TEXT_COLS if c != Q_FILLER}   # set at the headings
-        self._q_coldrag = None
-        self._q_lines = []
-        self._q_seen = {}                      # prompt id of another's run -> when PxC first saw it running
-        tree.bind("<Configure>", lambda e: self._queue_fit_cols(), add="+")
-        tree.pack(fill="both", expand=True)
-        tree.bind("<<TreeviewSelect>>", lambda e: self._queue_buttons())
-        tree.bind("<ButtonPress-1>", self._queue_press, add="+")
-        tree.bind("<B1-Motion>", self._queue_motion, add="+")
-        tree.bind("<ButtonRelease-1>", self._queue_release, add="+")
-        tree.bind("<Motion>", self._queue_hover, add="+")
-        tree.bind("<Double-Button-1>", self._queue_double, add="+")
-        tree.bind("<Button-3>", self._queue_head_menu, add="+")
-        tree.bind("<KeyPress-Delete>", lambda e: self._queue_key_act("x"))
-        tree.bind("<KeyPress-space>", lambda e: self._queue_key_act("pr"))
-        self.lbl_q_detail = ttk.Label(top, text="", style=SET_STYLES["muted"], wraplength=self._px(480), justify="left")
-        self.lbl_q_detail.pack(anchor="w", fill="x", pady=(4, 0))
-        self.q_buttons = {}
-        row = ttk.Frame(top)
-        row.pack(fill="x", pady=(4, 6))
-        for key, text in (("pause_batch", "Pause all"), ("resume_batch", "Resume all"), ("cancel_batch", "Cancel batch")):
-            b = ttk.Button(row, text=text, style="SetSmall.TButton", command=lambda k=key: self._queue_do(k))
-            b.pack(side="left", padx=(0, 4))
-            self.q_buttons[key] = b
-        b = ttk.Button(row, text="Clear finished", style="SetSmall.TButton", command=lambda: self._queue_do("clear"))
-        b.pack(side="right")
-        self.q_buttons["clear"] = b
-        ttk.Label(bottom, text="Participants", style=SET_STYLES["head"]).pack(anchor="w", pady=(6, 0))
-        cv = self.tv_comfy = ttk.Treeview(bottom, columns=("state",), show="tree", style="Queue.Treeview", height=4,
-                                          selectmode="none")
-        cv.column("#0", width=self._px(330), stretch=True, anchor="w")
-        cv.column("state", width=self._px(160), stretch=False, anchor="w")
-        cv.pack(fill="both", expand=True, pady=(4, 0))
-        cv.insert("", "end", text="Reading…", values=("",))
-        self._queue_grip(win)
-        self._queue_fill()
-        self._queue_comfy_tick()
-
-    def _queue_grip(self, win):
-        """A grip in the lower right corner: the queue window has no frame of Windows, so this is how it is resized (user 13.11.)."""
-        grip = self.lbl_q_grip = tk.Label(win, text="◢", bg=BG, fg=DISABLED, font=font(9), cursor=hostos.GRIP_CURSOR, bd=0)
-        grip.place(relx=1.0, rely=1.0, anchor="se", x=-2, y=-1)
-        drag = {}
-
-        def start(e):
-            drag["at"] = (e.x_root, e.y_root, win.winfo_width(), win.winfo_height())
-
-        def move(e):
-            if "at" not in drag:
-                return
-            x0, y0, w0, h0 = drag["at"]
-            w = max(self._px(360), w0 + e.x_root - x0)
-            h = max(self._px(260), h0 + e.y_root - y0)
-            try:
-                win.geometry(f"{w}x{h}")
-            except tk.TclError:
-                return
-            sc = self._q_scale()
-            self.state["queue_size"] = [round(w / sc), round(h / sc)]        # kept for the next start (user 19.11.)
-        grip.bind("<ButtonPress-1>", start)
-        grip.bind("<B1-Motion>", move)
-        grip.bind("<ButtonRelease-1>", lambda e: drag.clear())
-
-    def _queue_follow(self, e=None):
-        """The queue window moves with the plugin window (user 13.11.), like the settings window."""
-        if e is not None and e.widget is not self.root:
-            return
-        win = getattr(self, "_queue_win", None)
-        if not self._alive(win):
-            return
-        now, was = self._root_xy(), getattr(self, "_q_anchor", None)
-        if now is None or was is None or now == was or min(now) < -10000:      # a minimised window reports -32000
-            return
-        self._q_anchor = now
-        try:
-            win.geometry(f"+{win.winfo_x() + now[0] - was[0]}+{win.winfo_y() + now[1] - was[1]}")
-        except tk.TclError:
-            pass
-
-    def _queue_style(self):
-        if getattr(self, "_queue_styled", False):
-            return
-        s = ttk.Style(self.root)
-        s.configure("Queue.Treeview", background=PANEL, fieldbackground=PANEL, foreground=FG, font=font(9),
-                    rowheight=self._px(20), borderwidth=0)
-        s.map("Queue.Treeview", background=[("selected", ACCENT)], foreground=[("selected", ON_ACCENT)])
-        s.configure("Queue.Treeview.Heading", background=BG, foreground="#ffffff", font=font(9, bold=True), relief="flat")
-        s.map("Queue.Treeview.Heading", background=[("active", BG)])
-        s.configure("Queue.TPanedwindow", background=BG)
-        self._queue_styled = True
-
-    def _queue_close(self):
-        win, self._queue_win = getattr(self, "_queue_win", None), None
-        self._q_drag = None
-        try:        # had the queue the keyboard focus (it takes it when it opens)?
-            f = self.root.focus_get()
-            had_focus = self._alive(win) and f is not None and f.winfo_toplevel() is win
-        except (tk.TclError, KeyError):
-            had_focus = False
-        for name in ("_q_tick", "_q_fill_job"):
-            job = getattr(self, name, None)
-            if job:
-                try:
-                    self.root.after_cancel(job)
-                except tk.TclError:
-                    pass
-                setattr(self, name, None)
-        if self._alive(win):
-            win.destroy()
-        if had_focus:
-            self._focus_plugin()
-
-    def _focus_plugin(self):
-        """The focus back to the plugin window, not into a field: a closed window without a title bar left it to Windows,
-        which gave it to no window of the plugin, and after a few rounds Q did nothing (user 13.11.)."""
-        try:
-            self.root.focus_force()
-            f = self.root.focus_get()
-            if f is None or f.winfo_class() in TYPING:
-                self.root.focus_set()
-        except (tk.TclError, KeyError):
-            pass
-
-    def _queue_dirty(self):
-        """A runner event: the open queue window is filled anew once (not for every event of a burst)."""
-        if self._alive(getattr(self, "_queue_win", None)) and not getattr(self, "_q_fill_job", None):
-            self._q_fill_job = self.root.after(150, self._queue_fill)
-
-    @staticmethod
-    def _job_status_text(j: dict, entries: list | None = None) -> str:
-        """The Status column; a picture PxC has sent but ComfyUI still keeps waiting reads "Waiting" (`entries`: ComfyUI's
-        queue as last read), not "Running" (laptop test 18.11.)."""
-        if j["status"] == jobqueue.ERROR and str(j.get("error", "")).startswith(jobqueue.SKIPPED):
-            return "Skipped"
-        if j["status"] == jobqueue.RUNNING and j.get("prompt_id"):
-            if any(e["prompt_id"] == j["prompt_id"] and not e.get("running") for e in entries or ()):
-                return "Waiting"
-        return STATUS_TEXT.get(j["status"], j["status"])
-
-    @staticmethod
-    def _queue_index(jobs: list, entries: list) -> tuple[dict, set]:
-        """The "#" column: ({job id: (place, text)}, the prompt ids of our own batch jobs). A place at ComfyUI is exact (1 runs
-        first, in ComfyUI's order); a picture still waiting in PxC is counted on behind them as "~4": others can still queue
-        in between (decision 18.11.). Paused pictures get no place."""
-        place = {e["prompt_id"]: k for k, e in enumerate(entries, 1)}
-        own = {j["prompt_id"] for j in jobs if j.get("prompt_id")}
-        index = {}
-        for j in jobs:
-            if j.get("prompt_id") in place and j["status"] in jobqueue.ACTIVE:
-                index[j["id"]] = (place[j["prompt_id"]], str(place[j["prompt_id"]]))
-        n = len(entries)
-        for j in jobs:
-            if j["id"] not in index and j["status"] in (jobqueue.RUNNING, jobqueue.WAITING):
-                n += 1
-                index[j["id"]] = (n, f"~{n}")
-        return index, own
-
-    def _job_time_text(self, j: dict) -> str:
-        st = j["status"]
-        if st == jobqueue.RUNNING:
-            try:
-                eta = self.runner.job_eta(j["id"])
-            except Exception:
-                eta = None
-            return jobqueue.format_eta(eta) or (duration_text(time.time() - j["started"]) if j.get("started") else "")
-        if st in (jobqueue.WAITING, jobqueue.PAUSED):
-            return jobqueue.format_eta(j.get("eta"))
-        if st == jobqueue.DONE and j.get("started") and j.get("finished"):
-            return duration_text(j["finished"] - j["started"])
-        return ""
-
-    @staticmethod
-    def _job_actions(j: dict) -> dict:
-        """What the row of a picture offers, by column: {"pr": "pause"|"resume", "retry": "retry", "x": "cancel"}."""
-        st = j["status"]
-        acts = {}
-        if st == jobqueue.WAITING:
-            acts["pr"] = "pause"
-        elif st == jobqueue.PAUSED:
-            acts["pr"] = "resume"
-        if st in (jobqueue.ERROR, jobqueue.CANCELLED) and not str(j.get("error", "")).startswith(jobqueue.SKIPPED):
-            acts["retry"] = "retry"
-        if st in jobqueue.ACTIVE:
-            acts["x"] = "cancel"
-        return acts
-
-    @staticmethod
-    def _batch_actions(b: dict, bjobs: list) -> dict:
-        """What the row of a batch offers: pause or resume all its pictures, ✕ cancels the batch."""
-        acts = {}
-        if b.get("state") == jobqueue.B_CONFIRM and any(x["status"] in (jobqueue.WAITING, jobqueue.PAUSED) for x in bjobs):
-            acts["pr"] = "resume_batch"        # the dry run waits for an answer (its window was closed): ▶ starts the rest (user 13.11.)
-        elif any(x["status"] == jobqueue.WAITING for x in bjobs):
-            acts["pr"] = "pause_batch"
-        elif any(x["status"] == jobqueue.PAUSED for x in bjobs):
-            acts["pr"] = "resume_batch"
-        if b["state"] not in (jobqueue.B_DONE, jobqueue.B_CANCELLED):
-            acts["x"] = "cancel_batch"
-        return acts
-
-    def _row_actions(self, iid: str) -> dict:
-        if iid.startswith("j:"):
-            j = self._q_jobs.get(iid[2:])
-            return self._job_actions(j) if j else {}
-        b = self._q_batches.get(iid[2:])
-        if b is None:
-            return {}
-        return self._batch_actions(b, [x for x in self._q_jobs.values() if x["batch_id"] == b["id"]])
-
-    def _queue_fill(self):
-        self._q_fill_job = None
-        tree = getattr(self, "tv_queue", None)
-        if tree is None or not self._alive(getattr(self, "_queue_win", None)):
-            return
-        if getattr(self, "_q_drag", None):          # never redraw under a row that is being dragged: later
-            self._q_fill_job = self.root.after(150, self._queue_fill)
-            return
-        jobs, batches = self.runner.jobs(), self.runner.batches()
-        sel = tree.selection()
-        tree.delete(*tree.get_children())
-        self._q_jobs = {j["id"]: j for j in jobs}
-        self._q_batches = {b["id"]: b for b in batches}
-        entries = getattr(self, "_q_entries", None) or []
-        me = getattr(self.bridge.comfy, "client_id", None)
-        you = (getattr(self.runner, "owner", "") or "") + " (you)"
-        index, own_pids = self._queue_index(jobs, entries)
-        rows = []        # [sort key, iid, values (# … Time), symbols, tags, (kind, job or entry)]; flat (user 19.11.)
-        far = float("inf")
-
-        def glyphs(acts):
-            return tuple(self.Q_GLYPH.get(acts.get(c, ""), "") for c in self.Q_ACT_COLS)
-        for b in batches:
-            mine = [j for j in jobs if j["batch_id"] == b["id"]]
-            for n, j in enumerate(mine, 1):
-                k, idx_text = index.get(j["id"], (far, ""))
-                if j["status"] in jobqueue.FINISHED:
-                    k = -far                       # what is through stands on top, then what runs and waits
-                fn = f"{BATCH_WINDOW_MODES.get(j['mode'], j['mode'])} · batch {n}/{len(mine)}"    # user 19.11.
-                rows.append([k, "j:" + j["id"], [idx_text, you, str(j["source"].get("name") or "?"),
-                                                  self._job_status_text(j, entries), "", fn, ""],
-                             glyphs(self._job_actions(j)), (), ("job", j)])
-        for k, e in enumerate(entries, 1):
-            if e["prompt_id"] in own_pids:
-                continue
-            ours = bool(me) and e.get("client_id") == me
-            who = you if ours else (e.get("owner") or "unknown")
-            what = generate_label(e) if ours else self._foreign_what(e)
-            rows.append([k, "c:" + e["prompt_id"], [str(k), who, what, "Running" if e.get("running") else "Waiting", "", "", ""],
-                         glyphs({}), () if ours else ("other",), ("entry", e)])
-        for d in getattr(self, "_q_foreign_done", None) or ():     # Paket 3 (user 19.11., choice A): others' runs PxC saw
-            took = duration_text(d["finished"] - d["started"]) if d.get("started") else ""
-            rows.append([-far, "d:" + d["prompt_id"], ["", d.get("owner") or "unknown", self._foreign_what(d), "Done", "", "", took],
-                         glyphs({}), ("other",), ("done", d)])
-        rows.sort(key=lambda r: r[0])           # stable: pictures without a place keep their order
-        self._queue_times(rows, jobs)
-        for _key, iid, values, acts, tags, _what in rows:
-            tree.insert("", "end", iid=iid, values=tuple(values) + acts, tags=tags)
-        keep = [i for i in sel if tree.exists(i)]
-        if keep:
-            tree.selection_set(keep)
-        self._queue_buttons()
-
-    @staticmethod
-    def _foreign_what(e: dict) -> str:
-        """The Picture text of another's run: "Batch" (no picture names of others), a Generate run's count, "ComfyUI"
-        for a run not sent by PxC."""
-        if e.get("kind") == "batch":
-            return "Batch"
-        return generate_label(e) if e.get("kind") == "generate" else "ComfyUI"
-
-    def _queue_note_foreign_done(self, old: list | None, new: list | None) -> None:
-        """Paket 3 (user 19.11., choice A): a run of another participant that PxC saw running and that has left ComfyUI's
-        queue stays in the list as "Done", with the time since PxC saw it start, until "Clear finished" (which removes
-        them too, user 19.11.). No extra request to ComfyUI: what ran while the queue window was closed is missing, and a
-        run the other one cancelled while it ran also reads "Done" (ComfyUI's /queue does not tell)."""
-        if old is None or new is None:              # not read (ComfyUI away): nothing can be said about what ended
-            return
-        me = getattr(getattr(getattr(self, "bridge", None), "comfy", None), "client_id", None)
-        still = {e["prompt_id"] for e in new}
-        done = getattr(self, "_q_foreign_done", None)
-        if done is None:
-            done = self._q_foreign_done = []
-        done[:] = [d for d in done if d["prompt_id"] not in still]      # back at ComfyUI (never seen live): not done after all
-        known = {d["prompt_id"] for d in done}
-        seen = getattr(self, "_q_seen", {})
-        now = time.time()
-        for e in old:
-            pid = e["prompt_id"]
-            if not e.get("running") or pid in still or pid in known or (me and e.get("client_id") == me):
-                continue
-            done.append(dict(e, running=False, started=seen.get(pid), finished=now))
-        del done[:-Q_FOREIGN_DONE_MAX]
-
-    def _queue_times(self, rows: list, jobs: list) -> None:
-        """The Time column, in the order the rows run (user 19.11.): what is done, its duration; what runs, the time it still
-        needs (another's run: the time since PxC saw it start); what waits, when it starts ("starts in ~3 min"), from the
-        estimates of everything ahead of it. Others' runs count with the average of our own; without any estimate the
-        start times stop there (no guess).
-        The Progress column (user 19.11.): our own run that runs, the bar of the window as a text bar ("▰▰▰▱▱ 60 %"; the
-        progress PxC gets for its own runs, batch and Generate); another's run that runs, "running 0:42" since PxC saw it
-        start; what waits (a pre-placed picture too, until its turn), nothing."""
-        done = [j["finished"] - j["started"] for j in jobs if j["status"] == jobqueue.DONE and j.get("started") and j.get("finished")]
-        avg = sum(done) / len(done) if done else None
-        now = time.time()
-        seen = getattr(self, "_q_seen", {})
-        running = {e["prompt_id"] for _k, _i, _v, _a, _t, (kind, e) in rows if kind == "entry" and e.get("running")}
-        for pid in [p for p in seen if p not in running]:
-            del seen[pid]
-        ahead = 0.0                 # seconds until the next row starts; None = unknown
-        me = getattr(getattr(getattr(self, "bridge", None), "comfy", None), "client_id", None)
-        bar = progress_text(getattr(self, "_bar_value", 0.0))
-        generating = bool(getattr(self, "_running", False))
-        for row in rows:
-            kind, x = row[5]
-            values = row[2]
-            if kind == "done":                      # another's run that is through: its time is set already
-                continue
-            if kind == "job":
-                st = x["status"]
-                if st in (jobqueue.DONE, jobqueue.ERROR, jobqueue.CANCELLED, jobqueue.PAUSED):
-                    values[6] = self._job_time_text(x) if st == jobqueue.DONE else ""
-                    continue
-                try:
-                    need = self.runner.job_eta(x["id"])
-                except Exception:
-                    need = None
-                if st == jobqueue.RUNNING and values[3] == STATUS_TEXT[jobqueue.RUNNING]:
-                    values[6] = self._job_time_text(x)
-                    values[4] = bar
-                else:
-                    values[6] = f"starts in {jobqueue.format_eta(ahead)}" if ahead is not None else ""
-                ahead = None if ahead is None or need is None else ahead + need
-            else:
-                pid = x["prompt_id"]
-                if x.get("running"):
-                    t0 = seen.setdefault(pid, now)
-                    values[6] = duration_text(now - t0)
-                    ours = bool(me) and x.get("client_id") == me
-                    values[4] = (bar if generating else "") if ours else running_text(now - t0)
-                    need = None if avg is None else max(0.0, avg - (now - t0))
-                else:
-                    values[6] = f"starts in {jobqueue.format_eta(ahead)}" if ahead is not None else ""
-                    need = avg
-                ahead = None if ahead is None or need is None else ahead + need
-        self._q_seen = seen
-
-    def _queue_selected(self) -> tuple[dict | None, dict | None]:
-        """(the selected job, its batch) or (None, the selected batch); (None, None) without a selection."""
-        tree = getattr(self, "tv_queue", None)
-        sel = tree.selection() if tree is not None else ()
-        if not sel:
-            return None, None
-        iid = sel[0]
-        if iid.startswith("j:"):
-            j = self._q_jobs.get(iid[2:])
-            return j, (self._q_batches.get(j["batch_id"]) if j else None)
-        return None, self._q_batches.get(iid[2:])
-
-    def _queue_buttons(self):
-        """The buttons under the list act on the batch of the selected row; each only where it can do something."""
-        if not getattr(self, "q_buttons", None):
-            return
-        j, b = self._queue_selected()
-        bjobs = [x for x in self._q_jobs.values() if b and x["batch_id"] == b["id"]]
-        can = {
-            "pause_batch": any(x["status"] == jobqueue.WAITING for x in bjobs),
-            "resume_batch": any(x["status"] == jobqueue.PAUSED for x in bjobs),
-            "cancel_batch": bool(b) and b["state"] not in (jobqueue.B_DONE, jobqueue.B_CANCELLED),
-            "clear": any(x["status"] in jobqueue.FINISHED for x in self._q_jobs.values())
-                     or bool(getattr(self, "_q_foreign_done", None)),
-        }
-        for key, b_ in self.q_buttons.items():
-            b_.configure(state="normal" if can.get(key) else "disabled")
-        detail = ""
-        if j:
-            if j.get("error"):
-                detail = j["error"]
-            elif j.get("results"):
-                detail = "Saved: " + ", ".join(Path(p).name for p in j["results"])
-            elif j.get("placed"):
-                detail = PLACED_TEXT.get(j["placed"], "")
-        elif b and b.get("skipped"):
-            detail = "Skipped: " + "; ".join(b["skipped"])
-        self.lbl_q_detail.configure(text=detail)
-
-    def _queue_do(self, action: str, iid: str | None = None):
-        """A button under the list (for the selected row's batch) or a click on a row's own symbol (`iid`)."""
-        if iid is not None:
-            j = self._q_jobs.get(iid[2:]) if iid.startswith("j:") else None
-            b = self._q_batches.get(iid[2:]) if iid.startswith("b:") else (self._q_batches.get(j["batch_id"]) if j else None)
-        else:
-            j, b = self._queue_selected()
-        r = self.runner
-        ok = True
-        if action == "clear":
-            r.clear_finished()
-            self._q_foreign_done = []           # the finished runs of others go too (user 19.11.)
-        elif action in ("pause_batch", "resume_batch", "cancel_batch"):
-            if b is None:
-                return
-            getattr(r, action)(b["id"])
-        elif j is not None:
-            ok = getattr(r, action)(j["id"])
-        self._queue_fill()
-        if action == "retry" and not ok:
-            self.lbl_q_detail.configure(text="Can't retry: the settings of this batch are gone (PxC was restarted).")
-        self._batch_sync_soon()
-
-    # clicks in the list: a row's symbol does its action; a waiting or paused picture can be dragged to a new place (user 13.11.)
-
-    def _queue_cell(self, e) -> tuple[str, str]:
-        """(row iid, action column name or "") under the mouse."""
-        tree = self.tv_queue
-        iid = tree.identify_row(e.y)
-        col = tree.identify_column(e.x)              # "#0", "#1" …
-        name = ""
-        try:
-            k = int(col.lstrip("#")) - 1
-            cols = tree.cget("columns")
-            if 0 <= k < len(cols) and cols[k] in self.Q_ACT_COLS:
-                name = cols[k]
-        except (ValueError, tk.TclError):
-            pass
-        return iid, name
-
-    def _queue_key(self, e=None):
-        """Q in the plugin window or in the queue itself toggles the queue: opens it, closes it when it is open (user 13.11.);
-        typed into a field it is just a letter."""
-        try:
-            w = self.root.focus_get()
-            cls = w.winfo_class() if w is not None else ""
-        except (tk.TclError, KeyError):
-            cls = ""
-        if cls in TYPING:
-            return None
-        if self._alive(getattr(self, "_queue_win", None)):
-            self._queue_close()
-        else:
-            self.open_queue()
-        return "break"
-
-    def _escape_key(self, e=None):
-        """Escape in the plugin window only closes windows (user 20.11.): the queue when it is open, else the settings
-        window; it never stops a run (that is the grey "Stop" on Generate or Ctrl+Alt+Enter)."""
-        if self._alive(getattr(self, "_queue_win", None)):
-            self._queue_close()
-            return "break"
-        if self._alive(getattr(self, "_settings_win", None)):
-            self._settings_close()
-            return "break"
-        return None
-
-    def _queue_hover(self, e):
-        iid, col = self._queue_cell(e)
-        want = "hand2" if iid and col and self._row_actions(iid).get(col) else ""
-        try:
-            if str(self.tv_queue.cget("cursor")) != want:
-                self.tv_queue.configure(cursor=want)
-        except tk.TclError:
-            pass
-
-    def _queue_press(self, e):
-        self._q_drag = None
-        self._q_coldrag = None
-        try:
-            self.tv_queue.focus_set()        # Escape closes the window: the list keeps the keyboard focus, also on a symbol
-        except tk.TclError:
-            pass
-        tree = self.tv_queue
-        if tree.identify_region(e.x, e.y) == "separator":
-            col = self._queue_sep_col(e.x)
-            if col is not None:              # PxC drags the line itself, not Tk (user 19.11.: the columns jumped)
-                self._q_coldrag = {"col": col, "x": e.x, "w": self._queue_widths()}
-            return "break"                   # the symbol columns keep their width
-        iid, col = self._queue_cell(e)
-        if not iid:
-            return None
-        if col:
-            action = self._row_actions(iid).get(col)
-            if action:
-                self._queue_do(action, iid)
-                return "break"                       # the symbol does not also select the row
-            return None
-        j = self._q_jobs.get(iid[2:]) if iid.startswith("j:") else None
-        if self._q_movable(j):
-            self._q_drag = {"iid": iid, "batch": j["batch_id"], "moved": False}
-        return None
-
-    @staticmethod
-    def _q_movable(j: dict | None) -> bool:
-        """A picture that can be dragged: waiting or paused in PxC."""
-        return bool(j) and j["status"] in (jobqueue.WAITING, jobqueue.PAUSED)
-
-    def _queue_motion(self, e):
-        if getattr(self, "_q_coldrag", None):
-            self._queue_drag_col(e.x)
-            return "break"                   # Tk's own column drag stays out
-        d = getattr(self, "_q_drag", None)
-        if not d:
-            return
-        tree = self.tv_queue
-        target = tree.identify_row(e.y)
-        if not target or target == d["iid"] or not target.startswith("j:"):
-            return
-        t = self._q_jobs.get(target[2:])
-        if not self._q_movable(t) or t["batch_id"] != d["batch"]:
-            return
-        tree.move(d["iid"], "", tree.index(target))
-        d["moved"] = True
-        tree.configure(cursor="sb_v_double_arrow")
-
-    def _q_min(self, c: str) -> int:
-        return self._px(Q_PICTURE_MIN if c == Q_FILLER else 30 if c == "idx" else Q_COL_MIN)
-
-    def _q_scale(self) -> float:
-        return self._px(1000) / 1000.0
-
-    def _q_saved_cols(self) -> dict:
-        """The widths set at the headings last time (state.json "queue_cols", px before scaling; user 19.11.)."""
-        d = self.state.get("queue_cols")
-        out = {}
-        if isinstance(d, dict):
-            for c, v in d.items():
-                if c in self.Q_TEXT_COLS and c != Q_FILLER and isinstance(v, (int, float)) and v > 0:
-                    out[c] = max(self._q_min(c), self._px(int(v)))
-        return out
-
-    def _queue_remember_cols(self):
-        sc = self._q_scale()
-        self.state["queue_cols"] = {c: round(w / sc) for c, w in self._q_want.items()}
-
-    def _queue_apply_size(self, win):
-        """The size the queue window had when it was last resized (state.json "queue_size"; user 19.11.)."""
-        size = self.state.get("queue_size")
-        if not (isinstance(size, (list, tuple)) and len(size) == 2):
-            return
-        try:
-            w, h = max(self._px(360), self._px(int(size[0]))), max(self._px(260), self._px(int(size[1])))
-            win.geometry(f"{w}x{h}")
-        except (tk.TclError, TypeError, ValueError):
-            pass
-
-    def _queue_widths(self) -> dict:
-        tree = self.tv_queue
-        return {c: int(tree.column(c, "width")) for c in tree.cget("columns")}
-
-    def _queue_sep_col(self, x: int):
-        """The text column whose right edge is nearest to x; None for the edge of a symbol column."""
-        edge, best, dist = 0, None, 10 ** 6
-        for c, w in self._queue_widths().items():
-            edge += w
-            if abs(edge - x) < dist:
-                best, dist = c, abs(edge - x)
-        return None if best in self.Q_ACT_COLS else best
-
-    def _queue_col_at(self, x: int):
-        """The text column under x (None: a symbol column or nothing)."""
-        try:
-            k = int(self.tv_queue.identify_column(x).lstrip("#")) - 1
-        except (ValueError, tk.TclError):
-            return None
-        cols = self.tv_queue.cget("columns")
-        return cols[k] if 0 <= k < len(cols) and cols[k] in self.Q_TEXT_COLS else None
-
-    def _queue_drag_col(self, x: int):
-        """A heading line is dragged (user 19.11.): the line follows the mouse and the column left of it gets exactly that
-        width; the column to its right gives way (at its minimum the next one); only "Time", which has the symbols on its
-        right, takes its room from Picture. The widths that come out are the ones set (_q_want)."""
-        d = self._q_coldrag
-        w = dict(d["w"])
-        col, dx = d["col"], x - d["x"]
-        order = self.Q_TEXT_COLS
-        right = list(order[order.index(col) + 1:])
-        if not right:                                   # "Time": Picture gives and takes
-            dx = max(self._q_min(col) - w[col], min(dx, w[Q_FILLER] - self._q_min(Q_FILLER)))
-            w[col] += dx
-            w[Q_FILLER] -= dx
-        elif dx >= 0:                                   # wider: the columns to the right give way, nearest first
-            dx = min(dx, sum(w[c] - self._q_min(c) for c in right))
-            w[col] += dx
-            need = dx
-            for c in right:
-                give = max(0, min(need, w[c] - self._q_min(c)))
-                w[c] -= give
-                need -= give
-        else:                                           # narrower: the neighbour on the right takes the room
-            dx = max(dx, self._q_min(col) - w[col])
-            w[col] += dx
-            w[right[0]] -= dx
-        tree = self.tv_queue
-        for c in order:
-            if int(tree.column(c, "width")) != w[c]:
-                tree.column(c, width=w[c])
-        self._q_want.update({c: w[c] for c in order if c != Q_FILLER})
-        self._queue_grid()
-
-    def _queue_fit_cols(self):
-        """The columns always fill the list exactly (user 13.11.: the symbols never slide out of sight, no gap): the text
-        columns get the widths set at the headings (_q_want, user 19.11.), Picture takes what is left; when it would get
-        narrower than its minimum, the text columns give way, the one next to the symbols first, and get their set widths
-        back as soon as the window is wide enough again."""
-        tree = getattr(self, "tv_queue", None)
-        try:
-            avail = tree.winfo_width() - Q_TREE_INSET if tree is not None else 0
-        except tk.TclError:
-            return
-        if avail < 50:
-            return
-        want = getattr(self, "_q_want", None) or {c: int(tree.column(c, "width")) for c in self.Q_TEXT_COLS if c != Q_FILLER}
-        w = dict(want)
-        fixed = sum(int(tree.column(c, "width")) for c in self.Q_ACT_COLS)
-        pic = avail - fixed - sum(w.values())
-        low = self._q_min(Q_FILLER)
-        if pic < low:
-            short = low - pic
-            pic = low
-            for c in ("time", "fn", "prog", "status", "who", "idx"):     # the column next to the symbols gives way first
-                give = max(0, min(short, w[c] - self._q_min(c)))
-                w[c] -= give
-                short -= give
-                if short <= 0:
-                    break
-        w[Q_FILLER] = pic
-        for c, v in w.items():
-            if int(tree.column(c, "width")) != v:
-                tree.column(c, width=v)
-        self._queue_grid()
-
-    def _queue_head_h(self) -> int:
-        """The height of the heading row (where the list's own separators are)."""
-        tree = self.tv_queue
-        try:
-            for y in range(1, self._px(80)):
-                if tree.identify_region(self._px(5), y) != "heading":
-                    return y if y > 4 else self._px(22)
-        except tk.TclError:
-            pass
-        return self._px(22)
-
-    def _queue_grid(self):
-        """Light lines between the columns, in the heading and in the rows (user 19.11.: the separators were hardly visible).
-        They are 1 px frames on the list; a click or drag on one goes on to the list as if it were on the list itself."""
-        tree = getattr(self, "tv_queue", None)
-        if tree is None:
-            return
-        try:
-            head = self._queue_head_h()
-            xs, edge = [], 0
-            for c in tuple(tree.cget("columns"))[:-1]:
-                edge += int(tree.column(c, "width"))
-                if c not in self.Q_ACT_COLS:         # no lines between the symbols ⏸ ↻ ✕ (user 19.11.)
-                    xs.append(edge)
-        except tk.TclError:
-            return
-        lines = self._q_lines
-        while len(lines) < len(xs):
-            pair = (tk.Frame(tree, bg=Q_GRID_HEAD, width=1, bd=0, highlightthickness=0, cursor="sb_h_double_arrow"),
-                    tk.Frame(tree, bg=Q_GRID_BODY, width=1, bd=0, highlightthickness=0))
-            for line in pair:
-                self._queue_line_events(line)
-            lines.append(pair)
-        for k, (hl, bl) in enumerate(lines):
-            if k < len(xs):
-                hl.place(x=xs[k] - 1, y=0, width=1, height=head)
-                bl.place(x=xs[k] - 1, y=head, width=1, relheight=1.0, height=-head)
-            else:
-                hl.place_forget()
-                bl.place_forget()
-
-    def _queue_line_events(self, line):
-        def ev(e):
-            return type("E", (), {"x": line.winfo_x() + 1, "y": line.winfo_y() + e.y, "x_root": e.x_root, "y_root": e.y_root})()
-
-        def motion(e):
-            d = getattr(self, "_q_coldrag", None)
-            if d:                                           # the line follows the mouse, not the frame's own place
-                self._queue_drag_col(e.x_root - d["x_root"] + d["x"])
-            else:
-                self._queue_motion(ev(e))
-
-        def press(e):
-            r = self._queue_press(ev(e))
-            if getattr(self, "_q_coldrag", None):
-                self._q_coldrag["x_root"] = e.x_root
-            elif r is None:                                 # a row under the line: it is selected as on the list
-                iid = self.tv_queue.identify_row(ev(e).y)
-                if iid:
-                    self.tv_queue.selection_set(iid)
-            return r
-        line.bind("<ButtonPress-1>", press)
-        line.bind("<B1-Motion>", motion)
-        line.bind("<ButtonRelease-1>", lambda e: self._queue_release(ev(e)))
-        line.bind("<Double-Button-1>", lambda e: self._queue_double(ev(e)))
-        line.bind("<Button-3>", lambda e: self._queue_head_menu(ev(e)))
-
-    def _queue_double(self, e):
-        """A double-click on a heading or its line sets the column to the width of its longest text (user 19.11.)."""
-        tree = self.tv_queue
-        region = tree.identify_region(e.x, e.y)
-        if region == "separator":
-            col = self._queue_sep_col(e.x)
-        elif region == "heading":
-            col = self._queue_col_at(e.x)
-        else:
-            return None
-        if col:
-            self._queue_autofit(col)
-        return "break"
-
-    def _queue_autofit(self, col: str):
-        tree = self.tv_queue
-        body, head = tkfont.Font(root=self.root, font=font(9)), tkfont.Font(root=self.root, font=font(9, bold=True))
-        texts = [str(tree.set(i, col)) for i in tree.get_children("")]
-        want = max([body.measure(t) for t in texts] + [head.measure(str(tree.heading(col, "text")))]) + self._px(14)
-        want = max(want, self._q_min(col))
-        self._q_coldrag = {"col": col, "x": 0, "w": self._queue_widths()}
-        self._queue_drag_col(want - int(tree.column(col, "width")))       # the columns to the right give way first
-        self._q_coldrag = None
-        short = want - int(tree.column(col, "width"))
-        if short > 0 and col != Q_FILLER:                                  # then Picture, down to its minimum
-            give = max(0, min(short, int(tree.column(Q_FILLER, "width")) - self._q_min(Q_FILLER)))
-            self._q_want[col] = int(tree.column(col, "width")) + give
-        self._queue_fit_cols()
-        self._queue_remember_cols()
-
-    def _queue_head_menu(self, e):
-        """Right-click on a heading: "Reset column widths" (user 19.11.)."""
-        if self.tv_queue.identify_region(e.x, e.y) not in ("heading", "separator"):
-            return None
-        m = self._q_menu = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
-        m.add_command(label="Reset column widths", command=self._queue_reset_cols)
-        m.tk_popup(e.x_root, e.y_root)
-        return "break"
-
-    def _queue_reset_cols(self):
-        self._q_want = {c: self._px(Q_COL_DEFAULT[c]) for c in self.Q_TEXT_COLS if c != Q_FILLER}
-        self.state.pop("queue_cols", None)
-        self._queue_fit_cols()
-
-    def _queue_key_act(self, col: str):
-        """Delete = ✕, Space = pause / resume of the selected row (user 19.11.); nothing where the row offers nothing."""
-        sel = self.tv_queue.selection()
-        if sel:
-            act = self._row_actions(sel[0]).get(col)
-            if act in ("cancel", "pause", "resume"):
-                self._queue_do(act, sel[0])
-        return "break"
-
-    def _queue_release(self, e):
-        if getattr(self, "_q_coldrag", None):
-            self._q_coldrag = None
-            self._queue_fit_cols()
-            self._queue_remember_cols()
-            return "break"
-        d, self._q_drag = getattr(self, "_q_drag", None), None
-        if not d or not d["moved"]:
-            return
-        tree = self.tv_queue
-        tree.configure(cursor="")
-        jid = d["iid"][2:]
-        shown = [i[2:] for i in tree.get_children("") if i.startswith("j:") and self._q_movable(self._q_jobs.get(i[2:]))
-                 and (self._q_jobs.get(i[2:]) or {}).get("batch_id") == d["batch"]]
-        line = [x["id"] for x in self._q_jobs.values() if self._q_movable(x)]         # queue order, all batches
-        mine = [x for x in line if x in shown]                                           # this batch, before the drag
-        try:
-            target = mine[shown.index(jid)]
-            delta = line.index(target) - line.index(jid)
-        except ValueError:
-            delta = 0
-        if delta:
-            self.runner.move(jid, delta)
-        self._queue_fill()
-
-    # "At ComfyUI": what waits there, read in a thread about every 2 s while the window is open
-
-    def _queue_comfy_tick(self):
-        self._q_tick = None
-        if not self._alive(getattr(self, "_queue_win", None)):
-            return
-        if not getattr(self, "_q_fetching", False):
-            self._q_fetching = True
-            comfy = self.bridge.comfy
-
-            def work():
-                try:
-                    entries = comfy.queue_entries()
-                except Exception:
-                    entries = None
-                self.events.put(("batch-ui", lambda: self._queue_comfy_show(entries)))
-            threading.Thread(target=work, daemon=True, name="pcc-queue-read").start()
-        self._q_tick = self.root.after(QUEUE_COMFY_MS, self._queue_comfy_tick)
-
-    def _queue_comfy_show(self, entries):
-        """ComfyUI's queue was read: the list above is filled anew (its "#" and the runs of others come from it), the lower
-        list shows the participants, one row each with what they have running and waiting (user 18.11.)."""
-        self._q_fetching = False
-        self._queue_note_foreign_done(getattr(self, "_q_entries", None), entries)
-        self._q_entries = entries
-        cv = getattr(self, "tv_comfy", None)
-        if cv is None or not self._alive(getattr(self, "_queue_win", None)):
-            return
-        cv.delete(*cv.get_children())
-        if entries is None:
-            url = getattr(self.bridge.comfy, "url", None)
-            local = comfyaddr.is_local(url if isinstance(url, str) else comfyaddr.DEFAULT_URL)    # alone: no address talk
-            cv.insert("", "end", text=Q_NOT_CONNECTED_LOCAL if local else Q_NOT_CONNECTED_NET, values=("",))
-        else:
-            for who, text in self._participants(entries):
-                cv.insert("", "end", text=who, values=(text,))
-        self._queue_fill()
-
-    def _participants(self, entries: list) -> list[tuple[str, str]]:
-        """(name, "running · 2 waiting") per participant in the order they run; you always, with your pictures still
-        waiting in PxC counted too ("idle" when nothing of yours is on)."""
-        me = getattr(self.bridge.comfy, "client_id", None)
-        runner = getattr(self, "runner", None)
-        you = (getattr(runner, "owner", "") or "") + " (you)"
-        sent = {e["prompt_id"] for e in entries}
-        counts: dict[str, list[int]] = {}
-        for e in entries:
-            ours = bool(me) and e.get("client_id") == me
-            c = counts.setdefault(you if ours else (e.get("owner") or "unknown"), [0, 0])
-            c[0 if e.get("running") else 1] += 1
-        local = [j for j in (runner.jobs() if runner is not None else ()) if j["status"] in (jobqueue.WAITING, jobqueue.RUNNING)
-                 and j.get("prompt_id") not in sent]
-        counts.setdefault(you, [0, 0])[1] += len(local)
-
-        def text(r, w):
-            parts = (["running"] if r else []) + ([f"{w} waiting"] if w else [])
-            return " · ".join(parts) or "idle"
-        return [(who, text(*c)) for who, c in counts.items()]

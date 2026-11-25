@@ -1,3 +1,4 @@
+# tags: mask, fill, fibo
 """Layer mask "auto": no layer mask for a Fill with a Fibo-type editor (ignores the mask), soft otherwise.
 
     python tests/test_layer_mask_auto.py

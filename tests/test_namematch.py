@@ -1,3 +1,4 @@
+# tags: settings, models
 """The "similar name" hint under a missing model file (pccomfy/namematch.py, user 7.11.): same model in another precision or spelling is
 suggested; another size or generation, and the other files the plugin knows, are not.
 

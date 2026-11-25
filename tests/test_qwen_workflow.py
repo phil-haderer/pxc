@@ -1,3 +1,4 @@
+# tags: qwen, edit, workflows
 """The Qwen Image 2.1 edit workflow: a valid API graph with the tags the bridge fills, the picture tag and the turbo switch.
 
     python tests/test_qwen_workflow.py

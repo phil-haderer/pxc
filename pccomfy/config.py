@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import __version__ as APP_VERSION
 from .hostos import IS_WINDOWS
-from .testguard import isolate_home
+from .testguard import dead_port_fails_fast, isolate_home
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -24,6 +24,7 @@ def _config_dir() -> Path:
     """PCCOMFY_HOME wins (a test script started by hand gets a throw-away one: testguard.isolate_home). On Windows everything
     lives in <bridge folder>\\data (portable, like PhotoCraft)."""
     isolate_home()
+    dead_port_fails_fast()
     env = os.environ.get("PCCOMFY_HOME")
     if env:
         return Path(env).expanduser()
@@ -126,7 +127,10 @@ def _write_json(path: Path, data: dict) -> bool:
     global _WRITE_ERROR
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({**data, "_version": APP_VERSION}, indent=2, ensure_ascii=False), encoding="utf-8")
+        text = json.dumps({**data, "_version": APP_VERSION}, indent=2, ensure_ascii=False)
+        _JSON_CACHE.pop(str(path), None)
+        path.write_text(text, encoding="utf-8")
+        _remember(path, text)
         _WRITE_ERROR = ""
         return True
     except OSError as e:
@@ -140,9 +144,32 @@ def save_state(state: dict) -> None:
 
 # ---------- settings of the settings overlay (data/settings.json, separate from the window state) ----------
 
+_JSON_CACHE: dict[str, tuple[int, int, str]] = {}      # path -> (mtime_ns, size, text) of a config file
+
+
+def _remember(path: Path, text: str) -> None:
+    try:
+        st = path.stat()
+        _JSON_CACHE[str(path)] = (st.st_mtime_ns, st.st_size, text)
+    except OSError:
+        _JSON_CACHE.pop(str(path), None)
+
+
+def _read_cached(path: Path) -> str:
+    """The text of a config file, read from disk only when its time or size changed or this module wrote it (tempo plan P2,
+    24.11.: settings.json was read 74 times for ten function switches). Raises OSError like read_text."""
+    st = path.stat()
+    hit = _JSON_CACHE.get(str(path))
+    if hit is not None and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+        return hit[2]
+    text = path.read_text(encoding="utf-8")
+    _JSON_CACHE[str(path)] = (st.st_mtime_ns, st.st_size, text)
+    return text
+
+
 def load_settings() -> dict:
     try:
-        d = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        d = json.loads(_read_cached(SETTINGS_FILE))
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}

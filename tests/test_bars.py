@@ -1,3 +1,4 @@
+# tags: window, queue
 """The single progress bar must not touch Tk when nothing changed (that caused the blinking) and must never jump back.
 Run: python tests/test_bars.py"""
 import sys

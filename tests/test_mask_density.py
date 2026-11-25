@@ -1,3 +1,4 @@
+# tags: mask, start
 """Mask density: every function starts at 100 % (Flux 3 Fill at 0 %, user 13.11.) (Flux 3 Fill at 0 %, user 13.11.) (Fill with Qwen and Fibo started at 5 % until the Fill mask test round of
 30.10.); the run sets the slider's value on the new layer's soft mask in PhotoCraft (layer.layerMask.edit, PhotoCraft
 0.17+), 100 % sets nothing (stubbed Tk, PhotoCraft and ComfyUI).

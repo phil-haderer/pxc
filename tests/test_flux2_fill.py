@@ -1,3 +1,4 @@
+# tags: fill, flux2
 """Fill Selection for Flux 2 (user 10.11., approach C of the Flux Fill round 2, docs/tests/fill-flux-ergebnis.md):
 the plugin runs it exactly as the test round did: the edit graph with the red outline, the start values of Flux 2's
 Remove, and Qwen's sentence plus "its natural shape". No new files. (Flux 3 got its own Fill through the box on 11.11.,

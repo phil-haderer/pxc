@@ -1,3 +1,4 @@
+# tags: photocraft, queue
 """Several variants go into one layer group ("Fill Selection 3"); one result stays a loose layer.
 
 The group keeps the order (#1 on top) and the visibility (#1 shown, the others hidden), #1 is the active layer, the

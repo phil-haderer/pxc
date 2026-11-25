@@ -1,3 +1,4 @@
+# tags: prompt, start
 """After a start the prompt field is on its default: the text of the last session is not restored (user 3.11). Hidden Tk window.
 
     python tests/test_prompt_start_default.py

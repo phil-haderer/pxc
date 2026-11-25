@@ -1,3 +1,4 @@
+# tags: undo, window
 """Undo and Redo in the Generate row (user 18.11., decision 2a): two squares, blue like Generate with a white icon while they
 can be used, grey like the greyed-out Stop otherwise, one of them blue at a time. The order: start = both grey; after a run
 Undo blue, Redo grey; after Undo Undo grey, Redo blue; after Redo Undo blue again; a new run: Undo blue. Grey while a run, a
@@ -88,14 +89,28 @@ def main():
 
     assert states(app) == ("disabled", "disabled"), states(app)          # start: nothing to undo yet
 
+    # grey because nothing is there yet: a click on it stays silent, the tooltip has no lock note (user 25.11.)
+    hit = lambda w: type("E", (), {"widget": w, "x": 2, "y": 2})()
+    app._status("")
+    app._history_grey_click(hit(app.b_undo), "undo")
+    assert app.v_status.get() == "" and app.tt_undo.text == gui.HISTORY_UNDO_TIP
+
     # a run: grey while it is on, Undo blue afterwards
     app._running = True
     app._sync_history_buttons()
     assert states(app) == ("disabled", "disabled")
+    # a click on the grey button says why (a grey ttk button calls no command, user 25.11.); the tooltip says it too
+    for w, step in ((app.b_undo, "undo"), (app.b_redo, "redo")):
+        app._status("")
+        app._history_grey_click(hit(w), step)
+        assert app.v_status.get() == gui.CUT_NOT_IN_RUN and not getattr(app, "_history_busy", False), app.v_status.get()
+    assert app.tt_undo.text == gui.HISTORY_UNDO_TIP + "\n\n" + gui.CUT_NOT_IN_RUN
+    assert app.tt_redo.text == gui.HISTORY_REDO_TIP + "\n\n" + gui.CUT_NOT_IN_RUN
     snap["undo"] = True
     app.events.put(("done", "Done."))
     assert pump(app, lambda: not app._running)
     assert states(app) == ("normal", "disabled"), states(app)
+    assert app.tt_undo.text == gui.HISTORY_UNDO_TIP          # the lock note goes with the run
 
     # Undo: grey while it works, then Redo is the blue one
     app.undo_edit()

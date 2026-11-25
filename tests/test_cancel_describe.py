@@ -1,3 +1,4 @@
+# tags: queue, prompt
 """Cancel (Esc) also stops the text model while it describes a picture (the LLM button, user 2.11.). Hidden Tk window,
 a fake bridge whose describe waits until it is cancelled.
 

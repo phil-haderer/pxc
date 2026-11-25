@@ -1,3 +1,4 @@
+# tags: prompt, workflows
 """Prompt writer seed (user 17.11., choice A): a seed of its own for the text model that writes the prompt inside a run, so a new
 image seed keeps the written prompt. Only the writer of the run (and its reference description in Scribble with reference);
 Describe canvas and the slot descriptions are left alone. Start value 0 (as the workflows' own), -1 = a new one each run

@@ -1,3 +1,4 @@
+# tags: window
 """The window font: Inter (PhotoCraft's font) ships with its licence, is loaded for this process on Windows and is set
 one point smaller than the Segoe UI sizes; without it everything stays Segoe UI. On Windows also a real Tk sees the
 families "Inter" and "Inter SemiBold" (on the user's machine Inter is installed as well, so this does not prove the

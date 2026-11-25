@@ -1,3 +1,4 @@
+# tags: sketch, upscale, prompt
 """P6 (user 10.11.): from Sketch to image / Scribble on photo to Upscale / Refine the scribble text (edited or not) does not
 count as own text: the Upscale / Refine prompt goes into the field, the scribble text waits aside and comes back with its
 tab. Other own texts (Edit canvas) wait aside too since 11.11. Real Tk window (hidden); skipped when Tk cannot open a window.

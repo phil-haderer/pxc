@@ -1,3 +1,4 @@
+# tags: settings, window
 """The page Model Links of the settings window in the real Tk window (hidden), as designed on 19.11.: the narrower window, the
 the pages as chips (blue when chosen, no lines) and the menu "⋯" with Reset and Check files (choice K2; the message after a change
 with its Undo, which stays without a time limit, 21.11.); the field with the model and its list (choice C, before chips); the head line with
@@ -155,7 +156,10 @@ def main():
     assert tabs.bar.winfo_reqheight() < app._px(40), tabs.bar.winfo_reqheight()
     tabs.open_list()
     win.update()
-    assert [e["label"] for e in tabs.menu.entries] == [m.label for m in gui.models.MODELS] + ["Additional"]
+    assert [e["label"] for e in tabs.menu.entries] == [m.label for m in gui.models.PICK_ORDER] + ["Additional"]
+    assert [e["label"] for e in tabs.menu.entries][:7] == [      # user 22.11.: the order of the model chip
+        "MiniMax H3 Image", "MOSS Image", "Krea 2 Turbo", "Qwen Image 2.1", "Flux 3 Klein Edit", "Flux 2 Klein Edit",
+        "Fibo 2.0 Edit Turbo"]
     assert all(e["icon"] for e in tabs.menu.entries[:-1] if app.inv.tab_status(next(m.key for m in gui.models.MODELS if m.label == e["label"])).state != "ready")
     tabs.menu.unpost()
 
@@ -167,7 +171,7 @@ def main():
     assert "Insert reference" in shown["flux3"] and "Insert reference" not in shown["flux2"]
     assert "Scribble with reference" in shown["flux3"] and "Scribble with reference" in shown["flux2"]
     assert "Scribble with reference" not in shown["fibo"]                      # Fibo: no reference at the scribble
-    assert shown["minimax"] == ["Text to image", "Edit canvas", "Multi image edit", "Sketch to image", "Scribble on photo"], shown["minimax"]   # step 8 (21.11.)
+    assert shown["minimax"] == ["Text to Image", "Edit canvas", "Multi image edit", "Sketch to image", "Scribble on photo", "Refine Image"], shown["minimax"]   # step 8 (21.11.), Refine 22.11.
     assert ui_settings.MODES_HEAD == "Supported Modes"
     assert "Edit" not in shown["flux3"] and "Multi Image Edit" not in shown["flux3"]
 

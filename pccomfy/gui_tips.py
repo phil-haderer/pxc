@@ -249,7 +249,7 @@ class TipsMixin:
         """Right after it was built the window may sit somewhere else (the screen corner): its place is set again when it
         differs (only in the first half second). Logs whether the popup is really on the screen, on a monitor, and where it
         lies in the z-order against PhotoCraft (Windows); the later checks (up to 15 s) catch it being covered afterwards
-        (docs/plan/befunde-11-11.md section 4)."""
+        (docs/archiv/befunde-11-11.md section 4)."""
         try:
             if not win.winfo_exists() or self._tip_win is not win:
                 return

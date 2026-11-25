@@ -1,3 +1,4 @@
+# tags: photocraft
 """PhotoCraft in a modal state (user 17.11., choice A): while the Crop tool extends or crops the canvas, PhotoCraft refuses
 document commands with "command is unavailable while a modal dialog is open" although no dialog shows. The plugin turns
 that into a clear message: CROP_PENDING when ui.inspect says tool "Crop", else MODAL_OPEN. Other errors stay as they were."""

@@ -1,3 +1,4 @@
+# tags: photocraft, linux
 """The Linux clipboard (pccomfy/clipboard.py, "the Linux part"): choosing a format, file lists, reading and writing through a
 fake clipboard program, the backend choice. Runs on any system; no real clipboard is touched.
 

@@ -1,3 +1,4 @@
+# tags: prompt
 """Custom prompts without Tk (pccomfy/custom_prompts.py; the Prompt-Saver, user 11.11.): add, edit, delete, names without case,
 the 100 limit, the 40 character name, the label with model and function, the file in PCCOMFY_HOME, a broken file renamed to
 .bad with a note.

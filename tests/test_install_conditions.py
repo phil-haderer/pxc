@@ -1,3 +1,4 @@
+# tags: release
 """Install conditions found in the review of 5.11.2026 (PhotoCraft 0.20.2):
  - Python 3.10 (Ubuntu 22.04, Mint 21): no tomllib, tomli takes over; no source needs syntax newer than 3.10
  - the PhotoCraft search finds the MSI location (Programs\\ArtCraft\\PhotoCraft) and an AppImage in ~/.local/bin

@@ -1,9 +1,11 @@
 """A run: build the request, generate, undo/redo, stop, poll, progress and status line. (moved out of gui.py unchanged; see PLAN.md, phase 0)."""
 from __future__ import annotations
+import copy
 
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 from . import icons
+from . import jobqueue
 from . import workflows
 from . import history as runhistory
 from .listpopup import ListPopup
@@ -13,6 +15,7 @@ class RunMixin:
     def _status(self, msg: str, error: bool = False):
         """The status line. An error gets a red "!" badge and red text, it never opens a dialog."""
         self._status_error = bool(error and msg)
+        self._status_stale = False      # a message of its own: the progress of the run that is on leaves it (_poll)
         self.lbl_status.configure(style="Error.TLabel" if error else "TLabel")
         self.v_status.set(msg)          # shows or hides the line (_show_status_line, a trace on v_status)
 
@@ -116,6 +119,7 @@ class RunMixin:
                        seam_fixed=self._seam_mode() == "on" and self._run_mode() in ("inpaint", "remove", "outpaint"),
                        preview=bool(self.v_live.get()), preview_method=m.preview if m else "taesd")
         req.scribble = self.v_mode.get() == "scribble"      # its own tab since plan B (10.11.)
+        req.one_by_one = self.v_mode.get() in ("sketch", "scribble", "multi_edit")   # ×n one after the other (user 24.11., A)
         req.scribble_object = bool(req.scribble and spec is not None and spec.scribble_object_mask)   # MiniMax (user 21.11.)
         req.fill_object = bool(spec is not None and spec.fill_object_mask and req.mode == "inpaint" and not req.remove)   # Qwen (user 21.11.)
         req.fill_box = bool(spec is not None and spec.fill_box and req.mode == "inpaint")    # Flux 3 Fill: the box <obj_1> (plan B step 4)
@@ -167,10 +171,136 @@ class RunMixin:
         b = self.w_variants
         self.m_variants.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
 
+    # ---------- Generate while a run is on: "Add to queue" (docs/plan/generate-queue.md, step 1) ----------
+
+    def _something_runs(self) -> bool:
+        """A run of this window or the queue (a batch, queued Generate clicks) is on: Generate queues instead of running."""
+        return bool(getattr(self, "_running", False)) or self._batch_busy()
+
+    def _queue_refusal(self) -> str:
+        """Why Generate can't wait in the queue with this function ("" = it can). User 23.11. evening (choice D): only
+        Refine, Upscale, Edit and Text to image, and only behind the same function (the model may differ); Fill, Remove,
+        Expand need the selection of the moment the run starts (user 22.11.), Insert reference too; Multi Edit, Sketch and
+        Scribble never queue."""
+        mode = self.v_mode.get()
+        fn = FN_NAMES.get(mode, mode)          # as the picker names it (user 25.11.)
+        if mode in ("inpaint", "remove", "outpaint"):
+            return QUEUE_LOCKED.format(fn=fn)
+        try:
+            if self._bbox_on():
+                return QUEUE_NO_BBOX
+        except Exception:
+            pass
+        if mode not in QUEUE_WINDOW_MODES or self._run_mode() not in jobqueue.QUEUE_MODES:
+            return QUEUE_LOCKED.format(fn=fn)
+        other = sorted(m for m in self._open_modes() if m != mode)
+        if other:
+            return QUEUE_OTHER_FN.format(run=QUEUE_FN_NAMES.get(other[0], other[0]))
+        return ""
+
+    def _open_modes(self) -> set:
+        """The functions that run or wait now: the direct run of this window (its window mode) and the batches and queued
+        Generate clicks of the queue (their run mode; for the four queue functions it is the window mode)."""
+        modes = set()
+        if getattr(self, "_running", False):
+            modes.add(str(getattr(self, "_run_wmode", "") or ""))
+        runner = getattr(self, "runner", None)
+        try:
+            if runner is not None:
+                modes |= set(runner.open_modes())
+        except Exception:
+            pass
+        modes.discard("")
+        return modes
+
+    def _enqueue(self, rest: int = 0, shared: dict | None = None) -> str:
+        """Generate while a run is on (user 22.11., choice A): the picture of the document in front and every setting are
+        taken now and wait in the queue as a "batch" of its own (×n = n jobs); each result comes as a new layer (Upscale: a
+        new document), and Undo hides it again. rest: a direct Generate with ×n has just started its first picture; the
+        other rest pictures wait here as jobs of their own (user 23.11., choice A). Returns the batch id ("" = none)."""
+        jobqueue.qlog(self.bridge, "q_click", rest=rest)
+        reason = self._queue_refusal()
+        if reason:
+            self._status(reason, error=True)
+            return
+        if not rest and time.monotonic() - getattr(self, "_stop_armed", 0.0) < STOP_GUARD_S:
+            return                  # a double click on Generate: the second click comes right after the run started
+        try:
+            req = self._request()
+            n = rest or max(1, int(self.v_variants.get()))
+        except (tk.TclError, ValueError) as e:
+            self._status(f"Invalid value: {e}", error=True)
+            return
+        seed = req.params.seed
+        if rest and seed is not None and int(seed) >= 0:       # a fixed seed: the direct picture has it, these the next ones
+            req.params.seed = (int(seed) + 7919) % (2**31)
+        req.preset = self._layer_prefix()
+        runs = dict(self.state.get("runs", {}))
+        short = SHORT_MODES.get(self.v_mode.get(), self.v_mode.get())
+        if req.preset:      # n running numbers, one per job ("Refine 7", "Refine 8")
+            req.run_no = int(runs.get(req.preset, 0)) + 1
+            runs[req.preset] = req.run_no + n - 1
+            req.group_name = f"{short} {req.run_no}"
+        m = self._model()
+        label = self._fn_label()
+        spec = jobqueue.BatchSpec(request=req, source=jobqueue.SOURCE_ACTIVE, dry_run=False, kind=jobqueue.K_GENERATE,
+                                  copies=n, label=label, model=m.label if m else "", shared=shared)
+        try:
+            bid = self.runner.start_batch(spec)
+        except (ValueError, BridgeError) as e:
+            self._status(str(e), error=True)
+            return
+        self.state["runs"] = runs
+        try:
+            self._save_state(req)
+        except Exception:
+            pass
+        self._batch_mine = getattr(self, "_batch_mine", set()) | {bid}
+        try:            # the history entry of each job is written when it is done, with the prompt its writer wrote
+            settings = self._collect()
+            self._queued_hist = dict(getattr(self, "_queued_hist", {}) or {})
+            self._queued_hist[bid] = runhistory.entry(req.group_name or short, m.label if m else "", settings,
+                                                      llm=settings.get("prompt", "") if self._written_active() else "")
+        except (tk.TclError, ValueError, TypeError):
+            pass
+        if rest:
+            self._status(VARIANTS_QUEUED.format(n=n))
+        else:
+            self._status(f"Added to the queue: {label}" + (f" ×{n}" if n > 1 else "") + ".")
+        self._batch_sync()
+        self._queue_dirty()
+        return bid
+
+    def _fn_label(self) -> str:
+        """Function and model of the settings now ("Refine Image · Qwen Image 2.1"): the queue window's Function column, with
+        the function as the picker names it (user 25.11.)."""
+        short = FN_NAMES.get(self.v_mode.get(), self.v_mode.get())
+        m = self._model()
+        return f"{short} · {m.label}" if m else short
+
+    def _queued_done(self, job: dict):
+        """A job of a queued Generate is done: its run goes in front of the last runs (the clock), with the prompt its
+        writer wrote and its own group name."""
+        e = (getattr(self, "_queued_hist", None) or {}).get(job.get("batch_id"))
+        seen = self._queued_seen = getattr(self, "_queued_seen", set())
+        if not e or job.get("id") in seen:
+            return
+        seen.add(job.get("id"))
+        e = dict(e)
+        if job.get("group"):
+            e["title"] = job["group"]
+        if str(job.get("written") or "").strip():
+            e["llm"] = str(job["written"]).strip()
+        runhistory.add(cfgmod.HISTORY_FILE, e)
+
     def generate(self):
+        jobqueue.qlog(self.bridge, "q_generate_click")
+        if self._something_runs():          # Add to queue (user 22.11.; replaces "Generate locked while a batch is on", 12.11.)
+            self._enqueue()
+            return
         if self.worker and self.worker.is_alive():
             return
-        if self._blocked_by_batch():        # Generate stays locked while a batch is on (decision 12.11.)
+        if self._blocked_by_batch():
             return
         if self._needs_description() and not self.t_prompt.get("1.0", "end").strip():
             # an empty prompt fills the margin with unrelated things (A/B test 29.10.): no run, say what to do
@@ -186,6 +316,9 @@ class RunMixin:
         except (tk.TclError, ValueError) as e:
             self._status(f"Invalid value: {e}", error=True)
             return
+        rest = self._variants_rest(req)
+        if rest:
+            req.variants = 1        # ×n: this picture now, the others as jobs of their own in the queue (user 23.11.)
         req.preset = self._layer_prefix()
         if req.preset:   # running number per model and function, kept between sessions
             runs = dict(self.state.get("runs", {}))
@@ -202,8 +335,14 @@ class RunMixin:
             self._fprev_on, self._fprev_dirty = False, None
             self.b_fprev.configure(text="Show feather")
         self._running = True
+        self._status_stale = True      # the first progress of this run clears what the status line said before (_poll)
+        self._run_req_mode = "remove" if req.remove else req.mode     # Undo after it: a history snapshot (not Upscale)
         self._other_pc = self._other_photocraft()       # a second PhotoCraft open: the hint after the run (gui.py, 16.11.)
         self._run_label = self._model_label()           # the bar names the model of this run, not one picked meanwhile (window test E)
+        self._run_fn = self._fn_label()                 # the queue window's Function of this run (window test 23.11.)
+        self._run_wmode = self.v_mode.get()             # only this function may wait in the queue meanwhile (user 23.11., D)
+        self._run_doc, self._run_t0 = "", time.time()   # its Document (set by the worker) and start: the row stays when it ends
+        self._run_placed = None                         # the result layer of this run, for Undo (set by the worker)
         self.w_variants.configure(state="disabled")     # part of Generate: grey while a run is on
         self._sync_history_buttons()
         self._go_stop(True)
@@ -220,10 +359,20 @@ class RunMixin:
                 req.params.seed = random.randint(0, 10**8 - 1)   # one seed for the whole series: only the value differs
 
         # runs that follow one another (variants of Upscale / Refine, a comparison): Generate says "Stop run", "Stop batch" beside it
-        if len(runs) > 1 or (req.mode in SCALE_MODES and int(req.variants) > 1):
+        seq = (req.mode in SCALE_MODES or req.one_by_one) and int(req.variants) > 1
+        if len(runs) > 1 or seq:
             self._show_stop_all(True)
+        # ×n one after the other: the queue window shows a row per variant at once (user 24.11. evening, choice C)
+        self._run_seq = int(req.variants) if seq and len(runs) == 1 else 0
+        self.bridge.seq_rows = []
+        self._seq_base = None          # where the block of variant rows stands in the queue window (gui_queuewin.py)
 
         def work():
+            jobqueue.qlog(self.bridge, "q_direct_begin")
+            try:
+                self._run_doc = self._active_doc_name()      # the queue window's Document of this run (user 23.11.)
+            except Exception:
+                pass
             try:
                 total = docs = 0
                 res = None
@@ -241,6 +390,12 @@ class RunMixin:
                         continue          # "Stop" ends this comparison run only
                     total += len(res["layers"])
                     docs += int(res.get("documents") or 0)      # Upscale: new documents, no layers
+                if res is not None and len(runs) == 1 and res.get("layers"):
+                    # Undo hides this result like a queued one (user 23.11.: "jedes undo blendet die zuletzt generierte
+                    # ebene aus"); a comparison series keeps the snapshot
+                    self._run_placed = {"doc": self._run_doc, "layer": res.get("group") or res["layers"][0],
+                                        "name": f"{req.preset} #{req.run_no}" if req.preset else "",
+                                        "scribble": res.get("scribble_layer")}
                 if res is None:
                     raise Cancelled()
                 self.events.put(("vgl", res.get("vgl", "")))
@@ -257,27 +412,250 @@ class RunMixin:
                 self.events.put(("done", f"Error: {e}"))
             except Exception as e:  # unexpected – show it instead of dying silently
                 self.events.put(("done", f"Unexpected error: {type(e).__name__}: {e}"))
-        self.worker = threading.Thread(target=work, daemon=True)
-        self.worker.start()
+            finally:
+                if shared is not None and not shared["done"].is_set():
+                    self.bridge.on_taken = None     # no picture (an error before the export): the variants export their own
+                    shared["done"].set()
+                keep = getattr(self, "_run_retry", None)
+                if keep is not None and self.bridge.on_taken is keep.get("capture"):
+                    self.bridge.on_taken = None     # never let a queue job's export land in this run's ↻
+        self._run_rest_bid = None          # the variants of this run in the queue: Stop batch ends them with it
+        shared = None
+        if rest:        # queued before the run starts: begin() of the check must not meet the run's own (Scribble layer)
+            self._direct_pending = True         # the queue waits for this run (gate in gui.py)
+            if req.mode not in jobqueue.NO_PICTURE_MODES:
+                # the variants take the picture this run exports, not one of their own: the run waited for that second
+                # export (window test 23.11. evening: "wenn ich 2 varianten starte, dann starten sie erst nach einer pause")
+                shared = {"done": threading.Event(), "pic": None, "index": None, "name": ""}
+
+                def taken(pic, index, name, shared=shared):
+                    shared.update(pic=pic.copy(), index=index, name=name)
+                    shared["done"].set()
+                self.bridge.on_taken = taken
+            self._run_rest_bid = self._enqueue(rest, shared=shared)
+            if not self._run_rest_bid and shared is not None:
+                self.bridge.on_taken = None
+            if self._run_rest_bid:      # ×3: this run is 1/3, its queued pictures 2/3 and 3/3 (window test 23.11. late)
+                self._rest_of = dict(getattr(self, "_rest_of", {}) or {})
+                self._rest_of[self._run_rest_bid] = rest + 1
+                self._run_fn = f"{self._run_fn} · 1/{rest + 1}"
+        self._run_retry = keep = self._retry_keep(req, runs)
+        if keep is not None and req.mode not in jobqueue.NO_PICTURE_MODES:
+            prev = self.bridge.on_taken         # the variants' hand-over (above) still gets the picture
+
+            def capture(pic, index, name, keep=keep, prev=prev):
+                keep.update(pic=pic.copy(), index=index, name=name)
+                if prev is not None:
+                    prev(pic, index, name)
+            self.bridge.on_taken = capture
+            keep["capture"] = capture
+        try:
+            self.worker = threading.Thread(target=work, daemon=True)
+            self.worker.start()
+        finally:
+            self._direct_pending = False
         self._ahead_start()         # "N jobs of others ahead" while the job waits at ComfyUI (gui_batch.py)
 
+    def _retry_keep(self, req, runs) -> dict | None:
+        """What ↻ in the queue window needs to send a cancelled or failed direct run again (window test 23.11. late: after
+        "Stop batch" only the queued picture had ↻): its settings and, filled by the run's export, its picture with the
+        document. Only for a function that can wait in the queue, one picture, no comparison series; None otherwise."""
+        try:
+            if self._queue_refusal() or len(runs) != 1 or int(req.variants or 1) != 1:
+                return None
+            m = self._model()
+            return {"req": copy.deepcopy(req), "label": self._fn_label(), "model": m.label if m else "",
+                    "pic": None, "index": None, "name": ""}
+        except Exception:
+            return None
+
+    def _own_retry(self, d: dict) -> bool:
+        """↻ on a row of a direct run that was cancelled or failed: the same settings and the same picture of the same
+        document wait in the queue as a new job (as ↻ on a queued picture does). Text to image takes the document in front."""
+        keep = d.get("retry")
+        if not keep:
+            return False
+        req = copy.deepcopy(keep["req"])
+        runs = dict(self.state.get("runs", {}))
+        if req.preset:          # a new running number, like every run ("Edit 8")
+            req.run_no = int(runs.get(req.preset, 0)) + 1
+            runs[req.preset] = req.run_no
+            req.group_name = f"{SHORT_MODES.get(req.mode, req.mode)} {req.run_no}"
+        shared = None
+        if keep.get("pic") is not None:
+            shared = {"done": threading.Event(), "pic": keep["pic"].copy(), "index": keep.get("index"), "name": keep.get("name", "")}
+            shared["done"].set()
+        spec = jobqueue.BatchSpec(request=req, source=jobqueue.SOURCE_ACTIVE, dry_run=False, kind=jobqueue.K_GENERATE,
+                                  copies=1, label=keep["label"], model=keep["model"], shared=shared)
+        try:
+            bid = self.runner.start_batch(spec)
+        except (ValueError, BridgeError) as e:
+            self._status(str(e), error=True)
+            return False
+        self.state["runs"] = runs
+        self._batch_mine = getattr(self, "_batch_mine", set()) | {bid}
+        d["retry"] = None           # its ↻ is used: the new job has its own row
+        self._status(f"Added to the queue: {keep['label']}.")
+        self._batch_sync()
+        self._queue_dirty()
+        return True
+
+    def _variants_rest(self, req) -> int:
+        """A direct Generate with ×n of a function that can wait in the queue (user 23.11., choice A: "einzelne Einträge,
+        die ich einzeln abbrechen kann"): how many pictures go to the queue after the first one (n - 1); 0 = one run as
+        before (×1, Fill, Remove, Expand, Multi Edit with BBOX, a comparison over several values)."""
+        try:
+            n = int(req.variants or 1)
+            if n < 2 or self._queue_refusal():
+                return 0
+            if len(sweep_requests(req, parse_list(self.v_cmp_res.get(), int), parse_list(self.v_cmp_ctx.get(), float))) > 1:
+                return 0
+        except (tk.TclError, ValueError, AttributeError):
+            return 0
+        return n - 1
+
+    # ---------- Undo / Redo: result layers of queued runs and the history snapshot (docs/plan/generate-queue.md, choice B) ----------
+    #
+    # Two stacks, newest last. An entry is {"kind": "layers", "doc", "layer", "name"} (a queued result: Undo hides its layer or
+    # group, Redo shows it again; no limit) or {"kind": "snap"} (where the history snapshot of a run of this window stands:
+    # Bridge.undo_last / redo_last as before, one step). With no entry the snapshot rule of 18.11. decides alone (_last_step and
+    # the bridge), as after a batch of the ⋯ menu.
+
+    def _stacks(self) -> tuple[list, list]:
+        if not hasattr(self, "_undo_stack"):
+            self._undo_stack, self._redo_stack = [], []
+        return self._undo_stack, self._redo_stack
+
+    @staticmethod
+    def _is_layers(e) -> bool:
+        return isinstance(e, dict) and e.get("kind") == "layers"
+
+    def _undo_new_run(self, mode: str, placed: dict | None = None):
+        """A run of this window is done: its snapshot is the newest step back (Upscale takes none: a new document); older
+        snapshot entries no longer count (the bridge keeps one), and the redo chain ends. placed: the result layer of a
+        function that can wait in the queue (user 23.11.), and of Fill and Remove (user 23.11. late: "wenn ich nach remove
+        "undo" mache, wird die jüngste ebene nicht ausgeblendet sondern gelöscht"): Undo hides it like a queued result, no
+        snapshot step; Expand (it changes the canvas) and Cut out keep the snapshot (decision 22.11.)."""
+        undo, redo = self._stacks()
+        undo[:] = [e for e in undo if self._is_layers(e)]
+        redo.clear()
+        self._run_placed = None
+        if placed and placed.get("layer") is not None and mode in jobqueue.QUEUE_MODES + UNDO_HIDE_MODES:   # run modes:
+            # Multi Edit, Sketch and Scribble run as "edit" and keep this Undo
+            self._undo_push_layers(placed)
+            return
+        if mode != "upscale":
+            undo.append({"kind": "snap"})
+
+    def _undo_push_layers(self, d: dict):
+        """A queued run placed its result layer (jobqueue "batch-placed"): Undo hides it next; the redo chain ends, also a
+        snapshot's redo (it would bring back a state without this layer)."""
+        undo, redo = self._stacks()
+        entry = {"kind": "layers", "doc": str(d.get("doc") or ""), "layer": d.get("layer"), "name": str(d.get("name") or "")}
+        if d.get("scribble") is not None:       # a direct Scribble on photo: Undo shows its scribble layer again
+            entry["scribble"] = d.get("scribble")
+        undo.append(entry)
+        redo.clear()
+        if getattr(self, "_last_step", None) == "undo":
+            self._last_step = "stale"
+        self._sync_history_buttons()
+
     def undo_edit(self):
-        self._history_step(self.bridge.undo_last)
+        self._history_go("undo")
 
     def redo_edit(self):
-        self._history_step(self.bridge.redo_last)
+        self._history_go("redo")
 
-    def _history_step(self, fn):
+    def _history_locked(self) -> bool:
+        """A run or a batch is on: Undo and Redo are locked (user 24.11.)."""
+        try:
+            return bool(getattr(self, "_running", False) or self._batch_busy())
+        except Exception:
+            return bool(getattr(self, "_running", False))
+
+    def _history_grey_click(self, e, step: str):
+        """A click on the grey Undo or Redo (a grey ttk button calls no command): during a run the status line says why,
+        like the key does (user 25.11., "Klick + Tooltip"). Grey for another reason (nothing to undo, a step on): silent."""
+        b = e.widget
+        try:
+            if not b.instate(["disabled"]) or not (0 <= e.x < b.winfo_width() and 0 <= e.y < b.winfo_height()):
+                return
+        except tk.TclError:
+            return
+        if self._history_locked():
+            self._history_go(step)
+
+    def _history_go(self, step: str):
+        on = self._history_locked()
+        if on:          # also by a key while the buttons are grey (user 24.11.: Undo and Redo locked during a run)
+            if getattr(self, "_running", False) or getattr(self.runner, "only_generate", False) or not self._blocked_by_batch():
+                self._status(CUT_NOT_IN_RUN)       # (a batch of the ⋯ menu says so itself, _blocked_by_batch)
+            return
+        undo, redo = self._stacks()
+        stack = undo if step == "undo" else redo
+        top = stack[-1] if stack else None
+        if not self._is_layers(top):
+            self._history_step(self.bridge.undo_last if step == "undo" else self.bridge.redo_last, step)
+            return
+        if self.worker and self.worker.is_alive():
+            return
+        self._history_busy = True
+        self._sync_history_buttons()
+        bridge = self.bridge
+
+        def work():
+            try:
+                res = bridge.set_result_visible(top, step == "redo")
+                self.events.put(("undo-layer", (step, top, res)))
+            except (BridgeError, PhotoCraftError) as e:
+                self.events.put(("note-error", f"Error: {e}"))
+            except Exception as e:
+                self.events.put(("note-error", f"Unexpected error: {type(e).__name__}: {e}"))
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def _undo_layer_done(self, step: str, entry: dict, res: str):
+        """The answer of a layer step (the worker): the entry moves to the other stack, or goes when it can't be used."""
+        undo, redo = self._stacks()
+        src, dst = (undo, redo) if step == "undo" else (redo, undo)
+        if src and src[-1] is entry:
+            src.pop()
+        name, doc = entry.get("name") or "the result", entry.get("doc") or "?"
+        error = res in ("gone", "closed")
+        if res == "ok":
+            dst.append(entry)
+            msg = f"Undo: “{name}” is hidden." if step == "undo" else f"Redo: “{name}” is visible again."
+        elif res == "already":
+            msg = f"“{name}” was {'hidden' if step == 'undo' else 'visible'} already: nothing changed."
+        elif res == "gone":
+            msg = f"“{name}” is no longer in “{doc}” (deleted or merged): nothing to {'hide' if step == 'undo' else 'show'}."
+        else:
+            msg = f"“{doc}” is not open any more: “{name}” stays as it is."
+        self._history_busy = False
+        self._status(msg, error=error)
+        self._sync_history_buttons()
+        self._batch_sync()
+
+    def _undo_snap_done(self, step: str):
+        """A snapshot step worked: its entry moves to the other stack."""
+        undo, redo = self._stacks()
+        src, dst = (undo, redo) if step == "undo" else (redo, undo)
+        if src and not self._is_layers(src[-1]):
+            src.pop()
+        dst.append({"kind": "snap"})
+
+    def _history_step(self, fn, step: str | None = None):
         if (self.worker and self.worker.is_alive()) or self._blocked_by_batch():
             return
         self._history_busy = True
         self._sync_history_buttons()
-        step = "undo" if fn == self.bridge.undo_last else "redo"
+        step = step or ("undo" if fn == self.bridge.undo_last else "redo")
 
         def work():
             try:
                 note = fn()
                 self._last_step = step          # only after a step that worked: a failed one ("note-error") leaves it
+                self.events.put(("undo-snap", step))
                 self.events.put(("note", note))
             except (BridgeError, PhotoCraftError) as e:
                 self.events.put(("note-error", f"Error: {e}"))
@@ -316,13 +694,13 @@ class RunMixin:
         return rows
 
     def _history_menu(self):
-        """A click on the clock: the list under the button; with the mouse wheel and a scroll bar when it is long. A second
-        click on the clock closes it."""
+        """"History" in the ⋯ menu (the clock in the footer until 24.11. evening): the list of the last runs above the menu
+        button; with the mouse wheel and a scroll bar when it is long. Picked again while it is open, it closes."""
         old, self._history_popup = self._history_popup, None
         if old is not None and not old.closed:
             old.close()
             return
-        self._history_popup = ListPopup(self.root, self.b_history, self._history_rows(), scale=getattr(self, "ui", 1.0), above=True)
+        self._history_popup = ListPopup(self.root, self.b_menu, self._history_rows(), scale=getattr(self, "ui", 1.0), above=True)
 
     def erase_history(self):
         runhistory.clear(cfgmod.HISTORY_FILE)
@@ -437,7 +815,8 @@ class RunMixin:
 
     def _cutout_menu(self):
         """A click on the scissors opens the list of models above it (every time, user 6.11.); a second click closes it."""
-        if (self.worker and self.worker.is_alive()) or self._blocked_by_batch():
+        if self._something_runs():         # no Cut out during a run or a queue job (user 23.11.)
+            self._status(CUT_NOT_IN_RUN)
             return
         old, self._cut_popup = getattr(self, "_cut_popup", None), None
         if old is not None and not old.closed:
@@ -460,6 +839,8 @@ class RunMixin:
             self._status(f"{', '.join(missing)} is missing (optional file): download it in the gear window, Models, Additional.", error=True)
             return
         self._running = True
+        self._status_stale = True      # the first progress of this run clears what the status line said before (_poll)
+        self._run_req_mode = "cut"          # one snapshot, like a run: Undo afterwards
         self.w_variants.configure(state="disabled")
         self._sync_history_buttons()
         self._go_stop(True)
@@ -492,8 +873,26 @@ class RunMixin:
         if b is None:
             return
         ok = self._cutout_available()
-        b.configure(state="normal" if ok else "disabled")
-        self.tt_cut.text = CUTOUT_TIP if ok else CUTOUT_TIP + "\n\n" + CUTOUT_MISSING
+        busy = self._something_runs()
+        b.configure(state="normal" if ok and not busy else "disabled")
+        self.tt_cut.text = CUTOUT_TIP + ("\n\n" + CUTOUT_MISSING if not ok else "\n\n" + CUT_NOT_IN_RUN if busy else "")
+
+    def _cut_lock_sync(self):
+        """A run or a queue job starts or ends: the scissors and the Cut out icons of the slots follow (grey while
+        something runs, user 23.11.: "während eines laufs soll kein cutout möglich sein"); an open scissors menu closes."""
+        on = self._something_runs()
+        pop = getattr(self, "_cut_popup", None)
+        if on and pop is not None and not pop.closed:
+            pop.close()
+            self._cut_popup = None
+        self._update_cut_button()
+        if on == getattr(self, "_cut_locked", False):
+            return              # the slots are redrawn only when it changes
+        self._cut_locked = on
+        try:
+            self._refs_redraw()
+        except Exception:
+            pass
 
     def stop(self):
         """Stop: the run, or the text model while it describes a picture (the LLM and Describe buttons, the slots' Describe);
@@ -520,9 +919,17 @@ class RunMixin:
         """Generate during a run (user 20.11., no Stop button any more): grey, "Stop" (or "Stop run" while "Stop batch" is
         shown), a click stops; afterwards blue "Generate" again. A text model run (Describe) makes it "Stop" too; it stays
         "Stop" while a run or a text model run is still on."""
+        self._cut_lock_sync()
         if not on and (getattr(self, "_running", False) or getattr(self, "_describing", False)
                        or getattr(self, "_ref_busy", None) or self._batch_keeps_stop()):
             return
+        row = self._queue_row_kind() if on else ""
+        if row:
+            self._go_queue_row(locked=row == "locked")
+            return
+        self._go_queueing = False
+        self._grid_stop_run(False)
+        self._grid_stop_all(bool(getattr(self, "_stop_all_wanted", False)) or (on and self._batch_busy()))
         batch = on and self.b_stop_all.winfo_manager() == "grid"
         try:
             if on:
@@ -533,9 +940,11 @@ class RunMixin:
                 if self.w_variants.winfo_manager():
                     self.w_variants.grid_remove()           # the variants piece is gone while a run is on (user 20.11.)
             else:
-                self.b_go.configure(text="Generate", style="Accent.TButton", command=self.generate)
+                self.b_go.configure(text="Generate", style="Accent.TButton", command=self.generate, state="normal")
                 if not self.w_variants.winfo_manager():
                     self.w_variants.grid()
+                if not getattr(self, "_running", False):
+                    self.w_variants.configure(state="normal")       # grey in the locked queue row (user 23.11.)
         except (tk.TclError, AttributeError):
             return
         tt = getattr(self, "tt_go", None)
@@ -554,14 +963,83 @@ class RunMixin:
 
     def _show_stop_all(self, on: bool):
         """"Stop batch" beside Generate (which says "Stop run" then); the row shares out its width anew, so it still fits
-        the window with Undo and Redo."""
-        if on:
-            self.b_stop_all.grid(row=0, column=GO_COL_STOP_ALL, sticky="nsew", padx=(self._keep(6), 0))
-        else:
-            self.b_stop_all.grid_forget()
+        the window with Undo and Redo. While Generate is "Add to queue" it is shown anyway."""
+        self._stop_all_wanted = bool(on)
+        self._grid_stop_all(on or getattr(self, "_go_queueing", False))
         if getattr(self, "_go_stopping", False):
             self._go_stop(True)          # the text follows: "Stop run" with "Stop batch", "Stop" without
         self._fit_go_row()
+
+    def _grid_stop_all(self, on: bool, gap: int = 6):
+        """gap: px before it (before the display scaling); 4 in the queue row, where four buttons share the width."""
+        try:
+            if on:
+                if self.b_stop_all.winfo_manager() != "grid":
+                    self.b_stop_all.grid(row=0, column=GO_COL_STOP_ALL, sticky="nsew")
+                self.b_stop_all.grid_configure(padx=(self._keep(gap), 0))
+            elif self.b_stop_all.winfo_manager():
+                self.b_stop_all.grid_forget()
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _grid_stop_run(self, on: bool):
+        b = getattr(self, "b_stop_run", None)
+        if b is None:
+            return
+        try:
+            if on and b.winfo_manager() != "grid":
+                b.grid(row=0, column=GO_COL_STOP_RUN, sticky="nsew", padx=(self._keep(QUEUE_ROW_GAP_PX), 0))
+            elif not on and b.winfo_manager():
+                b.grid_forget()
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _queue_row_kind(self) -> str:
+        """The Generate row while something runs: "open" (the function can wait in the queue), "locked" (Fill, Remove,
+        Expand, Multi Edit with BBOX: the same row with a grey "Add to queue", user 23.11.), "" (nothing runs)."""
+        try:
+            if not self._something_runs():
+                return ""
+            return "locked" if self._queue_refusal() else "open"
+        except (tk.TclError, AttributeError):
+            return ""
+
+    def _go_queue_row(self, locked: bool = False):
+        """Generate during a run (user 22.11., Variant 1): blue "Add to queue", the variants piece (×n = n jobs), then grey
+        "Stop run" and "Stop batch". locked: the function can't wait in the queue (user 23.11., choice A): the same row,
+        "Add to queue" and ×n grey; the status line says why when the function is picked (_go_follow)."""
+        try:
+            if not getattr(self, "_go_stopping", False):
+                self._stop_armed = time.monotonic()       # a double click on Generate must not queue a second run
+            self.b_go.configure(text=ADD_QUEUE_TEXT, style="Accent.TButton", command=self.generate,
+                                state="disabled" if locked else "normal")
+            if not self.w_variants.winfo_manager():
+                self.w_variants.grid()
+            self.w_variants.configure(state="disabled" if locked else "normal")
+            self._grid_stop_run(True)
+            self._grid_stop_all(True, QUEUE_ROW_GAP_PX)
+        except (tk.TclError, AttributeError):
+            return
+        tt = getattr(self, "tt_go", None)
+        if tt is not None:
+            tt.text = (self._queue_refusal() or ADD_QUEUE_TIP) if locked else ADD_QUEUE_TIP
+        self._go_stopping = self._go_queueing = True
+        self._fit_go_row()
+
+    def _go_follow(self):
+        """Another function or model while a run is on: the row becomes "Add to queue" or "Stop" (Fill, Remove, Expand)."""
+        if getattr(self, "_go_stopping", False) and not getattr(self, "_go_follow_job", None):
+            def later():
+                self._go_follow_job = None
+                if getattr(self, "_go_stopping", False):
+                    self._go_stop(True)
+                    self._batch_sync_soon()
+                    if self._queue_row_kind() == "locked":     # why "Add to queue" is grey (user 23.11.)
+                        self._status(self._queue_refusal())
+            try:
+                self._go_follow_job = self.root.after_idle(later)
+            except (tk.TclError, AttributeError):
+                self._go_follow_job = None
 
     def _fit_go_row(self):
         """The Generate row over the full width (user 18.11., decisions 1a and 3): Generate and the variants piece together
@@ -598,8 +1076,9 @@ class RunMixin:
                     tabs["edit"]._pcc_go_bound = True
             pair = pad(self.b_redo)
             fixed = self._px(GO_GAP_MIN_PX) + 2 * side + pair      # beside Generate and the variants piece
-            if self.b_stop_all.winfo_manager() == "grid":
-                fixed += pad(self.b_stop_all) + int(self.b_stop_all.winfo_reqwidth())
+            for b in (self.b_stop_all, getattr(self, "b_stop_run", None)):
+                if b is not None and b.winfo_manager() == "grid":
+                    fixed += pad(b) + int(b.winfo_reqwidth())
         except (tk.TclError, AttributeError, ValueError, KeyError, TypeError):      # TypeError: no real Tk (the test stubs)
             return
         key = (total, side, n_go, n_var, p_tab, tab_w, fixed)
@@ -628,32 +1107,53 @@ class RunMixin:
             return
         # flags, not worker.is_alive(): the worker may still be ending when its last event ("done", "note") is read here
         busy = getattr(self, "_running", False) or getattr(self, "_history_busy", False)
+        queue = False
         try:
-            busy = busy or self._batch_busy()
+            # grey while anything runs, queued Generate clicks too (user 24.11.: "am besten sperren wir redo/undo während
+            # eines laufs komplett"; until then a queued result layer could be hidden meanwhile, 22.11.)
+            busy = busy or bool(self._batch_busy())
         except Exception:
             pass
         undo = redo = False
         if not busy:
             last = getattr(self, "_last_step", None)
             bridge = getattr(self, "bridge", None)
+            ustack, rstack = self._stacks()
+            ut, rt = (ustack[-1] if ustack else None), (rstack[-1] if rstack else None)
             try:
-                if last == "undo":
-                    redo = bool(bridge and bridge.can_redo())
-                else:
+                if self._is_layers(ut):
+                    undo = True
+                elif not queue and (ut is not None or last not in ("undo", "stale")):
                     undo = bool(bridge and bridge.can_undo())
             except Exception:
-                undo = redo = False
+                undo = False
+            try:
+                if self._is_layers(rt):
+                    redo = True
+                elif not queue and (rt is not None or last == "undo"):
+                    redo = bool(bridge and bridge.can_redo())
+            except Exception:
+                redo = False
         try:
             self.b_undo.configure(state="normal" if undo else "disabled")
             self.b_redo.configure(state="normal" if redo else "disabled")
         except tk.TclError:
             pass
+        # the tooltip names the lock during a run, like the scissors (user 25.11.)
+        extra = "\n\n" + CUT_NOT_IN_RUN if self._history_locked() else ""
+        for tt, base in ((getattr(self, "tt_undo", None), HISTORY_UNDO_TIP), (getattr(self, "tt_redo", None), HISTORY_REDO_TIP)):
+            if tt is not None:
+                tt.text = base + extra
 
     def stop_all(self):
-        """Stop all: the run that is on and every variant / comparison run still to come; while a batch of the ⋯ menu is
-        on, the batch of the picture that runs (user 21.11.; every batch not over until then)."""
+        """Stop batch: only the batch that runs now (user 23.11. evening, choice "Den laufenden"; a batch = one Generate with
+        its ×n): a direct run with its comparison runs and the variants it sent to the queue; else the batch of the
+        picture at ComfyUI (user 21.11.). Other batches and queued Generate clicks go on."""
         if self.worker and self.worker.is_alive():
             self.bridge.cancel_all()
+            rest = getattr(self, "_run_rest_bid", None)
+            if rest:
+                self.runner.cancel_batch(rest)
             self._status("Cancelling…")
         elif self._batch_busy():
             bid = self._batch_now()
@@ -688,10 +1188,13 @@ class RunMixin:
                 elif kind == "progress":
                     f, msg, phase, pf, elapsed = data
                     self._set_progress(f, msg, phase, pf, elapsed)
-                    # the bar's label names the step, the line below it says nothing then (no second copy of the same words)
+                    # the bar's label names the step, the line below it says nothing then (no second copy of the same words);
+                    # only what was there when the run started (or a step text of its own) goes, once: a message written
+                    # meanwhile stays (window test 23.11.: "Insert reference can't wait in the queue" was gone at once)
                     if msg and msg.startswith(("Comparison", "Object still")):
                         self._status(msg)
-                    else:
+                        self._status_stale = True
+                    elif getattr(self, "_status_stale", False):
                         self._status("")
                 elif kind in ("note", "note-error"):
                     self._status(data, error=(kind == "note-error"))
@@ -707,15 +1210,23 @@ class RunMixin:
                     if ok and getattr(self, "_other_pc", False):
                         self._status(self.OTHER_PC_HINT, error=True)
                     self._running = False
+                    self._queue_note_own_done(data)    # the run stays in the queue window as Done / Cancelled (user 23.11.)
                     self.w_variants.configure(state="normal")
-                    if ok:
+                    if ok and getattr(self, "_run_req_mode", "") != "upscale":
+                        # Upscale stays out of Undo / Redo (user 24.11.: "upscale sollte aus redo/undo ausgenommen werden"):
+                        # its new document has nothing to undo, and the steps of before keep their state
                         self._last_step = None      # a new result: Undo is the blue one again (decision 2a, 18.11.)
+                        self._undo_new_run(getattr(self, "_run_req_mode", ""), getattr(self, "_run_placed", None))
                     self._sync_history_buttons()
                     self._show_stop_all(False)
                     self._go_stop(False)
                     self._history_end(ok)
                     self._ahead_stop()
                     self._batch_sync()          # a batch that waited for this run keeps Generate grey
+                elif kind == "undo-snap":
+                    self._undo_snap_done(data)
+                elif kind == "undo-layer":
+                    self._undo_layer_done(*data)
                 elif kind == "seed":
                     self._set_last_seed(data)
                 elif kind == "lastrun":
@@ -775,21 +1286,41 @@ class RunMixin:
             self._fit_height()
 
     def _hide_preview(self):
+        self.lbl_preview.configure(image="")
+        self._preview_photo = None          # also when minimised (the frame is not packed then): nothing old comes back
         if self.f_preview.winfo_manager():
             self.f_preview.pack_forget()
-            self.lbl_preview.configure(image="")
-            self._preview_photo = None
             self._fit_height()
 
     def _reset_progress(self, done: bool = False, text: str = ""):
         self._bar_value = 1.0 if done else 0.0
         self.pb.configure(value=self._bar_value)
+        self._mini_bar_sync()
         full = (text or "Done") if done else ""
         word, rest = (full[:4], full[4:]) if full.startswith("Done") else (full, "")      # only the word "Done" is green
         self.v_pl.set(word)
         self._set_rest(rest)
         self._pl_style("Done.TLabel" if done else "Muted.TLabel")
         self._show_pl_line()
+
+    MINI_BAR_PX = 3
+
+    def _mini_bar_sync(self):
+        """Minimised, the progress is a thin blue line along the window's bottom edge, growing from the left (user 24.11.
+        evening, choice A: "nur die blaue linie", no grey track behind it, no text, the header no higher). Shown while the
+        bar is between 0 and 1 (a run, a queued job or a batch); gone at the end, when cancelled and when shown again."""
+        line = getattr(self, "f_mini_bar", None)
+        if line is None:
+            return
+        f = float(getattr(self, "_bar_value", 0.0) or 0.0)
+        try:
+            if getattr(self, "_minimized", False) and 0.0 < f < 1.0:
+                line.place(relx=0, rely=1.0, anchor="sw", relwidth=f, height=self._px(self.MINI_BAR_PX))
+                line.lift()
+            elif line.winfo_manager():
+                line.place_forget()
+        except tk.TclError:
+            pass
 
     def _show_pl_line(self):
         """The line above the bar takes room only while it says something (the step, or "Done"): no empty line before the
@@ -819,7 +1350,10 @@ class RunMixin:
         """The words before the step while the image model works: "<model> is generating" (user 4.11.), with the model the run
         started with: a model chosen during the run must not rename it (window test E, 11.11.)."""
         label = getattr(self, "_run_label", None)
-        if label is None or not getattr(self, "_running", False):
+        if not getattr(self, "_running", False):
+            # a job of the queue: the model it was queued with (docs/plan/generate-queue.md)
+            label = getattr(self, "_queue_label", None) if getattr(self, "_batch_shown", None) else None
+        if not label:
             label = self._model_label()
         return f"{label} is generating" if label else "Generating"
 
@@ -850,3 +1384,4 @@ class RunMixin:
         if fraction is not None and fraction > self._bar_value:
             self._bar_value = round(fraction, 3)
             self.pb.configure(value=self._bar_value)
+            self._mini_bar_sync()

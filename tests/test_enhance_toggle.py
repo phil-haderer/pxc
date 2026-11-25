@@ -1,3 +1,4 @@
+# tags: prompt, workflows
 """Prompt enhancement off: the typed prompt reaches the image model, the text model drops out of the graph.
 
     python tests/test_enhance_toggle.py

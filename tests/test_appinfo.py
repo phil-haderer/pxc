@@ -1,3 +1,4 @@
+# tags: release, window
 """The version in the config files and the report of "Copy report" (user 7.11., tester: a version number in the configs).
 Parts: version compare, the start check, unwritable folder, the report text (no prompts, home folder as ~), the export's
 version stamp, the run log's version, and "Copy report" in a hidden Tk window.

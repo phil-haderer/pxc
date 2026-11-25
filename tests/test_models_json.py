@@ -1,3 +1,4 @@
+# tags: models
 """The model files and their links live in pccomfy/models.json (user 7.11.), read by manifest.py at start.
 
     python tests/test_models_json.py

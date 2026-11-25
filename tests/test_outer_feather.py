@@ -1,3 +1,4 @@
+# tags: mask, fill
 """Fill's soft edge outside the selection: an edge and a corner fade alike (no display needed).
 
 Live test 28.10.: with a rectangular selection only the straight edges were soft, the corners stayed hard (the

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import socket
+import threading
 from pathlib import Path
 
 
@@ -61,10 +62,24 @@ class PhotoCraft:
         self._sock: socket.socket | None = None
         self._buf = b""
         self._next_id = 0
+        # one request at a time on the one socket: two threads that asked at once read each other's reply away, and one
+        # waited until something else came (window test 23.11. evening: x2 with Text to image started 18 to 30 s late,
+        # the run's document name and the queue's snapshot met)
+        self._io_lock = threading.RLock()
 
     # ---------- transport ----------
 
     def connect(self) -> "PhotoCraft":
+        with self._lock():
+            return self._connect()
+
+    def _lock(self):
+        lock = getattr(self, "_io_lock", None)
+        if lock is None:            # a PhotoCraft made without __init__ (tests)
+            lock = self._io_lock = threading.RLock()
+        return lock
+
+    def _connect(self) -> "PhotoCraft":
         if self._sock:
             return self
         try:
@@ -125,14 +140,15 @@ class PhotoCraft:
             raise PhotoCraftError(f"No reply from PhotoCraft to `{method}`.") from e
 
     def call(self, method: str, params: dict | None = None):
-        self.connect()
-        try:
-            reply = self._roundtrip(method, params)
-        except (OSError, ConnectionError, _Closed):
-            # PhotoCraft may have been restarted – reconnect once
-            self.close()
-            self.connect()
-            reply = self._roundtrip(method, params)
+        with self._lock():
+            self._connect()
+            try:
+                reply = self._roundtrip(method, params)
+            except (OSError, ConnectionError, _Closed):
+                # PhotoCraft may have been restarted – reconnect once
+                self.close()
+                self._connect()
+                reply = self._roundtrip(method, params)
         if not reply.get("ok"):
             raise PhotoCraftError(f"{method}: {reply.get('error')}")
         return reply.get("result")

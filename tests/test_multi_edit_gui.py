@@ -1,3 +1,4 @@
+# tags: multiedit, window
 """Multi Image Edit in the window (stubbed Tk): the mode replaces "Insert reference image", the slots show only in it,
 the request runs as a whole-image edit, old presets with the removed mode fall back.
 
@@ -15,7 +16,7 @@ gui, cfgmod = t.gui, t.cfgmod
 
 def main():
     keys = [k for k, _ in gui.MODE_LABELS]
-    assert ("multi_edit", "Multi Image Edit") in gui.MODE_LABELS and "reference" not in keys
+    assert ("multi_edit", "Multi image edit") in gui.MODE_LABELS and "reference" not in keys
     assert keys.index("multi_edit") == keys.index("edit") + 1        # right of "Edit Canvas" (Expand and Edit swapped 27.10.)
     app = gui.App(cfgmod.load())
     wfdir = Path(app.workflows_dir)
@@ -31,9 +32,9 @@ def main():
     for m in gui.models.MODELS:
         if m.max_refs == 0:
             assert "multi_edit" not in m.modes, m.key
-    tip = gui.models.MULTI_TIP
-    assert tip.startswith("Example: “Place the bag from {tag} on the table.”") and tip.endswith("Use “Cut out” on the object first.")   # user 3.11., 21.11.
-    assert all(x.modes["multi_edit"].prompt_tip == tip for x in gui.models.MODELS if "multi_edit" in x.modes)
+    # no tip under the prompt in Multi image edit since 23.11. (user): the @ tip under the slots replaced it
+    assert not hasattr(gui.models, "MULTI_TIP")
+    assert all(not x.modes["multi_edit"].prompt_tip for x in gui.models.MODELS if "multi_edit" in x.modes)
     # the window: the request runs as an edit, carries no mask use, and the mode is kept in the state
     app.cb_workflow["values"] = [gui.BUILTIN, "qwen-image-21-edit.json"]
     app.v_workflow.set("qwen-image-21-edit.json")

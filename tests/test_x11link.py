@@ -1,3 +1,4 @@
+# tags: photocraft, linux
 """Linux (X11): the plugin hangs on PhotoCraft as a transient window, with the menu guard (user 15.11., "A: mit Menü-Schutz").
 Pure parts and the window's path with a faked X11 api; the real libX11 calls only where a display exists (the laptop).
 
@@ -117,7 +118,7 @@ def test_window_path():
         top = {"v": None}
 
         def attributes(*a):
-            if len(a) == 2:
+            if len(a) == 2 and a[0] == "-topmost":      # (-alpha: the window is hidden until placed, 22.11.)
                 top["v"] = a[1]
             return top["v"]
         app.root.attributes = attributes

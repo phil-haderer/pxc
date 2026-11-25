@@ -1,3 +1,4 @@
+# tags: queue
 """Cancel and Cancel all with variants that run one after the other (Bridge._run_sequence, user 3.11.): Cancel ends only the
 variant that is running, Cancel all ends it and the ones still to come. Also the buttons of the window.
 
@@ -5,6 +6,7 @@ variant that is running, Cancel all ends it and the ones still to come. Also the
 """
 import os
 import sys
+import time
 import tempfile
 from pathlib import Path
 
@@ -129,8 +131,10 @@ def window_tests():
     row_checks(app, gui)
     assert not hasattr(app, "b_stop")                               # no Stop button since 20.11. (user)
     assert str(app.b_go.cget("text")) == "Generate" and str(app.b_go.cget("style")) == "Accent.TButton"
-    # a run: Generate is the grey "Stop"; several runs one after another: "Stop run" and "Stop batch" beside it
-    app._running = True
+    # a text model run (Describe): Generate is the grey "Stop"; with "Stop batch" beside it, "Stop run". Since 23.11. a run
+    # of a function always shows the queue row (queue_row_checks), Fill too (grey "Add to queue", user 23.11.)
+    app._queue_refusal = lambda: "can't wait"
+    app._describing = True
     app._go_stop(True)
     app.root.update()
     assert str(app.b_go.cget("text")) == gui.GO_STOP_TEXT and str(app.b_go.cget("style")) == "GoStop.TButton"
@@ -162,7 +166,7 @@ def window_tests():
     app._go_stop(False)                     # still running: it stays "Stop run"
     assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT
     app.worker = None
-    app._running = False
+    app._describing = False
     app._show_stop_all(False)
     app._go_stop(False)
     app.root.update()
@@ -171,8 +175,9 @@ def window_tests():
     assert app.tt_go.text == gui.GO_TIP
     assert app.w_variants.winfo_manager() == "grid"                 # the variants piece is back
     row_checks(app, gui)                    # back as before
-    # a batch of the ⋯ menu (user 20.11.): Generate is "Stop run" with "Stop batch" beside it; Stop run cancels the picture
-    # at ComfyUI, Stop batch only the batch of that picture (21.11.); afterwards Generate comes back
+    # a batch of the ⋯ menu (user 20.11.) while a function is picked that can't wait in the queue: the queue row with a grey
+    # "Add to queue" (user 23.11.); Stop run cancels the picture at ComfyUI, Stop batch only the batch of that picture
+    # (21.11.); afterwards Generate comes back
     done = []
 
     class Runner:
@@ -193,25 +198,85 @@ def window_tests():
     real_runner, app.runner = app.runner, Runner()
     app._batch_sync()
     app.root.update()
-    assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT and app.b_stop_all.winfo_manager() == "grid"
-    assert str(app.b_go.cget("state")) == "normal" and not app.w_variants.winfo_manager()
-    app._go_stop(False)                     # a Describe ends while the batch is on: it stays "Stop run" (review 21.11.)
-    assert str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    assert str(app.b_go.cget("text")) == gui.ADD_QUEUE_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    assert str(app.b_go.cget("state")) == "disabled" and app.b_stop_run.winfo_manager() == "grid"
+    app._go_stop(False)                     # a Describe ends while the batch is on: the row stays (review 21.11.)
+    assert str(app.b_go.cget("text")) == gui.ADD_QUEUE_TEXT and app.b_stop_all.winfo_manager() == "grid"
     app._stop_armed -= gui.STOP_GUARD_S
-    app.b_go.invoke()
+    app.b_stop_run.invoke()
     app.b_stop_all.invoke()
-    assert done == [("job", "j1"), ("batch", "b2")], done     # only the batch of the running picture (user 21.11.)
+    # only the batch of the running picture (user 21.11.; 23.11. evening: also no other queued Generate)
+    assert done == [("job", "j1"), ("batch", "b2")], done
     Runner.running_job = None               # between two pictures: the batch of the next one in the line
     app.stop_all()
-    assert done[-1] == ("batch", "b1"), done
+    assert done[-1:] == [("batch", "b1")], done
     Runner.busy = False
     app._batch_sync()
     app.root.update()
     assert str(app.b_go.cget("text")) == "Generate" and not app.b_stop_all.winfo_manager()
-    assert app.w_variants.winfo_manager() == "grid"
+    assert app.w_variants.winfo_manager() == "grid" and str(app.b_go.cget("state")) == "normal"
+    del app._queue_refusal
+    queue_row_checks(app, gui, Runner, done)
     app.runner = real_runner
     app.root.withdraw()
     app.root.destroy()
+
+
+def queue_row_checks(app, gui, Runner, done):
+    """Generate while something runs, for a function that can wait in the queue (user 22.11., Variant 1): blue "Add to
+    queue", the variants piece, grey "Stop run" and "Stop batch", all in the row with Undo and Redo, every text whole."""
+    from tkinter import font as tkfont
+    Runner.busy, Runner.running_job = True, {"id": "j1", "batch_id": "b2"}
+    app._batch_sync()
+    for _ in range(5):
+        app.root.update()
+    go, var, run, stop_all, undo, redo = app.b_go, app.w_variants, app.b_stop_run, app.b_stop_all, app.b_undo, app.b_redo
+    assert str(go.cget("text")) == gui.ADD_QUEUE_TEXT and str(go.cget("style")) == "Accent.TButton"
+    assert app.tt_go.text == gui.ADD_QUEUE_TIP and str(go.cget("state")) == "normal"
+    assert var.winfo_manager() == run.winfo_manager() == stop_all.winfo_manager() == "grid"
+    assert str(run.cget("text")) == gui.GO_STOP_RUN_TEXT and str(stop_all.cget("text")) == gui.STOP_BATCH_TEXT
+    row = app.f_go.winfo_width()
+    order = [go, var, run, stop_all, undo, redo]
+    for a, b in zip(order, order[1:]):
+        assert a.winfo_x() + a.winfo_width() <= b.winfo_x(), [(w.winfo_x(), w.winfo_width()) for w in order]
+    assert redo.winfo_x() + redo.winfo_width() <= row, (row, [(w.winfo_x(), w.winfo_width(), w.winfo_reqwidth()) for w in order])
+    f = tkfont.Font(root=app.root, font=gui.font(9))
+    for b, text in ((run, "Stop run"), (stop_all, "Stop batch"), (go, gui.ADD_QUEUE_TEXT)):
+        assert b.winfo_width() >= f.measure(text) + 8, (text, b.winfo_width(), f.measure(text))
+    # Stop run: the picture at ComfyUI; Stop batch: its batch only
+    done.clear()
+    app._stop_armed -= gui.STOP_GUARD_S
+    run.invoke()
+    stop_all.invoke()
+    assert done == [("job", "j1"), ("batch", "b2")], done
+    # another function meanwhile: Fill can't wait in the queue; the same row with a grey "Add to queue" and ×n, the
+    # status line says why (user 23.11., choice A; it was "Stop run" and the reason never showed)
+    app.v_mode.set("inpaint")
+    why = app._queue_refusal()
+    end = time.monotonic() + 5                 # under load (six test files at once) the idle call comes late
+    while time.monotonic() < end and not (str(go.cget("state")) == str(var.cget("state")) == "disabled"
+                                          and app.v_status.get() == why):
+        app.root.update()
+        time.sleep(0.02)
+    assert str(go.cget("text")) == gui.ADD_QUEUE_TEXT and str(go.cget("state")) == "disabled", go.cget("state")
+    assert str(var.cget("state")) == "disabled" and run.winfo_manager() == stop_all.winfo_manager() == "grid"
+    assert why.startswith("Fill") and app.v_status.get() == why and app.tt_go.text == why, (why, app.v_status.get())
+    app.v_mode.set("edit")
+    end = time.monotonic() + 5
+    while time.monotonic() < end and str(go.cget("state")) != "normal":
+        app.root.update()
+        time.sleep(0.02)
+    assert str(go.cget("text")) == gui.ADD_QUEUE_TEXT and run.winfo_manager() == "grid"
+    assert str(go.cget("state")) == "normal" and str(var.cget("state")) == "normal"
+    app.v_mode.set("inpaint")                   # the run ends while Fill is picked: Generate and ×n can be clicked again
+    for _ in range(5):
+        app.root.update()
+    Runner.busy = False
+    app._batch_sync()
+    app.root.update()
+    assert str(go.cget("text")) == "Generate" and not run.winfo_manager() and not stop_all.winfo_manager()
+    assert var.winfo_manager() == "grid" and str(go.cget("state")) == "normal" and str(var.cget("state")) == "normal"
+    app.v_mode.set("edit")
 
 
 if __name__ == "__main__":

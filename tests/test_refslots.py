@@ -1,3 +1,4 @@
+# tags: multiedit, workflows
 """Multi Image Edit, the logic: the slots (refslots.py), the reference slots of the four edit workflows and the run through
 the bridge with reference images.
 
@@ -193,7 +194,7 @@ def main():
         b.run(req)
         raise SystemExit("Upscale takes no reference images")
     except BridgeError as e:
-        assert "Multi Image Edit" in str(e), e
+        assert "Multi image edit" in str(e), e
     # changing the model rewrites the image names of the prompt: all 4 x 4 combinations, there and back, only real tags
     styles = {k: models.BY_KEY[k].tag_style for k in WF}
     def text_in(style):

@@ -1,3 +1,4 @@
+# tags: undo
 """One history snapshot per run and "Undo AI edit" going back to it.
 
     python tests/test_undo_snapshot.py

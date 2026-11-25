@@ -1,3 +1,4 @@
+# tags: release
 """The setup scripts carry the app name in ONE variable (APP_NAME) that equals pccomfy.appname.APP_NAME, never name
 the old app ("PhotoCraft AI", "photocraft-ai.*") except in the lines that remove the old entries, and remove exactly
 three old entries: the Windows desktop shortcut, the Windows autostart value and the Linux menu entry.

@@ -1,3 +1,4 @@
+# tags: styles, window
 """The Styles button in the real Tk window (hidden): it sits in the middle of the row over the field (Describe Canvas and Save on the left) in every function with a prompt field, and
 the menu starts with the submenu Custom prompts (user 11.11.), a separator and a submenu per group (only where the mode has styles), an entry is ADDED to the prompt after a line break in one undo step (Ctrl+Z takes it away),
 and the hover box shows the whole text. Skipped when Tk cannot open a window.
@@ -7,6 +8,7 @@ and the hover box shows the whole text. Skipped when Tk cannot open a window.
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -184,7 +186,7 @@ def style_box_checks(app, groups):
     t.insert("1.0", "own words")
     g._use("Meadow")
     app.root.update()
-    assert not g.is_open() and text() == "Summer meadow at noon" and app.v_status.get() == ""
+    assert not g.is_open() and text() == "Summer meadow at noon" and app.v_status.get() == "", (g.is_open(), text(), app.v_status.get())
     app._styles_menu()
     app.root.update()
     assert app.style_grid.group == stylegrid.CUSTOM                 # reopens on Custom prompts
@@ -426,6 +428,20 @@ def main():
     cfg["photocraft"]["port"] = 1
     app = gui.App(cfg)
     app.root.withdraw()
+    # the start's look at PhotoCraft and ComfyUI (gui_state.refresh, a thread) puts "Can't connect to PhotoCraft" into
+    # the status line; under load (the full run, 23.11.) it came only during the style checks that expect an empty line:
+    # wait for it, then start from an empty status line. The start sends TWO answers (24.11.): PhotoCraft and ComfyUI
+    # (gui_state.refresh) and the file lists (ui_settings._detect_async, "_detect"); waiting for the first only let the
+    # other one fill the status line later under load
+    seen, real_refresh = set(), app._apply_refresh
+    app._apply_refresh = lambda info: (seen.add("detect" if info.get("_detect") else "state"), real_refresh(info))
+    end = time.monotonic() + 30
+    while seen != {"state", "detect"} and time.monotonic() < end:
+        app.root.update()
+        time.sleep(0.02)
+    del app._apply_refresh
+    assert seen == {"state", "detect"}, f"the start's answers did not come: {seen}"
+    app._status("")
     names = sorted({w for m in models.MODELS for w in m.workflows()})
     app.cb_workflow["values"] = [gui.BUILTIN] + names
     app.v_model.set("flux3")

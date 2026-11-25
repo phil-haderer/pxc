@@ -1,3 +1,4 @@
+# tags: styles, tools
 """docs/stile-uebersicht.md is current (user 21.11.: every style job works from this overview): it equals what
 tools/styles_overview.py writes from pccomfy/assets/styles.json and tools/styles-tests.json, every name in the test log is
 a style of the picker, and a renamed style stops the tool. tools/ and docs/ are private: the check skips where they are missing.

@@ -1,3 +1,4 @@
+# tags: models
 """downloads.py against a local HTTP server: .part file, resume (Range), size and SHA-256, cancel, free space, token hosts.
 
     python tests/test_downloads.py

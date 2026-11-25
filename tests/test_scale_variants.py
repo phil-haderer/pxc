@@ -1,3 +1,4 @@
+# tags: upscale, refine, queue
 """Upscale and Refine with several variants run one after the other (Bridge._run_sequence, user 2.11.): one run per variant
 with its own seed, each result placed as soon as it is done, the layers of Refine grouped at the end.
 

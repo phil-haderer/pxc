@@ -1,3 +1,4 @@
+# tags: moss, prompt
 """The MOSS prompt writer's system prompt is short and for English or German requests (user 21.11., 6A; measured with
 tests/live_writer_short_long.py --run moss-en, docs/tests/schreiber-laengen-ergebnis.md, section 21.11.): 120 to 200 words
 (up to 250 for posters and multi-subject scenes) instead of 220 to 500, no "Chinese" request any more; the rest of the

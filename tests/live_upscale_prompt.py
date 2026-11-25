@@ -1,5 +1,5 @@
 r"""Manual check (not part of run_all.py): P8, a description of the picture in front of the Upscale prompt, with and
-without tiles (user 12.11.; docs/plan-vorschlaege-10-11.md P8, docs/tests/p8-upscale-prompt-testplan.md). GPU: remind
+without tiles (user 12.11.; docs/archiv/plan-vorschlaege-10-11.md P8, docs/archiv/tests/p8-upscale-prompt-testplan.md). GPU: remind
 the user first, start only on his word.
 
 With tiles every tile gets the whole prompt: "a runner on the road" may put a runner into every tile. Does a description

@@ -1,3 +1,4 @@
+# tags: window
 """The gaps follow the interface scale (spacing.py): at the reference scale nothing changes, below it they shrink in the same
 proportion as the text, a value marked Keep is never scaled again, zero stays zero and a gap never vanishes.
 

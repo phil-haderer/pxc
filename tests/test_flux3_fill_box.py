@@ -1,3 +1,4 @@
+# tags: fill, flux3, workflows
 """Fill Selection for Flux 3 through the layout box (plan B step 4; Fill round 5, 11.11.: crop + "Place" 8 of 8 good, all five
 hard cases; the user chose "Place"): no red mark, the selection's bounding box becomes <obj_1> in the crop (the typed text
 is the box's description too), the sentence names the box; the result goes back like Insert reference (the box plus

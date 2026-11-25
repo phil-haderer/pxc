@@ -1,3 +1,4 @@
+# tags: remove, prompt
 """Remove with a named object (user 16.11., docs/tests/remove-name-ergebnis.md): Flux 3 lets its upsampler write the
 instruction for the typed words (E, fixed end), Flux 2 and Fibo put the typed words into sentence D (F); an empty field
 lets the model's text model name the object (sentence D). Qwen keeps its old sentences. Flux 3 needs the upsampler.

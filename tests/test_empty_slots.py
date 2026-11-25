@@ -1,3 +1,4 @@
+# tags: workflows, t2i, fibo
 """Text to image / image to image with the Fibo workflows: slots the mode cannot fill are removed, not an error.
 
     python tests/test_empty_slots.py

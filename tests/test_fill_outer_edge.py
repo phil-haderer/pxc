@@ -1,3 +1,4 @@
+# tags: mask, fill
 """Fill with an instruction editor (Qwen, Fibo), layer mask soft: the fill is fully opaque over the selection and Edge
 feather around it, then fades out smoothly to 0 at the crop's sides inside the picture (Fill mask test round 30.10.,
 option A); Remove keeps its feather across the edge.

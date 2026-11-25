@@ -16,11 +16,11 @@ so every pair differs only in the writer. Fibo has no writer in Sketch and is le
                                                [--sketch-template photo|illustration] [--part a b c d e]
                                                               (resumes in --into; key.json after every picture)
 
-Parts of the round on PC A (docs/sketch-schreiber-plan.md, step 2; --part replaces --only and --sketch-template):
+Parts of the round on PC A (docs/archiv/sketch-schreiber-plan.md, step 2; --part replaces --only and --sketch-template):
 a Qwen 4B (the rest), b Qwen 4B + instruction v2, c Flux 2 4B + instruction v2 with Illustration, d Flux 2 BFL with
 Illustration, e Flux 2 4B + instruction v2 with Photo (c to e on the seven sketches only).
 
-Qwen 9B w4a8 against the upsampler (user 16.11., docs/tests/sketch-schreiber-w4a8-testplan.md): ``--part f g h``,
+Qwen 9B w4a8 against the upsampler (user 16.11., docs/archiv/tests/sketch-schreiber-w4a8-testplan.md): ``--part f g h``,
 f Qwen BFL upsampler, g Qwen 9B w4a8 (only the file of node 401 swapped, loader type and system prompt as built),
 h Qwen 9B w4a8 + instruction v2; Photo for the sketches, Scribble on photo for the photos (3 x 13 = 39 runs).
 
@@ -153,7 +153,7 @@ SAME_TYPE |= {Q9V1, Q9V2, Q9V3, Q9V3B}
 TEMPLATES = {"photo": "Photo", "illustration": "Illustration"}
 TEMPLATE_TEXT = {"Photo": models.SKETCH_PHOTO, "Illustration": models.SKETCH_ILLUSTRATION,
                  "Scribble on photo": models.SKETCH_SCRIBBLE}
-# docs/sketch-schreiber-plan.md, step 2: part -> (model, writer, sketch template, kinds of picture)
+# docs/archiv/sketch-schreiber-plan.md, step 2: part -> (model, writer, sketch template, kinds of picture)
 PARTS = {"a": ("qwen", "qwen3vl 4B", "Photo", ("sketch", "photo")),
          "b": ("qwen", IN4V2, "Photo", ("sketch", "photo")),
          "c": ("flux2", IN4V2, "Illustration", ("sketch",)),
@@ -476,7 +476,7 @@ show();
 def cmd_compare(a):
     """Blind pairs of every writer of --into against the reference writer of --ref (the same pictures and seed): one part
     per writer, sides at random, buttons "besser" / "gleich" and "fehlerfrei gut" under each picture (the rule counts
-    fault-free good pictures, docs/tests/sketch-schreiber-w4a8-testplan.md). Writes blindvergleich.html and the
+    fault-free good pictures, docs/archiv/tests/sketch-schreiber-w4a8-testplan.md). Writes blindvergleich.html and the
     resolution aufloesung.json into --into; the reference pictures are copied there (bilder/ref-*.png)."""
     import html
     out, ref = Path(a.into), Path(a.ref)
@@ -540,7 +540,7 @@ def main():
     ap.add_argument("--sketch-template", default="photo", choices=list(TEMPLATES),
                     help="the template of the sketches (photos with scribbles always run with Scribble on photo)")
     ap.add_argument("--part", nargs="+", choices=list(PARTS),
-                    help="parts of the round on PC A (docs/sketch-schreiber-plan.md); replaces --only and --sketch-template")
+                    help="parts of the round on PC A (docs/archiv/sketch-schreiber-plan.md); replaces --only and --sketch-template")
     a = ap.parse_args()
     if a.cmd == "compare" and not (a.into and a.ref):
         ap.error("compare needs --into and --ref")

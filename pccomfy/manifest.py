@@ -148,7 +148,7 @@ TABS: dict[str, TabSpec] = {
             # 4x UltraSharp is on by default (user 2.11.), so it is a required file: without it Flux 3 would be locked
             "upscale": ModeSpec(requires=("Flux 3\\flux-3-image-klein-restore.safetensors", "4x-UltraSharpV2.safetensors"),
                                 optional=("seedvr2_3b_int8_convrot.safetensors", "seedvr2_ema_vae_fp16.safetensors")),
-            "refine": ModeSpec(),   # the edit graph with the picture rescaled to its own size: no files of its own
+            "refine": ModeSpec(requires=("Flux 3\\flux-3-image-klein-restore.safetensors",)),   # the Restore LoRA of Upscale, on (user 22.11.)
             "multi_edit": _CUT_OWN_LLM,      # no 9B fallback file in the list (user 6.11.)
             "sketch": _SKETCH,
             "scribble": _SKETCH,   # the tab Scribble on photo: the same workflow and files as Sketch (plan B)
@@ -335,7 +335,7 @@ NODE_PACKS = (
     ("ColorMatch", "ComfyUI-KJNodes", "https://github.com/kijai/ComfyUI-KJNodes"),      # Flux 3 Upscale, Flux 2 Upscale (always tiles; locks Flux 2 without the pack) and Fibo Upscale tiles: colours back to your picture
 )
 # GrowMaskWithBlur (KJNodes) and MaskBoundingBox+ (ComfyUI_essentials) were listed here but no workflow uses them (11.11.,
-# docs/plan/befunde-11-11.md section 2); ComfyUI-KJNodes is the only custom node pack (tests/test_upscale_std.py).
+# docs/archiv/befunde-11-11.md section 2); ComfyUI-KJNodes is the only custom node pack (tests/test_upscale_std.py).
 
 
 def node_pack(cls: str) -> tuple[str, str] | None:

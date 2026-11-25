@@ -1,3 +1,4 @@
+# tags: mask, window
 """Edge feather is greyed out whenever no soft layer mask is used (stubbed Tk, no display needed).
 
     python tests/test_feather_state.py

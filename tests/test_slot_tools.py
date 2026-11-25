@@ -1,3 +1,4 @@
+# tags: multiedit, workflows
 """Tools of a reference slot: cut-out of the background and a description by Qwen 3.5 9B: birefnet-remove-bg.json (ComfyUI's own BiRefNet nodes) and Bridge.remove_background.
 
     python tests/test_slot_tools.py

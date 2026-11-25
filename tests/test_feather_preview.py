@@ -1,3 +1,4 @@
+# tags: mask, photocraft
 """Feather preview: the soft edge the next run would get, shown as Quick Mask in PhotoCraft, and the user's selection back.
 
 Against the PhotoCraft simulator (behaviour measured in 0.15.1 and 0.16: Quick Mask on = no selection reported, the

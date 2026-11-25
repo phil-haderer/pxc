@@ -1,3 +1,4 @@
+# tags: release
 """README for humans (5.11.2026): every jump link (#section) points at a real heading, and every file or picture the README
 links to exists in the repo. The quick start, the install sections and the help table must stay in place.
 
@@ -56,9 +57,8 @@ badge_lines = [l for l in text.splitlines() if l.startswith("[![")]
 assert len(badge_lines) >= 4, "the badge block is incomplete"
 assert not re.search(r"badge/tests?-", text, re.I), "no static test-count badge"
 
-# 4. the screenshot is there and not empty
-shot = ROOT / "readme-images" / "plugin-window.png"
-assert shot.exists() and shot.stat().st_size > 10_000 and shot.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+# 4. the window screenshots: the old ones were deleted (user 24.11.: "die alten readme screenshots kannst du inzwischen
+# löschen"); new ones come with the README pictures (docs/plan/readme-bilder.md); every picture linked is checked in 3.
 
 # 5. a placeholder repository is fine until the public repo exists, but no private path or name may sneak in
 private = ("C:\\" + "programs", "Phil" + "ipp", "phil-" + "had" + "erer")     # built from parts: the export scan must not find the names in this file
@@ -79,10 +79,10 @@ assert text.index("<!-- examples:start -->") < text.index("## How it fits togeth
 assert ex.index("<table>") < ex.index('<a href="EXAMPLES.md"><img src="readme-images/all-examples.svg"'), \
     "the button goes below the two main pictures (user 18.11.)"
 assert "Photos: Magnific" not in ex, "no photo credit in the README: the credited photos are only on EXAMPLES.md (user 18.11.)"
-assert "## Features" in text and "**Seven SOTA models:**" in text and "**Six generation modes:**" in text, "Features list"
+assert "## Features" in text and "**Seven SOTA models:**" in text and "**Seven generation modes:**" in text, "Features list"   # Refine and Upscale apart again (22.11.)
 feat = text[text.index("## Features"):text.index("## How it fits together")]
-assert feat.index("**Seven SOTA models:**") < feat.index("**Six generation modes:**"), "the models come first (user 18.11.)"
-assert feat.index("**Six generation modes:**") < feat.index("Style prompt examples"), \
+assert feat.index("**Seven SOTA models:**") < feat.index("**Seven generation modes:**"), "the models come first (user 18.11.)"
+assert feat.index("**Seven generation modes:**") < feat.index("Style prompt examples"), \
     "the style prompt examples stand right above How it fits together (user 18.11.)"
 page = (ROOT / "EXAMPLES.md").read_text(encoding="utf-8")
 pics = re.findall(r'<img src="(readme-images/examples/[^"]+)"', page)
@@ -91,8 +91,8 @@ missing = [x for x in set(pics) if not (ROOT / x).exists()]
 assert not missing, f"EXAMPLES.md pictures missing: {missing}"
 assert "[← Back to the README](README.md)" in page and "Photos: Magnific, Freepik, Pexels" in page
 assert not page.lstrip().startswith("<details>") and "<summary><h2>" not in page, "no outer fold on the examples page"
-order = ["Text to image", "Edit canvas", "Edit canvas › Style prompts (built in)", "Fill Selection", "Remove Selection",
-         "Multi image edit", "Sketch to image", "Scribble on photo", "Scribble with reference", "Expand image"]   # user 18.11.
+order = ["Text to Image", "Edit canvas", "Edit canvas › Style prompts (built in)", "Fill Selection", "Remove Selection",
+         "Multi image edit", "Sketch to image", "Scribble on photo", "Scribble with reference", "Expand Image"]   # user 18.11.
 found = [h for h in re.findall(r"<b>([^<]+)</b>", page) if h in order]
 assert found == [h for h in order if h in found] and len(found) >= 8, f"order of the examples: {found}"
 assert not any(x in page for x in private), "private name on the examples page"
@@ -101,7 +101,7 @@ assert not any(x in page for x in private), "private name on the examples page"
 for target in re.findall(r'srcset="([^"]+)"', text):
     assert (ROOT / target).exists(), f"dark-mode picture missing: {target}"
 assert 'src="readme-images/logo.png"' in text and (ROOT / "readme-images/logo.png").exists(), "logo"   # one picture on the window's grey (18.11.)
-for name in ("text-to-image", "expand", "fill", "remove", "edit", "upscale-refine"):
+for name in ("text-to-image", "expand", "fill", "remove", "edit", "refine", "upscale"):     # two functions again (22.11.)
     assert f'srcset="readme-images/icons/{name}-dark.png"' in text, f"icon {name}"
 
 print("ALL OK (readme links)")

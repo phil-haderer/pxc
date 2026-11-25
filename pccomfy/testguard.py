@@ -47,6 +47,32 @@ def is_test_script() -> bool:
     return False
 
 
+DEAD_PORT = 1           # the tests' "nothing listens here" port for ComfyUI and PhotoCraft (49 test files, 24.11.)
+_LOCAL = {"127.0.0.1", "localhost", "::1"}
+_patched = False
+
+
+def dead_port_fails_fast() -> None:
+    """In a test script, a connection to the local DEAD_PORT fails at once, as it does on Linux. Windows tries a refused
+    local port for about 2 s before it gives up, so every window test that pointed ComfyUI and PhotoCraft at port 1 waited
+    4 s or more per start (tempo plan T5, 24.11.). Same error type (ConnectionRefusedError), so the plugin takes the same
+    path; other ports and the real app are untouched."""
+    global _patched
+    if _patched or not is_test_script():
+        return
+    import socket
+    original = socket.create_connection
+
+    def create_connection(address, *args, **kwargs):
+        host, port = address[0], address[1]
+        if port == DEAD_PORT and str(host).lower() in _LOCAL:
+            raise ConnectionRefusedError(10061, "refused at once (testguard.DEAD_PORT)")
+        return original(address, *args, **kwargs)
+
+    socket.create_connection = create_connection
+    _patched = True
+
+
 def isolate_home() -> None:
     """Called by config before its paths are computed. A test script without PCCOMFY_HOME gets a fresh throw-away folder
     (so a hand run never reads or overwrites the real data/: settings, state, queue). Not for live_*.py (they read the real

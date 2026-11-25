@@ -1,3 +1,4 @@
+# tags: save
 """Save image core (pccomfy/savefile.py, hostos.downloads_dir): name patterns, sanitizing, never overwriting, formats, settings.
 Temp folders only. Run: python tests/test_savefile.py"""
 import datetime as dt

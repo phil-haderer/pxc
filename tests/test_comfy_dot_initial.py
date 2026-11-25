@@ -1,3 +1,4 @@
+# tags: comfy, window, start
 """The ComfyUI dot shows the real state from the first moment (tester 5.11.): the start asks once before the window appears;
 the dot is neither green nor red by assumption. A server that does not answer costs at most the short timeout.
 

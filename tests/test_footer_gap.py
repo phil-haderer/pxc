@@ -1,3 +1,4 @@
+# tags: window
 """The status line between the progress bar and the footer is shown only while it has text (user 8.11., decision D: b):
 empty, it shrinks to 1 px without its gap; with a message (or an error with its red "!") it comes back. The frame itself
 stays packed, because the live preview and the tabs are placed before it. Real Tk window (hidden); skipped without Tk.

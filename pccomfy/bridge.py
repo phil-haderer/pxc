@@ -34,7 +34,7 @@ import numpy as np
 from PIL import Image
 
 from . import __version__, config, fillmask, imaging, inventory, manifest, models, refslots, scribble, variants, workflows
-from .comfy import Cancelled, ComfyUI
+from .comfy import Cancelled, ComfyError, ComfyUI
 from .photocraft import PhotoCraft, PhotoCraftError
 
 MODES = ("inpaint", "remove", "outpaint", "img2img", "edit", "txt2img", "upscale", "refine")
@@ -65,6 +65,16 @@ def graph_models(graph: dict) -> frozenset:
     return frozenset(out)
 
 
+OOM_RETRY = "Out of GPU memory: freeing it and trying again"     # the status line before the one new try (user 25.11.)
+
+
+def is_oom(err: BaseException) -> bool:
+    """True when ComfyUI's error says the GPU ran out of memory (torch.OutOfMemoryError, "Allocation on device ... (out of
+    memory)"; 25.11.: Fibo Sketch ×3, variant 2)."""
+    text = str(err).lower()
+    return "out of memory" in text or "outofmemory" in text
+
+
 def big_job(req: "Request", size: tuple[int, int]) -> bool:
     """A job large enough that leftover models make Fibo run out of memory (choice B of 2a): Refine / Upscale with a result
     from FREE_MIN_MP, a Refine run as Edit (full_size) of that size, Multi Image Edit with FREE_MIN_REFS reference images or
@@ -89,6 +99,16 @@ STAGE_LABELS = (          # (class name prefix, word); the first match wins
     ("CheckpointLoader", "Loading models"), ("LoraLoader", "Loading models"), ("AUSBOSS_NODES_LoraLoader", "Loading models"),
     ("AUSBOSS_NODES_TiledUpscale", "Cutting tiles"),
 )
+
+
+def _accepts(func, name: str) -> bool:
+    """True when `func` takes the keyword argument `name` (or any keyword)."""
+    import inspect
+    try:
+        params = inspect.signature(func).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.name == name or p.kind is inspect.Parameter.VAR_KEYWORD for p in params)
 
 
 def _root_id(node) -> str:
@@ -129,6 +149,8 @@ class Request:
     outpaint: tuple[int, int, int, int] = (0, 0, 0, 0)  # left, top, right, bottom (px)
     overlap: int = 48                    # outpaint overlap onto the existing image (px)
     variants: int = 1
+    one_by_one: bool = False             # ×n one picture after the other, not one batch (Sketch, Scribble, Multi Edit; user
+    #                                      24.11.: a batch needs the VRAM of n pictures at once)
     remove: bool = False                 # "Remove" (the bridge runs it as an inpaint with the removal instruction)
     remove_tries: int = 1                # tries (new seed each) until the object is really gone; 1 = never again by
     #                                      itself (decision of the user 28.10.: generate again by hand, see REMOVE_AGAIN)
@@ -165,7 +187,7 @@ class Request:
     preview: bool = False                # live preview: ComfyUI sends the sampler's frames to Bridge.on_preview (T3a)
     preview_method: str = "taesd"        # the model's preview method (models.Model.preview): "taesd" or "latent2rgb"
     run_no: int = 0                      # running number of this preset's runs (kept by the window)
-    bbox: bool = False                   # Multi Image Edit (Flux 3): the selection is the box <obj_1> (BBOX switch); no selection = a normal run
+    bbox: bool = False                   # Multi Image Edit (Flux 3): the selection is the box <obj_1> (BBOX switch); no selection = no run (user 23.11.)
     fill_box: bool = False               # Fill (Flux 3): the selection's box is <obj_1> in the crop, no red mark (BOX_FILL_PROMPT)
     group_name: str = ""                 # several results: the name of the layer group they go into ("Fill Selection 3");
                                          # empty = "<mode> variants"
@@ -176,6 +198,10 @@ class Request:
 
 
 BBOX_MARGIN = 0.15  # BBOX layer mask: the box grown by this share of its size on every side (user 30.10.: 50 % was far too big; big test: 40 % kept nearly every object whole, 0 % cut larger ones)
+BBOX_NO_SELECTION = "Insert reference needs a selection: draw a rectangle where the object goes."   # no run without one (user 23.11.)
+NO_SELECTION = "Select the area to fill first (e.g. Lasso or Rectangular Marquee)."
+# Quick Mask was on and switching it off left no selection (a marquee drawn in Quick Mask is lost; user 24.11., choice A)
+QUICK_MASK_NO_SELECTION = "Quick Mask was on and held no selection. PxC switched it off: select the area now and start again."
 BBOX_SENTENCE = "Place the result in <obj_1>."   # added to the prompt when BBOX is on and the text has no <obj_1> (user 30.10.)
 # Fill with Flux 3 (plan B step 4, Fill round 5, 11.11.: crop + "Place" 8 of 8 good, all five hard cases; the user's choice):
 # no red mark, the selection's box is the layout box <obj_1> (its description = the typed text), this sentence names it
@@ -215,7 +241,7 @@ def ref_scribble_object(request: str) -> str:
     """The object typed after "scribbles with" (without a leading a / an / the), "" when the text was rewritten."""
     m = re.search(r"scribbles with (.+?)(?:,|\.|$)", request or "")
     name = re.sub(r"^(a|an|the)\s+", "", m.group(1).strip(), flags=re.I) if m else ""
-    return "" if models.REF_MARK in name or refslots.mentions_reference(name) else name
+    return "" if any(k in name for k in (models.REF_MARK,) + models.OLD_REF_MARKS) or refslots.mentions_reference(name) else name
 
 
 def _drop_tags(sentence: str) -> str:
@@ -351,7 +377,7 @@ def soft_layer_mask(req: "Request", wf_paths: list, mask: "Image.Image", region:
 
 def is_editor(wf_paths: list) -> bool:
     """An instruction-based editor (Fibo) that never sees the mask."""
-    return bool(wf_paths[0]) and not any(mask_is_used(json.loads(Path(w).read_text(encoding="utf-8"))) for w in wf_paths)
+    return bool(wf_paths[0]) and not any(mask_is_used(workflows.read_graph(w)) for w in wf_paths)
 
 
 def _where(sel: "imaging.Box", crop: "imaging.Box") -> tuple[str, int]:
@@ -614,6 +640,8 @@ class Job:
     fill: bool = False                        # Fill with an instruction editor: the marked area plus a wrapper around the text
     fill_box: bool = False                    # Flux 3 Fill: the selection's box as <obj_1>, no red mark
     marked: bool = False                      # the crop gets the red outline
+    orig: int = 0                             # the document's index and name when the picture was taken (_run_take)
+    orig_name: str = ""
 
 
 @dataclass
@@ -626,10 +654,17 @@ class Processed:
     req: "Request"
 
 
-class Bridge:
+from .bridge_tools import BridgeToolsMixin  # noqa: E402  (after the names it takes from here, see bridge_tools.py)
+
+
+class Bridge(BridgeToolsMixin):
     def __init__(self, pc: PhotoCraft, comfy: ComfyUI, exchange_dir: str | Path, keep_files: bool = False):
         self._seq_src = None     # (picture, mask) of the first variant while variants run one after the other
         self._variant_no = None  # (k from 1, n) of the variant that runs now in that case; sent to ComfyUI (queue windows)
+        # the same run, one entry per variant (user 24.11. evening, choice C): {"status": waiting|running|done|cancelled|error,
+        # "t0", "t1"}; the queue window shows a row for each, and its ✕ on a waiting one skips that variant (skip_variant)
+        self.seq_rows: list[dict] = []
+        self._seq_written = ""   # what the writer wrote for variant 1: the later variants take it (user 24.11.: "nur 1x")
         self.pc = pc
         self.comfy = comfy
         try:     # the connection log (comfy.ComfyUI._log) lives next to runs.jsonl
@@ -647,8 +682,12 @@ class Bridge:
         self._written: dict[str, str] = {}
         self._scribble_layer = None      # Scribble on photo: the id of the scribble layer found on top (hidden after the run)
         self._cancel = threading.Event()
+        # one at a time talks to PhotoCraft's documents (docs/plan/generate-queue.md): the run's export and placing, and the
+        # queue's snapshot of a picture taken while a run is on (jobqueue.QueueRunner uses this lock); not held at ComfyUI
+        self.pc_lock = threading.RLock()
         self._cancel_all = threading.Event()    # "Cancel all": stops the variants and comparison runs that would follow too
         self.on_preview = None                  # the window's callback for live preview frames (PIL images), see Request.preview
+        self.on_taken = None                    # called once with (picture, index, name) when a run has exported its picture
         self._tmp: list[Path] = []
         self._snap: dict | None = None          # history snapshot taken before the last generation (for "Undo AI edit")
         self._snap_error = ""
@@ -662,6 +701,15 @@ class Bridge:
     def cancel(self) -> None:
         """Cancel the run that is on now; variants / comparison runs that follow one after the other still go on."""
         self._cancel.set()
+
+    def skip_variant(self, k: int) -> bool:
+        """✕ on a waiting variant in the queue window (user 24.11. evening, choice C): variant k (from 1) of the run that
+        goes one after the other does not start; the others go on. False when it is not waiting (any more)."""
+        rows = getattr(self, "seq_rows", None) or []
+        if 1 <= k <= len(rows) and rows[k - 1]["status"] == "waiting":
+            rows[k - 1]["status"] = "cancelled"
+            return True
+        return False
 
     def cancel_all(self) -> None:
         """Cancel the run that is on now and every one that follows it."""
@@ -682,7 +730,7 @@ class Bridge:
         self._cancel.clear()
         req, p, tag = self.begin(req)
         try:
-            if req.mode in SCALE_MODES and int(req.variants) > 1:
+            if (req.mode in SCALE_MODES or req.one_by_one) and int(req.variants) > 1:
                 return self._run_sequence(req, p, tag, progress)
             return self._run(req, p, tag, progress)
         except PhotoCraftError as e:
@@ -699,11 +747,15 @@ class Bridge:
         if req.mode == "remove":
             req = dataclasses.replace(req, mode="inpaint", remove=True)
         p = req.params
+        for old in models.OLD_REF_MARKS:     # a prompt saved before 22.11.
+            p.prompt = (p.prompt or "").replace(old, models.REF_MARK)
+        if req.scribble and req.refs and models.REF_MARK in (p.prompt or ""):
+            # Reference at scribble: the object was not typed in (user 15.11.); checked before sketch_text, which would turn
+            # the mark (SUBJECT, the same as Scribble on photo since 22.11.) into "what they show"
+            raise BridgeError(models.REF_MARK_LEFT)
         p.prompt = strip_placeholder(sketch_text(p.prompt))   # the unedited "<DESCRIBE THE IMAGE>" of a preset is no instruction
         if req.scribble and req.mode != "edit":
             raise BridgeError("Scribble on photo runs as a whole-picture edit.")
-        if req.scribble and req.refs and models.REF_MARK in p.prompt:
-            raise BridgeError(models.REF_MARK_LEFT)       # Reference at scribble: the object was not typed in (user 15.11.)
         if p.seed is None or p.seed < 0:
             p.seed = random.randint(0, 10**8 - 1)      # at most 8 digits: it fits the seed field
         if p.writer_seed is None or p.writer_seed < 0:
@@ -715,27 +767,28 @@ class Bridge:
         self._scribble_layer = None
         if req.refs:
             if req.mode not in REF_MODES:
-                raise BridgeError("Reference images work in the mode Multi Image Edit.")
+                raise BridgeError("Reference images work in the mode Multi image edit.")
             slots = [workflows.ref_slot_count(workflows.load_template(w)) for w in _wfs if w]
             if not req.workflow or not slots or min(slots) < len(req.refs):
                 raise BridgeError(f"This model's workflow has room for {min(slots) if slots else 0} reference image(s), "
                                   f"{len(req.refs)} are in the slots.")
         if req.mode in SCALE_MODES:
             if not (req.workflow and all(workflows.has_upscale_slot(workflows.load_template(w)) for w in _wfs)):
-                raise BridgeError("Upscale and Refine need a workflow that sets the result's size (a node titled "
+                raise BridgeError("Upscale and Refine Image need a workflow that sets the result's size (a node titled "
                                   "pc:upscale), e.g. flux3-klein-upscale.json.")
             if req.mode == "upscale" and not 1.0 <= float(req.scale) <= 8.0:
                 raise BridgeError("Upscale factor: between 1 and 8.")
         if req.enhance and req.mode not in SCALE_MODES and not p.prompt.strip() and not self._kind(req, p, _wfs):
             for w in _wfs:
-                if w and prompt_phase_nodes(json.loads(Path(w).read_text(encoding="utf-8"))):
+                if w and prompt_phase_nodes(workflows.read_graph(w)):
                     raise BridgeError("Type an instruction first: this workflow's text model writes the prompt from it "
                                       "(e.g. \"a large helicopter on the meadow\"). An empty one gives an arbitrary image.")
         return req, p, tag
 
     def _run_sequence(self, req: Request, p: workflows.GenParams, tag: str, progress: Progress) -> dict:
-        """Upscale and Refine with several variants (user 2.11.): one after the other, each with its own seed, instead of one
-        batch (the tiled graphs have no batch and a batch would need the VRAM n times). Every result is placed in PhotoCraft as
+        """Upscale and Refine with several variants (user 2.11.), and Sketch, Scribble and Multi Edit (user 24.11., choice A:
+        "nacheinander"): one after the other, each with its own seed, instead of one batch (the tiled graphs have no batch
+        and a batch would need the VRAM n times). Variant 2 and later take the picture, selection and scribble of variant 1. Every result is placed in PhotoCraft as
         soon as it is done: Upscale opens it as a new document, Refine puts it on top as a layer (the one before is hidden).
         After the last one the layers go into one group, as with the other functions."""
         n = max(1, int(req.variants))
@@ -743,13 +796,23 @@ class Bridge:
         sess = self.pc.connect().session()
         orig_name = sess["documents"][sess["active"]]["name"] if sess.get("active") is not None else ""
         self._seq_src = None
+        self._seq_written = ""
+        rows = self.seq_rows = [{"status": "waiting", "t0": None, "t1": None} for _ in range(n)]
         results: list[dict] = []
         layers: list = []          # newest first (the top of the stack)
         try:
             skipped = 0
             for v in range(n):
                 if self._cancel_all.is_set():
+                    for r in rows[v:]:
+                        if r["status"] == "waiting":
+                            r["status"] = "cancelled"
                     raise Cancelled()
+                if rows[v]["status"] == "cancelled":     # its ✕ in the queue window: this variant is left out
+                    skipped += 1
+                    if v == n - 1 and not results:
+                        raise Cancelled()
+                    continue
                 self._cancel.clear()      # "Cancel" only ends the variant that was on: the next one starts normally
 
                 def sub(f, msg="", v=v, **kw):
@@ -759,23 +822,35 @@ class Bridge:
                     self._activate_doc(orig_name)
                 pv = dataclasses.replace(p, seed=(first_seed + 7919 * v) % (2**31), batch=1)
                 self._variant_no = (v + 1, n)    # "variant k of n" in every queue window (process_image sends it)
+                rows[v].update(status="running", t0=time.time())
                 try:
                     res = self._run(dataclasses.replace(req, variants=1), pv, f"{tag}{v}", sub, seq=(v, n))
                 except Cancelled:
+                    rows[v].update(status="cancelled", t1=time.time())
                     if self._cancel_all.is_set() or v == n - 1 and not results:
                         raise
                     skipped += 1          # this variant is dropped, the others go on
                     continue
+                except Exception:
+                    rows[v].update(status="error", t1=time.time())
+                    raise
+                rows[v].update(status="done", t1=time.time())
+                if not self._seq_written:
+                    self._seq_written = self.last_vgl or ""
                 results.append(res)
                 if v and layers and res["layers"]:
                     self._try("layer.hideLayers", {"layer": layers[0]})    # the new result is the visible one on top
                 layers = list(res["layers"]) + layers
         finally:
             self._seq_src = None
+            self._seq_written = ""
             self._variant_no = None
+            for r in rows:                  # an error ended the run: what had not started does not start any more
+                if r["status"] == "waiting":
+                    r["status"] = "cancelled"
             group = None
-            if len(layers) > 1 and req.mode == "refine":
-                group = self._group(layers, req.group_name or "AI refine variants")
+            if len(layers) > 1 and req.mode != "upscale":        # Upscale: new documents, nothing to group
+                group = self._group(layers, req.group_name or f"AI {req.mode} variants")
         last = results[-1] if results else {}
         out = dict(last, seed=first_seed, layers=layers, group=group)
         if req.mode == "upscale":
@@ -792,7 +867,7 @@ class Bridge:
             if req.remove:
                 raise BridgeError("Remove Selection needs an instruction-editor workflow (Fibo, Qwen, Flux Klein).")
             return ""
-        editor = not any(mask_is_used(json.loads(Path(w).read_text(encoding="utf-8"))) for w in wfs)
+        editor = not any(mask_is_used(workflows.read_graph(w)) for w in wfs)
         if req.remove:
             if not editor:
                 raise BridgeError("Remove Selection needs an instruction-editor workflow, this one uses the mask to inpaint.")
@@ -850,7 +925,7 @@ class Bridge:
         finally:
             self.comfy.close_events(ws)
 
-    def _wait(self, prompt_id, graph, wf, start, span, suffix, progress, on_preview=None, ws=None):
+    def _wait(self, prompt_id, graph, wf, start, span, suffix, progress, on_preview=None, ws=None, on_output=None):
         """comfy.wait with the work split in "prompt" (text model) and "image" (the image model), each with its
         own fraction, elapsed time and, once a run has been timed, an estimate for the text phase."""
         writer = prompt_phase_nodes(graph)
@@ -861,12 +936,22 @@ class Bridge:
         marks = {"phase": None, "since": t0, "prompt_secs": None, "node": None, "node_since": t0, "tiles": 0}
         sampler = workflows.main_sampler(graph)
 
+        trail = []          # the nodes ComfyUI reported, in order, with how often in a row: "403x40 8 10x21" (comfy-net.log)
+
         def on(f, msg, node=None):
             now = time.monotonic()
+            if trail and trail[-1][0] == node:
+                trail[-1][1] += 1
+            else:
+                trail.append([node, 1])
             if node != marks["node"]:                 # ComfyUI moved on to another node
                 marks["node"], marks["node_since"] = node, now
-                if node is not None and sampler is not None and _root_id(node) == sampler:
-                    marks["tiles"] += 1               # the sampler is entered again for every tile of a tiled upscale
+            if f >= 0 and node is not None and sampler is not None and _root_id(node) == sampler:
+                # a new tile only when the sampler starts again from the beginning (its step falls back): every tile of
+                # a tiled upscale does; a node that reports in between does not ("tile 2" in Qwen Sketch, user 25.11.)
+                if marks.get("sf") is None or f < marks["sf"]:
+                    marks["tiles"] += 1
+                marks["sf"] = f
             stage = stage_label(graph, node) if now - marks["node_since"] >= STAGE_AFTER_S else ""
             if writer and node in after and marks["prompt_secs"] is None:
                 marks["prompt_secs"] = now - t0
@@ -899,7 +984,20 @@ class Bridge:
         kw = {"on_preview": on_preview} if on_preview is not None else {}
         if ws is not None:
             kw["ws"] = ws
-        return self.comfy.wait(prompt_id, on_progress=on, cancelled=self._cancel.is_set, **kw)
+        if on_output is not None and _accepts(self.comfy.wait, "on_output"):     # (a test's fake ComfyUI may not take it)
+            kw["on_output"] = on_output
+        try:
+            return self.comfy.wait(prompt_id, on_progress=on, cancelled=self._cancel.is_set, **kw)
+        finally:
+            # which nodes reported in which order, and the tile count: to find where a "tile 2" without tiles comes from
+            # (Qwen Sketch after a stopped run, window test 25.11.)
+            log = getattr(self.comfy, "_log", None)
+            if callable(log):
+                try:
+                    log("wait_nodes", prompt=str(prompt_id)[:8], sampler=sampler, tiles=marks["tiles"],
+                        nodes=" ".join(f"{n}x{c}" if c > 1 else str(n) for n, c in trail[-60:]))
+                except Exception:
+                    pass
 
     @staticmethod
     def _auto_stages(req: Request, wf: str, mp: float) -> Request:
@@ -917,10 +1015,27 @@ class Bridge:
     def _run(self, req: Request, p: workflows.GenParams, tag: str, progress: Progress, seq: tuple | None = None) -> dict:
         """seq = (k, n): this is variant k (from 0) of n that run one after the other (_run_sequence).
         Three parts (docs/plan/speichern-queue-batch.md, step 2): the picture and the selection from PhotoCraft (here),
-        process_image (ComfyUI only, also usable without PhotoCraft) and _place (the results back into PhotoCraft)."""
+        process_image (ComfyUI only, also usable without PhotoCraft) and _place (the results back into PhotoCraft).
+        The PhotoCraft parts hold pc_lock (a picture queued meanwhile is taken between them, never in the middle)."""
+        lock = self._pc_lock()
+        with lock:
+            req, p, job = self._run_take(req, p, tag, progress, seq)
+        out = self.process_image(req, p, job.src, tag=tag, progress=progress, job=job)
+        with lock:
+            return self._place(req, p, out, job.orig, job.orig_name, tag, progress, seq)
+
+    def _pc_lock(self):
+        lock = getattr(self, "pc_lock", None)
+        if lock is None:            # a Bridge made without __init__ (tests)
+            lock = self.pc_lock = threading.RLock()
+        return lock
+
+    def _run_take(self, req: Request, p: workflows.GenParams, tag: str, progress: Progress, seq: tuple | None):
+        """The first part of _run: the picture, the selection and the scribble from PhotoCraft, planned for process_image."""
         pc = self.pc.connect()
         if self._preview:   # the feather preview is still shown: the user's own selection comes back before the run
             self.hide_feather()
+        quick = self._quick_mask_off()      # before the snapshot and the selection checks: the selection is what the run uses
         sess = pc.session()
         orig = sess.get("active")
         if orig is None:
@@ -929,6 +1044,8 @@ class Bridge:
         if req.mode != "upscale" and not (seq and seq[0]):   # Upscale only opens a new document: nothing to undo in this one; one snapshot for all variants
             self._snapshot(orig_name)   # one click back to here, however many history steps the run adds
         doc = pc.document()
+        if req.bbox and req.mode == "edit" and not doc.get("hasSelection"):
+            raise BridgeError(BBOX_NO_SELECTION)       # Insert reference without a selection: no run (user 23.11.; was a plain edit)
         box_sel = bool(req.bbox and req.mode == "edit" and doc.get("hasSelection"))   # BBOX: the selection stays, it is the box
         if req.mode in ("edit", "txt2img") and doc.get("hasSelection") and not box_sel:
             pc.execute("select.all")     # these work on the whole picture: show it (the selection is then the whole canvas)
@@ -942,26 +1059,37 @@ class Bridge:
         W, H = doc["width"], doc["height"]
         has_sel = bool(doc.get("hasSelection")) and req.mode not in ("edit", "txt2img", "refine", "upscale")   # these work on the whole canvas, a selection is ignored (Refine since 1.11., Upscale since 6.11., user)
         if req.mode == "inpaint" and not has_sel:
-            raise BridgeError("Select the area to fill first (e.g. Lasso or Rectangular Marquee).")
+            raise BridgeError(QUICK_MASK_NO_SELECTION if quick else NO_SELECTION)
         wf_paths = workflows.resolve(req.workflow) if req.workflow else [None]
         editor = self._check_mode(req, p, wf_paths)
 
         src = mask = found = None
         if req.mode != "txt2img" or has_sel:
             if seq and seq[0] and self._seq_src is not None:
-                src, mask = self._seq_src      # variant 2 and later: the picture of variant 1, not one with its result in it
+                src, mask = self._seq_src[:2]  # variant 2 and later: the picture of variant 1, not one with its result in it
             else:
                 progress(0.05, "Exporting the image from PhotoCraft", phase="prepare")
                 src, mask = self._export(orig, tag, need_mask=has_sel or box_sel)
                 self._seq_src = (src, mask) if seq else None
-            if req.scribble:
+                taken, self.on_taken = getattr(self, "on_taken", None), None
+                if taken is not None:       # the variants of this run in the queue take this picture (no second export)
+                    try:
+                        taken(src, orig, orig_name)
+                    except Exception:
+                        pass
+            if req.scribble and seq and seq[0] and self._seq_src is not None and len(self._seq_src) > 2:
+                found = self._seq_src[2]       # variant 2 and later: variant 1's result is on top now, not the scribble
+                self._scribble_layer = self._seq_src[3]
+            elif req.scribble:
                 progress(0.07, "Finding the scribble", phase="prepare")
                 found = self._find_scribble(orig, tag, src)
                 if found is None:
                     raise BridgeError(models.NO_SCRIBBLE)
+                if seq and self._seq_src is not None:
+                    self._seq_src = (*self._seq_src[:2], found, self._scribble_layer)
         req, job = self._plan(req, p, src, mask, (W, H), wf_paths, editor, has_sel, box_sel=box_sel, keep=keep, found=found)
-        out = self.process_image(req, p, job.src, tag=tag, progress=progress, job=job)
-        return self._place(req, p, out, orig, orig_name, tag, progress, seq)
+        job.orig, job.orig_name = orig, orig_name
+        return req, p, job
 
     @staticmethod
     def _check_mode(req: Request, p: workflows.GenParams, wf_paths: list) -> bool:
@@ -995,9 +1123,10 @@ class Bridge:
             if box_sel:
                 obj = imaging.mask_bbox(mask)
                 mask = None
-                if obj is not None:
-                    layout = ((obj.x, obj.y, obj.w, obj.h), (W, H))
-                    obj_box = obj
+                if obj is None:
+                    raise BridgeError("The selection is empty.")
+                layout = ((obj.x, obj.y, obj.w, obj.h), (W, H))
+                obj_box = obj
             if keep is not None:
                 if editor:
                     grey = any(grey_outpaint(w) for w in wf_paths)
@@ -1074,13 +1203,13 @@ class Bridge:
         tag = tag or uuid.uuid4().hex[:8]
         if job is None:
             if req.mode == "outpaint" or req.scribble:
-                raise BridgeError("Expand and Scribble on photo find their area in the PhotoCraft document: they run from PhotoCraft only.")
+                raise BridgeError("Expand Image and Scribble on photo find their area in the PhotoCraft document: they run from PhotoCraft only.")
             if src is None:
                 raise BridgeError("process_image needs a picture.")
             wf_paths = workflows.resolve(req.workflow) if req.workflow else [None]
             has_sel = mask is not None and req.mode not in ("edit", "txt2img", "refine", "upscale")
             if req.mode == "inpaint" and not has_sel:
-                raise BridgeError("Select the area to fill first (e.g. Lasso or Rectangular Marquee).")
+                raise BridgeError(NO_SELECTION)
             editor = self._check_mode(req, p, wf_paths)
             box_sel = bool(req.bbox and req.mode == "edit" and mask is not None)
             mask = mask.convert("L") if (mask is not None and (has_sel or box_sel)) else None
@@ -1091,7 +1220,7 @@ class Bridge:
         progress(0.1, f"Sending to ComfyUI ({gw}×{gh})", phase="prepare")
 
         image_name = mask_name = None
-        if req.mode == "txt2img" and wf_paths[0] and any(has_tag(json.loads(Path(w).read_text(encoding="utf-8")), "image") for w in wf_paths):
+        if req.mode == "txt2img" and wf_paths[0] and any(has_tag(workflows.read_graph(w), "image") for w in wf_paths):
             # an instruction editor (Qwen) as text-to-image: it needs a picture, an empty white canvas of the result's size,
             # not the document (it would copy things from it)
             image_name = self.comfy.upload_image(Image.new("RGB", (gw, gh), "white"), f"pcc-{tag}-image.png")
@@ -1111,7 +1240,7 @@ class Bridge:
             ref_name = [self.comfy.upload_image(refslots.prepare_image(im, mult, req.ref_side, max_mp=ref_mp), f"pcc-{tag}-ref{n + 1}.png")
                         for n, im in enumerate(req.refs)]
         # a workflow without a pc:mask node (the Flux 2/3 Klein edit ones) gets the instruction only, no mask
-        wf_mask_node = (not wf_paths[0]) or any(has_tag(json.loads(Path(w).read_text(encoding="utf-8")), "mask") for w in wf_paths if w)
+        wf_mask_node = (not wf_paths[0]) or any(has_tag(workflows.read_graph(w), "mask") for w in wf_paths if w)
         if req.mode in ("inpaint", "outpaint") and wf_mask_node:
             m = imaging.prepare_mask(mask.crop(region.pil()), req.mask_grow, req.mask_blur)
             m = m.resize((gw, gh), Image.BILINEAR)
@@ -1150,6 +1279,10 @@ class Bridge:
                 graph, out_node = self._graph(req, gp, image_name, mask_name, wf, ref_name, force_plain=marked and not (fill and req.enhance and prompt_phase_nodes(workflows.load_template(wf))), layout=layout)
                 wkey = workflows.writer_key(graph, getattr(self.comfy, "upload_hashes", None)) if req.enhance else ""
                 kept = self._written.get(wkey) if wkey else None
+                if kept is None and wkey and (getattr(self, "_variant_no", None) or (1, 1))[0] > 1 and getattr(self, "_seq_written", ""):
+                    # variant 2 and later of ×n (user 24.11.: "es soll nur 1x geschrieben werden"): the text variant 1's writer
+                    # wrote, even when the key missed (the window test of 24.11. wrote three times)
+                    kept = self._seq_written
                 if kept is not None:          # written before for the same key: no writing again (user 20.11.)
                     graph = workflows.use_written(graph, kept)
                 self._save_graph(graph)
@@ -1159,27 +1292,45 @@ class Bridge:
                 live = req.preview and self.on_preview is not None
                 # "taesd": the model's TAESD file when it is installed, else ComfyUI's coarse latent2rgb colours;
                 # "latent2rgb" for a model whose TAE file can break the run (MiniMax, models.Model.preview)
-                ws = self.comfy.open_events()      # before the job is queued: no early message is lost
-                try:
-                    # the number of pictures goes along: every queue window on the network shows it (18.11.)
-                    info = getattr(self.comfy, "run_info", None)
-                    with (info(images=int(gp.batch or 1), variant=getattr(self, "_variant_no", None)) if info
-                          else contextlib.nullcontext()):
-                        prompt_id = self.comfy.queue(graph, preview=req.preview_method or "taesd") if live else self.comfy.queue(graph)
-                    self._last_models = graph_models(graph)
-                    progress(start, f"Queued in ComfyUI ({self.pipeline}{suffix})" if not attempt
-                             else f"Object still there, trying again ({attempt + 1}/{tries})", phase="prepare")
-                    hist = self._wait(prompt_id, graph, wf, start, span, suffix, progress,
-                                      on_preview=self.on_preview if live else None, ws=ws)
-                finally:
-                    self.comfy.close_events(ws)
+                def send(graph=graph, gp=gp, attempt=attempt, wkey=wkey, kept=kept, start=start, span=span, live=live):
+                    ws = self.comfy.open_events()      # before the job is queued: no early message is lost
+                    try:
+                        # the number of pictures goes along: every queue window on the network shows it (18.11.)
+                        info = getattr(self.comfy, "run_info", None)
+                        with (info(images=int(gp.batch or 1), variant=getattr(self, "_variant_no", None)) if info
+                              else contextlib.nullcontext()):
+                            prompt_id = self.comfy.queue(graph, preview=req.preview_method or "taesd") if live else self.comfy.queue(graph)
+                        self._last_models = graph_models(graph)
+                        progress(start, f"Queued in ComfyUI ({self.pipeline}{suffix})" if not attempt
+                                 else f"Object still there, trying again ({attempt + 1}/{tries})", phase="prepare")
+                        early: dict[str, str] = {}
+                        vgl_ids = self._vgl_nodes(graph) if (wkey and kept is None) else set()
+
+                        def on_output(node, out):
+                            if node in vgl_ids and out.get("text"):
+                                early["vgl"] = "\n".join(str(t) for t in out["text"])
+
+                        try:
+                            return self._wait(prompt_id, graph, wf, start, span, suffix, progress,
+                                              on_preview=self.on_preview if live else None, ws=ws,
+                                              on_output=on_output if vgl_ids else None)
+                        except Cancelled:
+                            # stopped after the writer was done (user 25.11.): its text is kept all the same, so the
+                            # next variant and a new run with the same picture and request do not write again
+                            if early.get("vgl"):
+                                self._keep_written(wkey, early["vgl"])
+                                if getattr(self, "_variant_no", None) and not getattr(self, "_seq_written", ""):
+                                    self._seq_written = early["vgl"]
+                            raise
+                    finally:
+                        self.comfy.close_events(ws)
+
+                hist = self._retry_after_oom(send, progress, start)
                 vgl = kept if kept is not None else self._vgl_text(graph, hist)
                 if vgl:
                     self.last_vgl = vgl
                     if wkey and kept is None:
-                        if len(self._written) >= 64:
-                            self._written.pop(next(iter(self._written)))
-                        self._written[wkey] = vgl
+                        self._keep_written(wkey, vgl)
                 ims = self.comfy.output_images(hist, out_node)[: max(1, req.variants)]
                 if tries == 1 or not ims:
                     break
@@ -1199,6 +1350,32 @@ class Bridge:
             results = [(lb, [Image.blend(plain.resize(im.size, Image.LANCZOS), im.convert("RGB"), max(0.0, req.detail)) for im in ims])
                        for lb, ims in results]
         return Processed(results=results, crop_plain=crop_plain, job=job, req=req)
+
+    def _retry_after_oom(self, send, progress: Progress, start: float) -> dict:
+        """send() once more after ComfyUI ran out of GPU memory (user 25.11., "alles"): first ComfyUI's /free and a short
+        pause, then the same graph again. A second OOM, a failed /free or Stop end the run as before."""
+        try:
+            return send()
+        except ComfyError as e:
+            log = getattr(self.comfy, "_log", None) or (lambda *a, **k: None)
+            log("run_error", oom=is_oom(e), cancel=self._cancel.is_set(), error=str(e)[:120].replace("\n", " "))
+            if not is_oom(e) or self._cancel.is_set():
+                raise
+            progress(start, OOM_RETRY, phase="prepare")
+            try:
+                self.comfy.free_memory()
+            except Exception as f:      # noqa: BLE001 (no /free: the error of the run is the one to show)
+                log("oom_free_failed", error=repr(f)[:160])
+                raise e from None
+            log("oom_retry")
+            self._last_models = frozenset()
+            self.oom_retries = getattr(self, "oom_retries", 0) + 1
+            end = time.monotonic() + FREE_PAUSE_S
+            while time.monotonic() < end and not self._cancel.is_set():
+                time.sleep(0.1)
+            if self._cancel.is_set():
+                raise Cancelled() from None
+            return send()
 
     def _free_if_needed(self, req: Request, size: tuple[int, int], wf, graph: dict, progress: Progress, start: float) -> bool:
         """Choice C of 2a (user 13.11.): before a Fibo run, ComfyUI's /free when other models may still be loaded AND the job
@@ -1330,288 +1507,41 @@ class Bridge:
         if seam is not None:
             self._log_seam(req, p.seed, seam)
         if found is not None and found.how == "layer" and self._scribble_layer is not None:
-            self._try("layer.hideLayers", {"layer": self._scribble_layer})     # the scribble layer is hidden after the run (user 9.11.)
+            # the scribble layer is hidden after the run (user 9.11.); only when it still shows: hideLayers may toggle, and
+            # the second of two queued Scribble jobs on the same scribble finds it hidden already (generate-queue step 4)
+            if self._layer_states(self.pc.document().get("layers")).get(self._scribble_layer) is not False:
+                self._try("layer.hideLayers", {"layer": self._scribble_layer})
         progress(1.0, f"Done (seed {p.seed})", phase="place")
         return {"seed": p.seed, "vgl": self.last_vgl, "layers": layers, "region": region.__dict__, "size": [gw, gh], "pipeline": self.pipeline,
-                "group": group, "seam": None if req.seam_fixed else seam, "scribble": found.how if found is not None else ""}   # always on: the number only in runs.jsonl
-
-    # ---------- feather preview ----------
-
-    @property
-    def feather_shown(self) -> bool:
-        return self._preview is not None
-
-    def show_feather(self, req: Request) -> str:
-        """Feather preview: the layer mask the next run would give its result (the same computation), shown in PhotoCraft
-        in Quick Mask mode: red where the picture stays, the soft edge as a gradient. The user's selection is saved in a
-        channel first and comes back with hide_feather (also at the start of the next run). Called again while it is
-        shown (the slider moved), it only computes the mask anew: no second export."""
-        pc = self.pc.connect()
-        if req.mode == "remove":
-            req = dataclasses.replace(req, mode="inpaint", remove=True)
-        sess = pc.session()
-        orig = sess.get("active")
-        if orig is None:
-            raise BridgeError("Open a document in PhotoCraft first.")
-        name = sess["documents"][orig]["name"]
-        if self._preview and (self._preview["doc"], self._preview.get("index")) != (name, orig):
-            self.hide_feather()      # another document is active now (two may share a name): end the old preview
-        tag = uuid.uuid4().hex[:8]
-        try:
-            if self._preview:
-                mask = self._preview["mask"]
-                pc.execute("select.editInQuickMaskMode", {"on": False})
-            else:
-                if not pc.document().get("hasSelection"):
-                    raise BridgeError("Select an area first: the preview shows the soft edge the result gets there.")
-                _, mask = self._export(orig, tag, need_mask=True)
-                if imaging.mask_bbox(mask) is None:
-                    raise BridgeError("The selection is empty.")
-                channel = f"pccomfy-preview-{tag}"
-                pc.execute("select.saveSelection", {"name": channel})
-                self._preview = {"doc": name, "index": orig, "channel": channel, "mask": mask}
-            W, H = mask.size
-            bbox = imaging.mask_bbox(mask)
-            region = imaging.grow_box(bbox, (W, H), req.context) if req.mode in ("inpaint", "outpaint") else bbox
-            wf_paths = workflows.resolve(req.workflow) if req.workflow else [None]
-            lm_mode = effective_layer_mask(req.layer_mask, req.mode, is_editor(wf_paths), True)
-            if req.bbox and req.mode == "edit":      # BBOX: the result is the whole canvas, the box (grown) is where it counts
-                region = imaging.Box(0, 0, W, H)
-                if lm_mode == "soft":
-                    shown = imaging.box_margin_mask(bbox, (W, H), BBOX_MARGIN, req.feather_pct, outside=True)
-                elif lm_mode == "selection":
-                    shown = mask
-                else:
-                    shown = Image.new("L", (W, H), 255)
-            elif lm_mode == "soft" and req.fill_box and req.mode == "inpaint":    # Flux 3 Fill: the box plus a margin
-                shown = imaging.box_margin_mask(bbox, (W, H), BBOX_MARGIN, req.feather_pct).crop(region.pil())
-            elif lm_mode == "soft":
-                shown = soft_layer_mask(req, wf_paths, mask, region, bbox)
-            elif lm_mode == "selection":
-                shown = mask.crop(region.pil())
-            else:   # no layer mask: the result covers its whole rectangle
-                shown = Image.new("L", (region.w, region.h), 255)
-            helper_im = Image.new("RGBA", shown.size, (255, 255, 255, 0))
-            helper_im.putalpha(shown.convert("L"))
-            active = pc.document().get("activeLayer")
-            helper = self._place_png(orig, helper_im, region, tag, "feather")
-            try:
-                pc.execute("select.loadSelection", {"channel": "transparency", "layer": helper})
-            finally:
-                self._try("layer.delete", {"layer": helper})
-                if active is not None:
-                    self._try("layer.select", {"layer": active})
-            pc.execute("select.editInQuickMaskMode", {"on": True})
-        except Exception:
-            if self._preview:   # never leave the user with a changed selection
-                try:
-                    self.hide_feather()
-                except (BridgeError, PhotoCraftError):
-                    pass
-            raise
-        finally:
-            self._cleanup()
-        what = {"soft": "Soft edge", "selection": "Hard edge (layer mask: hard)", "none": "No layer mask: the whole rectangle"}
-        return f"{what.get(lm_mode, 'Edge')} shown in red in PhotoCraft. Hide feather or Generate brings your selection back."
-
-    def hide_feather(self) -> str:
-        """End the feather preview: Quick Mask off, the user's selection back from its channel, the channel deleted. The
-        document that is active stays active."""
-        prev, self._preview = self._preview, None
-        if not prev:
-            return ""
-        pc = self.pc.connect()
-        sess = pc.session()
-        current = sess.get("active")
-        # the document by its place first, then by name; several open documents may share a name ("Untitled-1"):
-        # the one that really holds the saved selection is it (live finding 28.10.: the first one was taken, the run
-        # broke off and the saved selection stayed behind as a channel)
-        same = [d["index"] for d in sess.get("documents", []) if d["name"] == prev["doc"]]
-        order = ([prev["index"]] if prev.get("index") in same else []) + [i for i in same if i != prev.get("index")]
-        doc = None
-        for i in order:
-            if i != current:
-                pc.activate(i)
-            try:
-                names = [c.get("name") for c in pc.document().get("channels", {}).get("alpha", []) if isinstance(c, dict)]
-            except (PhotoCraftError, AttributeError, TypeError):
-                names = []
-            if prev["channel"] in names:
-                doc = i
-                break
-            if i != current:
-                pc.activate(current)
-        if doc is None:
-            return "Feather preview ended (its document was closed)."
-        try:
-            self._try("select.editInQuickMaskMode", {"on": False})
-            try:
-                pc.execute("select.loadSelection", {"channel": prev["channel"]})
-            except PhotoCraftError as e:
-                raise BridgeError(f"Could not bring your selection back (channel {prev['channel']}): {e}") from None
-            self._try("channel.delete", {"channel": prev["channel"]})
-        finally:
-            if current is not None and doc != current:
-                pc.activate(current)
-        return "Feather preview off: your selection is back."
-
-    # ---------- cut-out (reference slots) ----------
-
-    def remove_background(self, im: Image.Image, progress: Progress | None = None, workflow: str | Path | None = None,
-                          crop: bool = True, model: str = "birefnet") -> Image.Image:
-        """The picture with its background cut away (RGBA), made by ComfyUI's own background-removal nodes (birefnet-remove-bg.json,
-        model `birefnet.safetensors`, or rmbg2-remove-bg.json with `rmbg-2.0.safetensors`, both in models/background_removal;
-        `model` is a key of workflows.CUTOUT_MODELS, an explicit `workflow` wins). Used by the reference slots: it needs no PhotoCraft.
-        The edge colours are cleaned (imaging.defringe: no bright rim from the old background, 6.11.).
-        `crop`: the result ends at the subject (slots); the footer's Remove background keeps the full size (crop=False)."""
-        progress = progress or (lambda f, m, **kw: None)
-        self._cancel.clear()
-        wf = Path(workflow) if workflow else workflows.cutout_model(model)[3]
-        tpl = workflows.load_template(wf)
-        name = self.comfy.upload_image(im.convert("RGB") if im.mode not in ("RGB", "RGBA") else im, f"pcc-{uuid.uuid4().hex[:8]}-cut.png")
-        graph, out_node = workflows.apply_template(tpl, workflows.GenParams(), name, None)
-        progress(0.1, "Cutting out the background")
-        hist = self._queue_wait(graph, wf, progress)
-        out = self.comfy.output_images(hist, out_node)[0]
-        progress(1.0, "Background removed")
-        out = imaging.defringe(out.convert("RGBA"))
-        return imaging.crop_to_alpha(out) if crop else out      # the picture ends at the subject's outermost pixels (user 1.11.)
-
-    def remove_background_layer(self, progress: Progress | None = None, models: tuple = ("birefnet",)) -> dict:
-        """The scissors in the hamburger menu (user 5.11.): a copy of the visible picture of the active document as a new layer
-        on top (full canvas size) whose editable layer mask hides the background (user 17.11.: the cut-out's alpha is the mask,
-        made like Fill's soft mask; before it was a transparent RGBA layer). The user's selection is kept (_keep_selection).
-        The layers below stay as they are; one snapshot makes Undo possible like after a run. `models`: keys of
-        workflows.CUTOUT_MODELS; with several ("Both", 6.11.) one layer per model, the first lowest, each named
-        "Background removed (<model>)", all under the one snapshot."""
-        progress = progress or (lambda f, m, **kw: None)
-        models = tuple(models)
-        if not models:
-            raise BridgeError("No cut-out model chosen.")
-        for key in models:
-            workflows.cutout_model(key)       # an unknown key fails before anything is sent
-        try:
-            pc = self.pc.connect()
-            sess = pc.session()
-            orig = sess.get("active")
-            if orig is None:
-                raise BridgeError("Open a document in PhotoCraft first.")
-            tag = uuid.uuid4().hex[:8]
-            progress(0.02, "Reading the picture", phase="prepare")
-            img, _ = self._export(orig, tag, need_mask=False)
-            n = len(models)
-            cuts = []
-            for i, key in enumerate(models):
-                _, label, _, _ = workflows.cutout_model(key)
-
-                def part(f, m, i=i, **kw):      # one bar over all models: model i of n
-                    progress(min(0.9, (i + f) / n * 0.9), m, **kw)
-                cut = self.remove_background(img, part, crop=False, model=key)
-                if cut.size != img.size:
-                    raise BridgeError(f"The cut-out has another size than the picture ({cut.size} against {img.size}).")
-                cuts.append((label, cut))
-            progress(0.95, "Placing the layer" if n == 1 else "Placing the layers", phase="place")
-            self._snapshot(sess["documents"][orig]["name"])
-            above = None        # a group on top would take the copy into itself (see _run): out of it, above it
-            try:
-                top = pc.document()["layers"][0]
-                self._try("layer.select", {"layer": top["id"]})
-                above = top["id"] if top.get("kind") == "Group" else None
-            except (KeyError, IndexError, TypeError, PhotoCraftError):
-                pass
-            layers = []
-            with self._keep_selection(tag, on=True):     # the mask is made through a selection: the user's comes back afterwards
-                for i, (label, cut) in enumerate(cuts):
-                    # the layer is the picture as read (no defringe: the mask hides the old background, user 17.11.), the mask its alpha
-                    layers.append(self._import(orig, img, imaging.Box(0, 0, img.width, img.height), "soft",
-                                               f"Background removed ({label})", tag, i, first=(i == 0),
-                                               layer_mask=cut.getchannel("A"),
-                                               above=(layers[-1] if layers and above is not None else above)))   # each one above the one before
-            progress(1.0, "Background removed", phase="place")
-            return {"layer": layers[-1], "layers": layers, "size": list(img.size)}
-        except PhotoCraftError as e:
-            raise BridgeError(str(e)) from None
-        finally:
-            self._cleanup()
-
-    def describe_image(self, im: Image.Image, progress: Progress | None = None, question: str = "",
-                       workflow: str | Path | None = None, clip: str = "", seed: int | None = None) -> str:
-        """What the picture shows, in a sentence or two, written by the text model of describe-image.json (Qwen 3.5 9B reads
-        the picture itself; checked live). `question` replaces the workflow's own request. Used by the reference slots.
-        Without a seed the model takes its likeliest words (the same picture gives the same text); with one it samples,
-        so another seed gives another description."""
-        self._cancel.clear()
-        return self._describe(im, progress, question, workflow, clip, seed)
-
-    def _describe(self, im: Image.Image, progress: Progress | None = None, question: str = "",
-                  workflow: str | Path | None = None, clip: str = "", seed: int | None = None) -> str:
-        """describe_image without resetting Cancel (also used inside a run: Remove names the object first)."""
-        progress = progress or (lambda f, m, **kw: None)
-        wf = Path(workflow) if workflow else workflows.DESCRIBE_WORKFLOW
-        tpl = workflows.load_template(wf)
-        small = refslots.prepare_image(im, 32, 768)   # a description needs no more pixels (and ~1 s less)
-        name = self.comfy.upload_image(small, f"pcc-{uuid.uuid4().hex[:8]}-describe.png")
-        graph, _ = workflows.apply_template(tpl, workflows.GenParams(prompt=question.strip(), clip=clip), name, None)
-        if seed is not None:
-            workflows.text_sampling(graph, seed)
-        progress(0.1, "Describing the picture")
-        hist = self._queue_wait(graph, wf, progress)
-        text = " ".join(self._vgl_text(graph, hist).split())
-        if not text:
-            raise BridgeError("The text model returned no description.")
-        progress(1.0, "Described")
-        return text
-
-    def describe_canvas(self, clip: str = "", progress: Progress | None = None) -> str:
-        """The "LLM" button: what the active document shows (all visible layers as one picture), in a sentence or two, written
-        by the text model file `clip` (empty: the workflow's own)."""
-        pc = self.pc.connect()
-        orig = pc.session().get("active")
-        if orig is None:
-            raise BridgeError("Open a document in PhotoCraft first.")
-        tag = uuid.uuid4().hex[:8]
-        try:
-            src, _ = self._export(orig, f"{tag}-describe", need_mask=False)
-            return self.describe_image(imaging.to_rgb(src), progress, clip=clip)
-        except PhotoCraftError as e:
-            raise BridgeError(str(e)) from None
-        finally:
-            self._cleanup()
-
-    def describe_scene(self, progress: Progress | None = None) -> str:
-        """Krea 2 / MOSS Expand (Describe button): the surroundings of the active picture without its main subject, as the
-        prompt (SCENE_QUESTION). Only the original is described, not the empty margin: where content_box finds it, else
-        where the last Expand of this document put it (its result fills the margin)."""
-        pc = self.pc.connect()
-        orig = pc.session().get("active")
-        if orig is None:
-            raise BridgeError("Open a document in PhotoCraft first.")
-        tag = uuid.uuid4().hex[:8]
-        try:
-            src, _ = self._export(orig, f"{tag}-describe", need_mask=False)
-            keep = imaging.content_box(src)
-            last = self._last_expand
-            if keep is None and last and tuple(last["size"]) == src.size:
-                keep = last["keep"]
-            im = src.crop(keep.pil()) if keep is not None else src
-            return self.describe_image(imaging.to_rgb(im), progress, question=SCENE_QUESTION)
-        except PhotoCraftError as e:
-            raise BridgeError(str(e)) from None
-        finally:
-            self._cleanup()
+                "group": group, "seam": None if req.seam_fixed else seam, "scribble": found.how if found is not None else "",   # always on: the number only in runs.jsonl
+                # the scribble layer hidden above: the window's Undo of this result shows it again (user 23.11.)
+                "scribble_layer": self._scribble_layer if found is not None and found.how == "layer" else None}
 
     # ---------- ComfyUI ----------
 
     @staticmethod
     def _vgl_text(graph: dict, hist: dict) -> str:
         """Text produced by nodes titled pc:vgl (a PreviewAny after the prompt writer), for display in the GUI."""
-        import re
-        for nid, n in graph.items():
-            if "vgl" in re.findall(r"pc:\s*([a-z]+)", n.get("_meta", {}).get("title", "").lower()):
-                text = (hist.get("outputs", {}).get(nid) or {}).get("text")
-                if text:
-                    return "\n".join(str(t) for t in text)
+        for nid in Bridge._vgl_nodes(graph):
+            text = (hist.get("outputs", {}).get(nid) or {}).get("text")
+            if text:
+                return "\n".join(str(t) for t in text)
         return ""
+
+    @staticmethod
+    def _vgl_nodes(graph: dict) -> list[str]:
+        """The ids of the nodes titled pc:vgl (the preview of what the prompt writer wrote), in graph order."""
+        import re
+        return [str(nid) for nid, n in graph.items() if isinstance(n, dict)
+                and "vgl" in re.findall(r"pc:\s*([a-z]+)", n.get("_meta", {}).get("title", "").lower())]
+
+    def _keep_written(self, wkey: str, text: str) -> None:
+        """Remember what the prompt writer wrote for `wkey` (writer_key; user 20.11.), at most 64 keys."""
+        if not wkey or not text:
+            return
+        if wkey not in self._written and len(self._written) >= 64:
+            self._written.pop(next(iter(self._written)))
+        self._written[wkey] = text
 
     def _real_lora_names(self, tpl: dict) -> dict:
         """The LoRA files of the workflow under the names this ComfyUI lists (Windows: "Moss\\x.safetensors"); a file the
@@ -1767,7 +1697,7 @@ class Bridge:
         return img
 
     def _find_scribble(self, orig: int, tag: str, src: Image.Image) -> "scribble.Found | None":
-        """Scribble on photo (docs/sketch-plan.md, 9d): the top layer when it holds only scribble strokes, else bright green,
+        """Scribble on photo (docs/archiv/sketch-plan.md, 9d): the top layer when it holds only scribble strokes, else bright green,
         then red in the visible picture. The top layer's content is what changes when it is left out: the visible picture
         against the one without it (no layer export with transparency needed); a hidden top layer or a group does not count."""
         self._scribble_layer = None
@@ -1785,13 +1715,31 @@ class Bridge:
             self._scribble_layer = layers[0].get("id")
         return hit
 
+    def _quick_mask_off(self, doc: dict | None = None) -> bool:
+        """PhotoCraft's Quick Mask left on (by the user, or a feather preview whose window was closed): the run's export
+        then wrote the black and white selection mask into the user's document as a layer, and Fill and Remove got a
+        wrong mask (user 24.11.). Switched off before every export, which also turns a painted Quick Mask into the
+        selection the run uses; never while this window's own feather preview is shown. True when it was on."""
+        if getattr(self, "_preview", None):
+            return False
+        try:
+            on = bool((doc if doc is not None else self.pc.document()).get("quickMask"))
+        except (PhotoCraftError, AttributeError, TypeError):
+            return False
+        if on:
+            self._try("select.editInQuickMaskMode", {"on": False})
+        return on
+
     def _export(self, orig: int, tag: str, need_mask: bool, skip_top: bool = False) -> tuple[Image.Image, Image.Image | None]:
         """The picture (and the selection as a mask) from a throw-away duplicate."""
         pc = self.pc
+        doc0 = pc.document()
+        if self._quick_mask_off(doc0):
+            doc0 = pc.document()
         # the picture the model sees is what is VISIBLE: layers that are switched off must not be in it. With any of them
         # present the duplicate keeps its layers, drops the hidden ones and is flattened (the plain merged copy may include
         # them). The duplicate has its own layer ids: the hidden layers are found again by their position in the stack.
-        layers0 = [l for l in pc.document().get("layers", []) if isinstance(l, dict)]
+        layers0 = [l for l in doc0.get("layers", []) if isinstance(l, dict)]
         # skip_top: the picture without the top layer (Scribble on photo compares it with the visible one)
         hidden_at = [i for i, l in enumerate(layers0) if layer_visible(l) is False or (skip_top and i == 0)]
         pc.execute("image.duplicate", {"name": f"pccomfy-{tag}", "mergedOnly": not hidden_at})
@@ -2118,6 +2066,54 @@ class Bridge:
         except PhotoCraftError as e:
             raise BridgeError(f"Could not redo: {e}") from None
         return f"Redone: the AI edit is back ({redo['name']})."
+
+    @staticmethod
+    def _layer_states(layers) -> dict:
+        """Every layer of a document (groups and what is in them) as id -> visible."""
+        out = {}
+        for lay in layers or ():
+            if isinstance(lay, dict) and lay.get("id") is not None:
+                out[lay["id"]] = bool(lay.get("visible", True))
+                out.update(Bridge._layer_states(lay.get("children")))
+        return out
+
+    def set_result_visible(self, entry: dict, visible: bool) -> str:
+        """Undo / Redo of a queued result (docs/plan/generate-queue.md, choice B): hide or show its layer (or its group) in
+        its document. entry: {"doc": document name, "layer": layer or group id, "scribble": the scribble layer of a queued
+        Scribble on photo, shown on Undo and hidden on Redo (optional)}. Returns "ok", "already" (it was hidden /
+        shown already: by hand), "gone" (the layer is no longer there: deleted or merged) or "closed" (no such document).
+        PhotoCraft's layer.hideLayers may toggle; the state is read back, and showing falls back to it."""
+        with self._pc_lock():
+            try:
+                pc = self._activate_doc(entry["doc"])
+            except (BridgeError, PhotoCraftError):
+                return "closed"
+            lid = entry.get("layer")
+            states = self._layer_states(pc.document().get("layers"))
+            if lid not in states:
+                return "gone"
+            if states[lid] == visible:
+                return "already"
+            if not self._set_visible(pc, lid, visible):
+                raise BridgeError("PhotoCraft did not " + ("show" if visible else "hide") + f" the layer “{entry.get('name') or lid}”.")
+            sl = entry.get("scribble")      # Scribble on photo: its scribble layer the other way round (shown again on Undo)
+            if sl is not None and sl in self._layer_states(pc.document().get("layers")):
+                try:
+                    self._set_visible(pc, sl, not visible)
+                except PhotoCraftError:
+                    pass                    # the result is done; the scribble layer is a courtesy
+            return "ok"
+
+    def _set_visible(self, pc, lid, visible: bool) -> bool:
+        """Show or hide one layer and read it back (layer.hideLayers may toggle; showing falls back to it). True when it
+        is as wanted (also when it was already)."""
+        if self._layer_states(pc.document().get("layers")).get(lid) == visible:
+            return True
+        for cmd in (("layer.showLayers", "layer.hideLayers") if visible else ("layer.hideLayers",)):
+            self._try(cmd, {"layer": lid})
+            if self._layer_states(pc.document().get("layers")).get(lid) == visible:
+                return True
+        return False
 
     def _rerun_expand(self, orig: int) -> "imaging.Box | None":
         """Expand again right after an Expand whose result is not wanted: the margin is covered by that result, so no

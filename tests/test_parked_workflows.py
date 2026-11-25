@@ -1,3 +1,4 @@
+# tags: models, expand
 """The parked Expand graphs of Krea 2 and MOSS (models.PARKED_EXPAND) stay in the workflows folder but are not offered in
 the Workflow list: picked there they counted as a workflow of your own and "Image -> image" appeared (user 29.10.). A
 saved state that still points to one gets the chosen model's own workflow back and keeps the model. Stubbed Tk.

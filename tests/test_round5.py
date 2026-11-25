@@ -1,3 +1,4 @@
+# tags: window, workflows
 """Window round 5: what is hidden where (Expand, Edit, LoRA box), Mix source reset, sampler / scheduler, layer names.
 
     python tests/test_round5.py
@@ -384,15 +385,15 @@ def main():
         app.lbl_detail._commit()
         assert abs(app.v_detail.get() - want) < 1e-9, (typed, app.v_detail.get())
     assert app.lbl_detail.cget("text") == "0 %"
-    # Flux 2 Refine: its "Default" text wins over your own text (user 11.11.; until then your text stayed, user 3.11.)
+    # Flux 2 Refine: its text (Neutral since 24.11.) wins over your own text (user 11.11.; until then your text stayed, user 3.11.)
     app.v_model.set("flux2"); app.v_mode.set("edit"); app._on_model()
     app.t_prompt.delete("1.0", "end"); app.t_prompt.insert("1.0", "my own text")
     app.v_mode.set("refine"); app._on_mode()
-    assert app._prompt_text() == models.FLUX2_DEFAULT and app.v_fac.get() == "r:Default", (app._prompt_text(), app.v_fac.get())
+    assert app._prompt_text() == models.RELIGHT_NEUTRAL and app.v_fac.get() == "r:Default", (app._prompt_text(), app.v_fac.get())
     app.v_mode.set("edit"); app._on_mode()
     app.t_prompt.delete("1.0", "end")
     app.v_mode.set("refine"); app._on_mode()
-    assert app._prompt_text() == models.FLUX2_DEFAULT and app.v_fac.get() == "r:Default", (app._prompt_text(), app.v_fac.get())
+    assert app._prompt_text() == models.RELIGHT_NEUTRAL and app.v_fac.get() == "r:Default", (app._prompt_text(), app.v_fac.get())
     ok = gui.ValueBox._typed_ok              # only numbers can be typed: digits and one decimal point or comma (more: test_number_fields)
     assert ok("1", "5", "5") and ok("1", "3", "0.3") and ok("1", ",", "0,") and ok("0", "", "") and ok("1", "12", "12")
     assert not ok("1", "a", "a") and not ok("1", "%", "5%") and not ok("1", ".", "0.5.") and not ok("1", "-", "-") and not ok("1", " ", "5 ")

@@ -1,3 +1,4 @@
+# tags: window, start, models
 """Right-click menu on the model chip (L3, user 29.10.; since 20.11. one model chip with a list): save the settings and
 "Hide this model". A hidden model leaves the list, the others keep their order; hiding the chosen model chooses another one;
 a function whose models are all hidden is greyed out.

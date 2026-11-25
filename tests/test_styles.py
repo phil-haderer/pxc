@@ -1,3 +1,4 @@
+# tags: styles, prompt
 """The Styles button beside the prompt (user 1.11.): styles.json (style prompts of the Krea 2 Style Explorer, MIT; for Text to image
 84 with descriptive names in 13 groups since plan B step 3, 10.11.; before 186 in 9 groups; + 7 own studio and stock styles), the loader (a broken file means no styles), the palette icon, the button (only in a mode that has styles), a click on an entry is ADDED to the prompt after a line break (Text to image; Edit canvas and Sketch to image set the whole sentence, 47 styles from tools/styles-looks.json), and the whole text of every entry is kept for the hover box.
 Stubbed Tk.
@@ -60,7 +61,7 @@ def data_checks():
         assert [s["name"] for s in tg["styles"]][:len(want)] == want, eg["name"]
     names = [s["name"] for g in groups for s in g["styles"]]
     assert len(set(names)) == len(names), "short names must be unique"
-    # 18.11. (docs/plan/stil-vorschlag-18-11.md): merged styles are gone, renamed ones carry the new name, no scene words left
+    # 18.11. (docs/archiv/stil-vorschlag-18-11.md): merged styles are gone, renamed ones carry the new name, no scene words left
     assert not {"Dark romantic landscape, oil", "Gothic fantasy, fiery red", "Soft clouds, white minimal",
                 "Stop-motion, felt and clay", "Cyberpunk city, neon rain", "8-bit pixel art"} & set(names)
     assert {"Claymation, stop-motion", "Cyberpunk neon, rain", "Solarpunk", "Cosmic glow", "Pixel art"} <= set(names)

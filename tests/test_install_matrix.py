@@ -1,3 +1,4 @@
+# tags: release, linux
 """The install matrix (.github/workflows/install-matrix.yml) and what it needs from the setup scripts.
 
     python tests/test_install_matrix.py
@@ -63,6 +64,7 @@ def python_txt_reads_old_and_new():
 
 
 def workflow_checks():
+    import re
     text = WF.read_text(encoding="utf-8")
     for need in ("setup-windows.bat /nopause", "./setup-linux.sh", "tests\\ci_install_smoke.py --expect-shortcut",
                  "tests/ci_install_smoke.py --expect-shortcut", "Jörg Ä", "ubuntu-22.04", "ubuntu-24.04",
@@ -84,6 +86,13 @@ def workflow_checks():
     assert ".venv/bin/python tests/run_all.py" not in text.replace(linux_tests, ""), "a Linux test run without a display"
     distro = text[text.index("\n  distro:"):]
     assert linux_tests in distro and "if: ${{ !cancelled() }}" in distro
+    # every job runs in the public repo only: in the private working repo each push used up the Actions minutes (user 24.11.)
+    part = text[text.index("\njobs:"):]
+    heads = list(re.finditer(r"^  ([a-z][a-z-]*):$", part, re.M))
+    assert [h.group(1) for h in heads] == ["windows", "windows-no-python", "ubuntu", "distro"], [h.group(1) for h in heads]
+    for h, nxt in zip(heads, heads[1:] + [None]):
+        head = part[h.end():nxt.start() if nxt else len(part)].split("\n    steps:")[0]
+        assert "\n    if: github.repository == 'phil-haderer/pxc'\n" in head, f"job {h.group(1)} runs outside the public repo"
 
 
 def requirements_checks():

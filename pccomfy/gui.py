@@ -13,13 +13,16 @@ from .gui_tips import TipsMixin
 from .ui_settings import SettingsMixin, GEAR_PX, FOOT_REFRESH_PADX, FOOT_RESET_PADX
 from .refslots import RefSlotsMixin
 from .gui_batch import BatchMixin
+from .gui_queuewin import QueueWinMixin
 from . import clipboard
 from .popmenu import PopMenu
-from . import hostos, icons, jobqueue, savefile, spacing, x11link
+from . import hostos, icons, jobqueue, savefile, spacing, startlog, x11link
 from .appname import HEADER_TITLE, WINDOW_TITLE
 
+REVEAL_MS = 3000        # the window is shown at the latest this long after the start, linked to PhotoCraft or not (user 22.11.)
 
-class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, ModeMixin, StateMixin, RunMixin, TipsMixin, BatchMixin):
+
+class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, ModeMixin, StateMixin, RunMixin, TipsMixin, BatchMixin, QueueWinMixin):
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.state = cfgmod.load_state()
@@ -33,14 +36,19 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.workflows_dir, self._wf_dir_note = cfgmod.effective_workflows_dir(cc["workflows_dir"])
         self.events: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
-        # the batch queue (jobqueue.py, gui_batch.py): no batch job starts while the window's own worker runs; Generate sends
+        # the batch queue (jobqueue.py, gui_batch.py, gui_queuewin.py): no batch job starts while the window's own worker runs; Generate sends
         # the owner's name too, so the queue window of every PC shows who sent each run (decision 18.11., replaces 12.11.)
         self.runner = jobqueue.QueueRunner(self.bridge, events=self.events,
-                                           gate=lambda: not (self.worker and self.worker.is_alive()))
+                                           gate=lambda: not (self.worker and self.worker.is_alive())
+                                           and not getattr(self, "_direct_pending", False))
         self.comfy.owner = self.runner.owner
 
         _dpi_aware()   # without it Windows stretches the window as a bitmap on a scaled display: blurry text
         self.root = tk.Tk(**hostos.ROOT_KW)
+        try:            # invisible from the first moment, shown when it is in its place (_hide_until_placed, user 22.11.)
+            self.root.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass
 
         def tk_error(exc, val, tb):         # an error inside a button or timer: Tk only prints it, and without a console nobody sees it
             import traceback
@@ -116,7 +124,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.v_overlap = tk.IntVar(value=g("overlap", d["overlap"]))
         self.v_scale = tk.StringVar(value=scale_text(g("scale", 1.5)))
         self.v_fac = tk.StringVar(value=scale_text(g("scale", 1.5)))     # the factor buttons: "none" (Refine) or the factor; follows v_scale and the mode
-        self.v_fn = tk.StringVar(value="")        # the merged function button "Upscale / Refine" (standard mode): "scale" while one of the two is chosen
+        self.v_fn = tk.StringVar(value="")        # the function button that is lit for a function with tabs (Edit, Fill)
         self.v_top = tk.BooleanVar(value=True)      # the window always belongs to PhotoCraft (no switch any more)
         self.v_feather = tk.DoubleVar(value=2.0)    # the function's own value is set after the build (see below)
         self.v_density = tk.IntVar(value=100)       # the same
@@ -161,6 +169,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self._on_top()
         self._fit_height(self._px(MIN_W))
         self._place_window()
+        self._hide_until_placed()           # no first picture in the top left corner and then a jump (user 22.11.)
+        self._start_log_begin()             # data/exchange/window-start.log: the first 30 s of the window (startlog.py)
         self._sized = True
         self.root.after(100, self._poll)
         self.root.after(200, self.refresh)
@@ -206,6 +216,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             for w in (self.f_header, self.f_logo, *self.lbl_title):     # drag the window by its header
                 w.bind("<ButtonPress-1>", self._drag_start, add="+")
                 w.bind("<B1-Motion>", self._drag_move, add="+")
+        # minimised: the progress as a thin blue line along the bottom edge (user 24.11. evening, gui_run._mini_bar_sync)
+        self.f_mini_bar = tk.Frame(r, bg=ACCENT, bd=0, highlightthickness=0, height=self._px(3))
         self.b_min = ttk.Button(self.f_header, image=self._icon("minimize", px=SMALL_ICON_PX), style="Link.TButton", command=self.toggle_minimize)
         self.b_min.pack(side="right")
         self.tt_min = Tooltip(self.b_min, "Minimise: only this header stays. Click again to show PxC.")
@@ -219,11 +231,9 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         # the head (user 20.11.): ONE chip for the function, on the left, and one for the model right beside it, grey like the
         # function buttons were, with the arrow of the variants piece of Generate; a click opens the list (the functions in the
         # order of the former buttons, the models in the order of the former chips). Each is as wide as its longest entry, so
-        # the model chip does not move. The lists' entries (rb_modes, rb_scale_fn, rb_tabs) keep what the buttons had: state,
+        # the model chip does not move. The lists' entries (rb_modes, rb_tabs) keep what the buttons had: state,
         # listed or not, files missing (PickItem); the lists are built from them when they open (gui_modes.py _mode_menu).
         self.rb_modes = {key: PickItem(label) for key, label in MODE_LABELS}
-        # standard mode: ONE entry for Upscale and Refine (PLAN.md 2, user 6.11.)
-        self.rb_scale_fn = PickItem(SCALE_FN_LABEL)
         self.rb_tabs = {m.key: PickItem(m.label) for m in models.MODELS}
         self._mode_order = []
         self.b_mode = ttk.Button(self.f_tabs, style="Pick.TButton", compound="left", command=self._mode_menu)
@@ -565,10 +575,10 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.f_scale = ttk.Frame(r)
         # the factor as four small switches (user 29.10.): the chosen one is orange; a new document is said in the tooltip
         scale_tip = "How much larger the result is. Upscale opens it as a new document."
-        lb = ttk.Label(self.f_scale, text="Upscale factor")
+        lb = self.lbl_fac = ttk.Label(self.f_scale, text="Upscale factor")
         lb.grid(row=0, column=0, sticky="w")
         Tooltip(lb, scale_tip)
-        f_sw = ttk.Frame(self.f_scale)
+        f_sw = self.f_fac = ttk.Frame(self.f_scale)
         f_sw.grid(row=0, column=1, sticky="e")
         self.rb_scale = {}
         for i, f in enumerate(("1.5", "2", "3", "4")):
@@ -576,10 +586,10 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             rb.pack(side="left", padx=(0 if i == 0 else 4, 0))
             Tooltip(rb, scale_tip)
             self.rb_scale[scale_text(f)] = rb
-        # the Refine row under it (user 6.11.): the ready-made prompts of the model (Default, Neutral ...) are the Refine modes; one
-        # choice over both rows (v_fac): a factor runs Upscale, a Refine button runs Refine (same size, new layer)
+        # the Refine row (user 6.11.; since 22.11. shown only in the function Refine, the factors only in Upscale): the ready-made
+        # prompts of the model (Default, Neutral ...); one variable for both rows (v_fac): a factor or "r:<prompt>"
         # the stages of the Upscale workflow in one row under the factors (Fibo, 8.11.): twins of the stage checkboxes (same variables),
-        # grey but in place while Refine is on, so nothing moves; a line under them like the one above "Advanced settings"
+        # only in Upscale (22.11.); a line under them like the one above "Advanced settings"
         self.f_stage_row = ttk.Frame(self.f_scale)
         self.f_stage_row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.stage_row_cbs = [ttk.Checkbutton(self.f_stage_row, text="Stage", variable=var, command=lambda i=i: self._on_stage(i))
@@ -591,11 +601,13 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.sep_stage_row.grid_remove()
         self._stage_row_live = False    # the row holds the stages of the running workflow (Upscale), not grey copies (Refine)
         refine_tip = "Refine keeps the size and redraws fine detail, as a new layer."
-        lb2 = ttk.Label(self.f_scale, text="Refine")
+        lb2 = self.lbl_refine = ttk.Label(self.f_scale, text="Refine")
         lb2.grid(row=3, column=0, sticky="w", pady=(4, 0))
         Tooltip(lb2, refine_tip)
         self.f_refine = ttk.Frame(self.f_scale)
         self.f_refine.grid(row=3, column=1, sticky="e", pady=(4, 0))
+        lb2.grid_remove()               # never shown since 24.11.: Refine Image has one prompt per model (user: "keine schalter mehr")
+        self.f_refine.grid_remove()
         self.rb_refine = {}             # label -> button, built by _update_prompt_choices for the model
         self._rpick = ""                # the Refine button that was chosen ("" = the first one)
         self.f_scale.columnconfigure(0, weight=1)
@@ -727,7 +739,14 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         # no Stop button (user 20.11.): Generate turns into a grey "Stop" during a run (_go_stop); while several runs follow one
         # another (variants of Upscale / Refine, a comparison) it says "Stop run" and "Stop batch" shows up beside it
         self.b_stop_all = ttk.Button(bf, text=STOP_BATCH_TEXT, style="Fit.TButton", command=lambda: self._stop_click(True))
-        Tooltip(self.b_stop_all, "Stop this run and the variants still to come; in a batch, the rest of this batch (other batches go on).")
+        Tooltip(self.b_stop_all, "Stop this run and the variants still to come; in a batch, the rest of this batch. "
+                                 "Other batches and queued runs go on.")      # user 23.11. evening: only the running batch
+        # while Generate is "Add to queue" (a run is on, the function can wait in the queue; docs/plan/generate-queue.md,
+        # Variant 1): a grey "Stop run" of its own between the variants piece and "Stop batch"
+        self.b_stop_run = ttk.Button(bf, text=GO_STOP_RUN_TEXT, style="Fit.TButton", command=lambda: self._stop_click(False))
+        Tooltip(self.b_stop_run, STOP_RUN_TIP)
+        for var in (self.v_mode, self.v_model):         # another function during a run: Add to queue or Stop (_go_follow)
+            var.trace_add("write", lambda *a: self._go_follow())
         bf.grid_columnconfigure(GO_COL_GAP, weight=1)
         # Undo and Redo (user 18.11., decision 2a): squares as high as Generate, blue like it with a white icon while they
         # can be used, grey like the greyed-out Stop otherwise; one of them is blue at a time (_sync_history_buttons)
@@ -735,8 +754,11 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.b_redo = ttk.Button(bf, image=self._icon_on_accent("redo"), style="Square.TButton", command=self.redo_edit)
         self.b_undo.grid(row=0, column=GO_COL_UNDO, sticky="nsew")
         self.b_redo.grid(row=0, column=GO_COL_UNDO + 1, sticky="nsew", padx=(self._keep(GO_PAIR_GAP_PX), 0))
-        Tooltip(self.b_redo, "Brings the AI edit back after an Undo.")
-        Tooltip(self.b_undo, "Back to the state before the last generation.")
+        self.tt_redo = Tooltip(self.b_redo, HISTORY_REDO_TIP)
+        self.tt_undo = Tooltip(self.b_undo, HISTORY_UNDO_TIP)
+        # a grey ttk button calls no command: a click on it during a run says why there (user 25.11., "Klick + Tooltip")
+        self.b_undo.bind("<ButtonRelease-1>", lambda e: self._history_grey_click(e, "undo"), add="+")
+        self.b_redo.bind("<ButtonRelease-1>", lambda e: self._history_grey_click(e, "redo"), add="+")
         self._last_step = None              # None, "undo" or "redo": which of the two was used last (decides the blue one)
         self._show_variants()
         self._sync_history_buttons()
@@ -789,18 +811,18 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.cb_live = ttk.Checkbutton(foot, text="Live preview", variable=self.v_live)
         self.cb_live.pack(side="left", padx=FOOT_RESET_PADX)
         self.tt_live = Tooltip(self.cb_live, LIVE_TIP)
-        # the right end of the footer (user 4.11.): the hamburger at the far right (Save image, Copy canvas), left of it the scissors
-        # and the last 20 runs (PLAN point 13, user 30.10.: a click on one loads its settings with a new seed, nothing starts);
-        # 90 % of the usual small icon. Visually: clock, scissors, hamburger.
-        self.b_menu = ttk.Button(foot, image=self._icon("menu", px=FOOT_BTN_PX), style="Link.TButton", command=self._footer_menu)
+        # the right end of the footer (user 4.11.): the menu at the far right, left of it the scissors and the queue window
+        # (user 24.11. evening: "queue gegen history tauschen", the last runs went into the menu; the menu is three dots, no
+        # hamburger any more); 90 % of the usual small icon. Visually: queue, scissors, three dots.
+        self.b_menu = ttk.Button(foot, image=self._icon("dots", px=FOOT_BTN_PX), style="Link.TButton", command=self._footer_menu)
         self.b_menu.pack(side="right", padx=(6, 0))
-        Tooltip(self.b_menu, "More: save or copy the picture of PhotoCraft, batch processing, the queue, reset the page.")
+        Tooltip(self.b_menu, "More: save or copy the picture of PhotoCraft, batch processing, the last runs, reset the page.")
         self.b_cut = ttk.Button(foot, image=self._icon("cut", px=FOOT_BTN_PX), style="Link.TButton", command=self._cutout_menu)
         self.b_cut.pack(side="right", padx=(6, 0))     # the scissors: left of the clock (user 5.11.)
         self.tt_cut = Tooltip(self.b_cut, CUTOUT_TIP)
-        self.b_history = ttk.Button(foot, image=self._icon("clock", px=FOOT_BTN_PX), style="Link.TButton", command=self._history_menu)
-        self.b_history.pack(side="right", padx=(6, 0))
-        Tooltip(self.b_history, "Last runs: click one to load all its settings with a new seed. Nothing starts by itself.")
+        self.b_queue = ttk.Button(foot, image=self._icon("list", px=FOOT_BTN_PX), style="Link.TButton", command=self._queue_toggle)
+        self.b_queue.pack(side="right", padx=(6, 0))
+        Tooltip(self.b_queue, "Queue (Q): every run at ComfyUI, yours and others'. A second click closes it.")
         self._build_settings(foot)      # the gear sits in the header (ui_settings.py)
 
         for cb in (self.cb_lm, self.cb_sampler, self.cb_sched):
@@ -824,13 +846,17 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.tt_min.text = ("Show PxC again." if self._minimized else
                             "Minimise: only this header stays. Click again to show PxC.")
         self.f_header.pack_configure(pady=(8, 8 if self._minimized else 0))     # alone, the header gets room below too
+        self._mini_bar_sync()
         if self._minimized:
-            for w in (self.f_tabs, self.lbl_empty, self.f_scrollbox, self.f_status, self.f_foot):
+            # the live preview goes too (user 24.11.: it stayed under the header); its frame is kept for the way back
+            for w in (self.f_tabs, self.lbl_empty, self.f_scrollbox, self.f_preview, self.f_status, self.f_foot):
                 w.pack_forget()
             self._fit_height()
         else:
             self.f_foot.pack(fill="x", side="bottom", padx=10, pady=6)
             self.f_status.pack(fill="x", padx=10, pady=(4, 0))
+            if getattr(self, "_preview_photo", None) is not None:      # a run is on: its preview comes back above the status
+                self.f_preview.pack(fill="x", padx=10, pady=(6, 0), before=self.f_status)
             self._show_status_line()
             self._apply_start_state()
 
@@ -884,9 +910,11 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
     RESET_DEFAULT_TIP = ("Back to the PxC standard settings of the chosen model and function; your saved settings for this "
                          "model and function are forgotten.")
 
+    HISTORY_TIP = "Last runs: click one to load all its settings with a new seed. Nothing starts by itself."
+
     def _footer_menu(self):
         """The hamburger at the right end of the footer: a small menu above it (Save image, Copy canvas, the two batch sources,
-        the queue window, gui_batch.py; under a line the two resets of the page, user 16.11.: they were the footer button
+        the queue window, gui_batch.py and gui_queuewin.py; under a line the two resets of the page, user 16.11.: they were the footer button
         "Reset page" and its Shift + click). The resets are grey while no model is linked (the button was hidden then)."""
         px = SMALL_ICON_PX
         m = self._footer_popup = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
@@ -895,7 +923,8 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
                 ("Copy canvas", "copy", self.copy_canvas, self.COPY_CANVAS_TIP, False),
                 ("Batch: open images", "images", lambda: self.open_batch(jobqueue.SOURCE_OPEN), None, False),
                 ("Batch: folder…", "folder", lambda: self.open_batch(jobqueue.SOURCE_FOLDER), None, False),
-                ("Open queue", "list", self.open_queue, None, False),
+                # the last runs (PLAN point 13, user 30.10.), in the menu since 24.11. evening (the queue took their place outside)
+                ("History", "clock", lambda: self._history_menu(), self.HISTORY_TIP, False),
                 None,
                 # "Reset page to default": the symbol of "Use the last seed" (user 20.11.), the circle arrow is Refresh's
                 ("Reset page to my saved settings", "undo", lambda: self.reset_settings(factory=False), self.RESET_SAVED_TIP, no_page),
@@ -959,6 +988,58 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             self._link_job = self.root.after(300, self._try_link)
         else:
             winlink.unlink(self.root, api=x11)
+            self._reveal("stay with PhotoCraft is off")
+
+    def _hide_until_placed(self):
+        """The window stays invisible (alpha 0, Tk's window exists, so it can be tied to PhotoCraft) until the first link has
+        put it in its place; before, it showed for a moment in the top left corner of the screen and then jumped there (user
+        22.11.). Shown at the latest after REVEAL_MS, also when PhotoCraft's window is not found. The window is made invisible
+        right where Tk creates it (__init__): the layout passes of the start already put it on the screen at 0,0."""
+        self._revealed = False
+        if not self.v_top.get() or not (winlink.available() or self._x11() is not None):
+            self._reveal("not tied to PhotoCraft")
+            return
+        self.root.after(REVEAL_MS, lambda: self._reveal("PhotoCraft not linked within 3 s"))
+
+    def _reveal(self, why: str):
+        if getattr(self, "_revealed", True):
+            return
+        self._revealed = True
+        try:
+            self.root.update_idletasks()        # the new place is applied before the window becomes visible
+            self.root.attributes("-alpha", 1.0)
+        except tk.TclError:
+            pass
+        self._slog(f"shown ({why})")
+
+    # ---------- start log (startlog.py, user 22.11.) ----------
+
+    def _start_log_begin(self):
+        try:
+            self._startlog = startlog.StartLog(cfgmod.EXCHANGE_DIR / startlog.LOG_NAME)
+        except Exception:
+            self._startlog = None
+            return
+        self._slog(f"saved position={self.state.get('win_pos')} used={getattr(self, '_placed', False)} "
+                   f"stay with PhotoCraft={bool(self.v_top.get())} hidden until placed={not getattr(self, '_revealed', True)}")
+        self.root.after(startlog.TICK_MS, self._start_log_tick)
+
+    def _slog(self, text: str):
+        lg = getattr(self, "_startlog", None)
+        if lg is not None and lg.active():
+            lg.note(text)
+
+    def _start_log_tick(self):
+        lg = getattr(self, "_startlog", None)
+        if lg is None:
+            return
+        if not lg.active():
+            lg.note("end of the start log")
+            self._startlog = None
+            return
+        if winlink.available():
+            lg.state(winlink.window_state(self.root))
+        self.root.after(startlog.TICK_MS, self._start_log_tick)
 
     def _place_window(self):
         """The window starts where it was last (saved in the state), if that is still on a screen. Otherwise it is placed
@@ -994,6 +1075,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         if (x, y) != self._win_pos:
             self.root.geometry(f"+{x}+{y}")
             self._win_pos = (x, y)
+            self._slog(f"moved to {x},{y}")
 
     def _drag_start(self, e):
         self._drag_from = (e.x_root - self.root.winfo_x(), e.y_root - self.root.winfo_y())
@@ -1040,7 +1122,14 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         if winlink.link(self.root, api=x11):
             if x11 is not None and self.root.attributes("-topmost"):
                 self.root.attributes("-topmost", False)      # tied to PhotoCraft now: above it only
+            if not getattr(self, "_pc_seen", False):
+                self._slog(f"linked to PhotoCraft (try {getattr(self, '_link_tries', 0) + 1})")
             self._place_at_owner()
+            self._reveal("placed at PhotoCraft")
+            if x11 is None:          # Windows: tied, but still under PhotoCraft (user 22.11.): put it above
+                lifted = winlink.lift_above_owner(self.root)
+                if lifted:
+                    self._slog(lifted)
             self._link_tries = 0
             self._pc_seen, self._pc_gone = True, 0
             if not getattr(self, "_popup_job", None):

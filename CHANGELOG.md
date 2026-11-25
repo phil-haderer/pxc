@@ -6,6 +6,42 @@ entry here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-25
+
+### Added
+- **Generate while a run is on:** for Text to Image, Edit, Refine Image and Upscale, Generate becomes **Add to queue**
+  for the same function (any model): the picture in front and the settings are taken at the click, the result comes as
+  a new layer. Variants ×n become n queue jobs; the first picture runs at once.
+- **Queue window:** a row per variant with its number (1/3, 2/3 …), the progress in the Status column, coloured status
+  words, columns ordered from what a run is to how far it is, finished rows stay at their place. ✕ stops a waiting or
+  running picture, ↻ in the same column runs a stopped or failed one again, ⏸ sits right next to ✕. **Pause all** and
+  **Resume all** act on every queued picture; **Clear finished** and **Clear all** clean up.
+- **Refine Image** has its own function again (next to Upscale) with one tested prompt per model (Qwen Image 2.1: keep
+  the colours, Flux 2: neutral light, Flux 3: restore old photos with its Restore LoRA; Fibo and MiniMax use the
+  Flux 2 text). MiniMax H3 Image can refine too.
+- **Reroll prompt in Sketch to image and Scribble** (Flux 3, Flux 2, Qwen): the text model writes a new prompt on the
+  next run.
+- Pick reference images with **@** in the prompt (Multi image edit).
+- When ComfyUI runs out of GPU memory, PxC frees it and tries the run once more.
+- A thin blue progress line in the head while the window is minimised.
+
+### Changed
+- The functions are named the same everywhere, as in the function list: **Text to Image**, **Expand Image**,
+  **Fill Selection**, **Remove Selection**, **Edit**, **Refine Image**, **Upscale** (queue, messages, tips, Advanced
+  settings, README).
+- Undo and Redo are locked during a run (a click on the grey button says why) and leave Upscale out.
+- The footer: the queue at the outside, the run history in the **⋯** menu.
+- A stopped run keeps the prompt its text model already wrote, so the next run does not write a new one.
+- Shorter Sketch to image tip; the README shows the window next to PhotoCraft and a sharper logo.
+
+### Fixed
+- The window no longer jumps from the top-left corner at the start and stays above PhotoCraft.
+- Undo hides the result layer after Remove, Fill and a direct run.
+- Quick Mask in PhotoCraft is switched off before a run takes the picture; only one thread talks to PhotoCraft at a time.
+- Cut out is greyed out while a run or a queue job is on.
+- Stop batch ends only the batch that runs; queued variants take the picture of their own run.
+- No "tile 2" in the status line of functions without tiles.
+
 ## [1.0.8] - 2026-11-21
 
 ### Added

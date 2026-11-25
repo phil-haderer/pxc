@@ -1,3 +1,4 @@
+# tags: comfy
 """The websocket of a run (ComfyUI.open_events / close_events / wait): the handshake gets 10 s and then recv() times out after
 1 s, a socket that failed is closed, wait() works with a socket the caller opened, with its own and without websocket-client.
 (A client that gives up in the middle of the handshake can kill ComfyUI's listening socket on Windows: WinError 64.)

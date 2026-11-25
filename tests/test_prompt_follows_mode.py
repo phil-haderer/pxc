@@ -1,3 +1,4 @@
+# tags: prompt, window
 """The prompt field follows the function (user 2.11.): a function with a text of its own (Upscale, Refine) shows it, Expand
 empties the field, and your own text comes back with the next function that has no text of its own. Hidden Tk window.
 

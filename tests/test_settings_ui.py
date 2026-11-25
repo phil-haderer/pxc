@@ -1,3 +1,4 @@
+# tags: settings, models
 """The settings overlay, greyed tabs and modes, the click on a greyed tab, the preflight before Generate, linking files. Run against the stubbed Tk of test_gui_presets (no display needed).
 
     python tests/test_settings_ui.py
@@ -166,10 +167,24 @@ def test_empty_view():
 
     app._apply_start_state()
     assert on() == {"f_tabs", "lbl_empty"} | all_foot and app.v_empty.get() == "Choose a model"       # tabs + one sentence + footer, no body
+    # the probe before the window found no ComfyUI: the sentence is right at once, before the reading has failed (user 22.11.)
+    app._comfy_up = False
+    assert app.start_state() == "no_comfy"
+    app._comfy_up = None
+    assert app.start_state() == "choose"
+    # ComfyUI could not be read (not running): tabs + its own sentence + footer with Refresh (user 22.11., choice A)
+    app._apply_refresh({"_detect": True, "_inv": None, "_inv_error": "No connection to ComfyUI"})
+    assert app.start_state() == "no_comfy" and on() == {"f_tabs", "lbl_empty"} | all_foot
+    assert app.v_empty.get() == "ComfyUI is not running. Start it, then press Refresh."
     app._apply_refresh(det(inventory.Inventory({})))
     assert on() == {"lbl_empty"} and app.v_empty.get() == "Link your models in the settings"          # nothing linked: sentence + gear only
     app._apply_refresh(det(inventory.Inventory(td.full_lists(), NODES)))
-    assert on() == {"f_tabs", "lbl_empty"} | all_foot
+    assert on() == {"f_tabs", "lbl_empty"} | all_foot and app.v_empty.get() == "Choose a model"       # ComfyUI back: the normal sentence
+    app._apply_refresh({"_detect": True, "_inv": None, "_inv_error": "No connection to ComfyUI"})
+    app.v_model.set("flux3")
+    assert app.start_state() == ""                                # a chosen model is never hidden behind it
+    app.v_model.set("")
+    app._apply_refresh(det(inventory.Inventory(td.full_lists(), NODES)))
     app.v_model.set("flux3")
     app._on_model()
     assert on() == {"f_tabs", "f_scrollbox"} | all_foot and app.v_empty.get() == ""
@@ -309,8 +324,9 @@ def main():
     assert ui_settings.GEAR_HEAD_PX == 14 == round(1.2 * ui_settings.GEAR_PX) and gui_theme.FOOT_BTN_PX == 15 == round(0.9 * gui_theme.SMALL_ICON_PX)
     foot = [b.master for b in made if b.image == probe._icon("refresh", px=ui_settings.GEAR_PX)]
     assert len(foot) == 1 and not hasattr(probe, "b_reset") and not any(b.text == "Reset page" for b in made)
-    assert probe.b_history.master is foot[0] and probe.b_menu.master is foot[0] and not hasattr(probe, "b_copy_canvas")
-    assert probe.b_history.image == probe._icon("clock", px=gui_theme.FOOT_BTN_PX) and probe.b_menu.image == probe._icon("menu", px=gui_theme.FOOT_BTN_PX)
+    assert probe.b_queue.master is foot[0] and probe.b_menu.master is foot[0] and not hasattr(probe, "b_copy_canvas")
+    # the queue where the clock was, the menu as three dots (user 24.11. evening)
+    assert probe.b_queue.image == probe._icon("list", px=gui_theme.FOOT_BTN_PX) and probe.b_menu.image == probe._icon("dots", px=gui_theme.FOOT_BTN_PX)
     # flat like the trash button (no dark button background; the bin sits in the prompt field since 10.11. evening, on the
     # field's colour) and about 60 % of the other icons (user 28.10.)
     assert probe.b_gear["style"] == "Link.TButton" and probe.b_clear["style"] == "Link.TButton" and ui_settings.GEAR_PX == 12 == round(0.6 * gui_theme.ICON_PX)
@@ -390,6 +406,9 @@ def main():
 
     # the cached reading is old: the file was copied and ComfyUI restarted. One fresh look lets the run through
     app.comfy = td.FakeComfy(td.full_lists())
+    app.generate()
+    assert called == [], called                          # within PREFLIGHT_REREAD_S of the last look: no new question (P4)
+    app._reread_at -= app.PREFLIGHT_REREAD_S             # 10 s later
     app.generate()
     assert called == ["krea2"] and not app.rb_tabs["krea2"].missing and app.inv.tab_status("krea2").state == "ready"
 

@@ -1,3 +1,4 @@
+# tags: flux3, workflows
 """Flux 3 controls: LoRA strength, SeedVR2 stage switch, detail mix.
 
     python tests/test_flux3_controls.py

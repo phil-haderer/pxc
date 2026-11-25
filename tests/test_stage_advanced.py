@@ -1,3 +1,4 @@
+# tags: window, moss
 """Layout checks in the real window (hidden Tk): a stage marked `advanced` (MOSS' skip-layer guidance) has its checkbox at the top of the
 Advanced settings, Fibo Upscale shows its two stages in the switch box, and the reference images show the BBOX row only for Flux 3.
 
@@ -105,6 +106,26 @@ def main():
     pick(app, "qwen", "inpaint")
     settle()
     assert "Fill" in str(app.lbl_adv_ctx.cget("text")) and str(app.lbl_grp_fn.cget("text")) == "FILL SELECTION"
+    ctx = str(app.lbl_adv_ctx.cget("text"))
+    assert ctx == "Fill Selection" or ctx.startswith("Fill Selection · "), ctx     # the function first, then the model (user 22.11.); picker name (25.11.)
+    # a narrow row cuts the model name with "…" instead of dropping it (user 25.11.: "Remove Selection Fibo 2.0 Edit T.")
+    app.v_model.set("fibo")
+    app.v_mode.set("remove")
+    app._on_model()
+    real = app.f_adv_head.winfo_width
+    from tkinter import font as tkfont
+    fnt = tkfont.Font(root=app.root, font=gui.ttk.Style().lookup("Muted.TLabel", "font") or None)
+    want = "Remove Selection · Fibo 2.0 Edit T…"
+    room = fnt.measure(want) + 2
+    extra = int(app.btn_adv.winfo_reqwidth()) + app._px(16) + (int(app.b_adv_reset.winfo_reqwidth()) + app._px(10) if app.b_adv_reset.winfo_manager() else 0)
+    app.f_adv_head.winfo_width = lambda: room + extra
+    app._show_adv_context()
+    got = str(app.lbl_adv_ctx.cget("text"))
+    assert got.startswith("Remove Selection · Fibo") and got.endswith("…") and fnt.measure(got) <= room, got
+    app.f_adv_head.winfo_width = lambda: fnt.measure("Remove Selection") + 2 + extra
+    app._show_adv_context()
+    assert str(app.lbl_adv_ctx.cget("text")) == "Remove Selection", app.lbl_adv_ctx.cget("text")
+    app.f_adv_head.winfo_width = real
     dots = lambda: [w for w, d in getattr(app, "_dot_w", {}).items() if d.winfo_manager()]     # noqa: E731
     assert not dots() and not shown(app.b_adv_reset), "startup values: no dot, no Reset"
     app.t_prompt.delete("1.0", "end")

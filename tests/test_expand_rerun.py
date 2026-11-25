@@ -1,3 +1,4 @@
+# tags: expand
 """Expand can be run again right after an Expand whose result covers the margin.
 
     python tests/test_expand_rerun.py

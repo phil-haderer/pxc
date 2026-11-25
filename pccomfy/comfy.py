@@ -64,6 +64,7 @@ class Cancelled(Exception):
 
 
 WS_HANDSHAKE_S = 10.0       # the websocket handshake (see ComfyUI.open_events)
+HISTORY_POLL_S = 0.5        # without a websocket ComfyUI.wait asks /history this often (tests make it shorter)
 PREVIEW_IMAGE, PREVIEW_IMAGE_WITH_METADATA = 1, 4      # ComfyUI's binary websocket events (protocol.py BinaryEventTypes)
 
 
@@ -515,10 +516,13 @@ class ComfyUI:
 
     def wait(self, prompt_id: str, on_progress: Callable[..., None] | None = None,
              cancelled: Callable[[], bool] | None = None, timeout: float = 1800,
-             on_preview: Callable[[Image.Image], None] | None = None, ws=None) -> dict:
+             on_preview: Callable[[Image.Image], None] | None = None, ws=None,
+             on_output: Callable[[str, dict], None] | None = None) -> dict:
         """Wait for the job to finish. Progress via websocket when available, else poll /history. on_preview gets each
         live preview frame (a PIL image) the sampler sends. `ws`: a websocket the caller opened before queueing
-        (open_events; the caller closes it); without one, wait() opens its own and closes it."""
+        (open_events; the caller closes it); without one, wait() opens its own and closes it. on_output(node, output) gets
+        the output of every node as soon as it is done (websocket only): what the prompt writer wrote is known even when
+        the run is stopped afterwards (user 25.11.)."""
         # on_progress(fraction, message, node=<id of the node ComfyUI is executing, or None>);
         # fraction is -1 when the node reports no progress (e.g. a text model writing the prompt).
         on_progress = on_progress or (lambda f, msg, node=None: None)
@@ -562,6 +566,11 @@ class ComfyUI:
                         elif m["type"] == "progress" and d.get("max"):
                             on_progress(d["value"] / d["max"], f"step {d['value']}/{d['max']}",
                                         str(d.get("node") or current or "") or None)
+                        elif m["type"] == "executed" and on_output is not None and d.get("node") is not None:
+                            try:
+                                on_output(str(d["node"]), d.get("output") or {})
+                            except Exception:
+                                pass
                         elif m["type"] == "execution_error":
                             raise ComfyError(f"Error in node {d.get('node_type')}: {d.get('exception_message')}")
                         elif m["type"] == "executing" and d.get("node") is None:
@@ -570,7 +579,7 @@ class ComfyUI:
                             break
                         continue
                 else:
-                    time.sleep(0.5)
+                    time.sleep(HISTORY_POLL_S)
                 h = self.history(prompt_id)
                 if h and h.get("status", {}).get("completed") is not None and (
                         h["status"].get("completed") or h["status"].get("status_str") == "error"):

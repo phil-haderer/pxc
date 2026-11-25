@@ -1,3 +1,4 @@
+# tags: window
 """The self-drawn popup menu pccomfy/popmenu.py (user 12.11.): tk.Menu-like API, 5 px margin above and below (none left and right), blue hover row with white text,
 cascade arrow grey / white, disabled rows, submenu placement (right, flipped left at the screen edge, no overlap), keyboard,
 <<MenuSelect>>, grab released on close. Hidden Tk window; mouse and keys are driven through the menu's own handlers.
@@ -7,7 +8,9 @@ cascade arrow grey / white, disabled rows, submenu placement (right, flipped lef
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 os.environ["PCCOMFY_HOME"] = tempfile.mkdtemp(prefix="pccomfy-popmenu-")
@@ -44,6 +47,13 @@ def main():
     root.geometry("1x1+0+0")
     root.update()
     popmenu.CLOSE_ON_FOCUS_LOSS = False      # other test windows steal the focus when the runner works six at a time
+    # The popup holds a global grab, so every real mouse move or click anywhere on the screen reaches it: one move while
+    # the test waits for the submenu cancels the 150 ms open timer (red on PC B, 24.11.; a stray <Motion> per wait round
+    # reproduces it). The test drives _pointer/_click itself, so the bound handlers ignore real events here; that they
+    # forward to the chain is checked once at the end.
+    real_motion, real_press = PopMenu._on_motion, PopMenu._on_press
+    PopMenu._on_motion = lambda self, ev: None
+    PopMenu._on_press = lambda self, ev: None
     log = []
 
     # ---- API ----
@@ -132,14 +142,13 @@ def main():
         check(cv.itemcget("arrow3", "fill") == ON_ACCENT and fill(cv, 3) == ACCENT, "cascade arrow white on the active row")
         check(sels[:2] == [0, None] and sels[2] == 3, f"<<MenuSelect>> on every change {sels}")
         # submenu after the delay
-        for _ in range(200):                   # up to 3 s: the delay timer is late on a busy machine
+        until = time.monotonic() + 10          # the delay timer is late on a busy machine (six test windows at a time)
+        while sub.geometry() is None and time.monotonic() < until:
             root.update()
-            if sub.geometry() is not None:
-                break
-            if m.index("active") != 3:             # a stray real mouse event moved the row: put the pointer back
-                m._pointer(*row3)
-            root.after(15)
+            time.sleep(0.01)
         check(sub.geometry() is not None, "submenu opened after hover")
+        if sub.geometry() is None:
+            break
         sx, sy, sw, sh = sub.geometry()
         check(sx == x + w + px(2), f"submenu 2 px right of the parent ({sx} vs {x + w})")
         check(sy == y + m._rows[3][0], "submenu first row level with the parent row")
@@ -282,6 +291,25 @@ def main():
     check(w.geometry()[2] == narrow, "min_width smaller than the content: the content width stays")
     w.unpost()
     check(PopMenu(root).font_size == 9, "the other menus keep font 9")
+
+    # ---- the bound handlers forward real mouse events to the chain (real ones are ignored above; a generated <Motion>
+    # does not reliably reach the handler on Windows, so the handlers get a made-up event with screen coordinates) ----
+    PopMenu._on_motion, PopMenu._on_press = real_motion, real_press
+    hits = []
+    m = PopMenu(root)
+    m.add_command(label="Click me", command=lambda: hits.append(1))
+    m.tk_popup(60, 60)
+    root.update()
+    for w in (m._top, m._cv):
+        check(w.bind("<Motion>") and w.bind("<Button-1>"), f"<Motion> and <Button-1> bound on {w.winfo_class()}")
+    x, y, w, h = m.geometry()
+    ev = SimpleNamespace(x_root=x + w // 2, y_root=y + 1 + m._px(5) + (m._rows[0][0] + m._rows[0][1]) // 2)
+    m._on_motion(ev)
+    check(m.index("active") == 0, "_on_motion moves the active row to the pointer")
+    m._on_press(ev)
+    root.update()
+    check(hits == [1] and m.geometry() is None, "_on_press on the row runs it and closes the menu")
+    m.unpost()
 
     # ---- no dark text on the accent, no hard-coded orange ----
     src = (ROOT / "pccomfy" / "popmenu.py").read_text(encoding="utf-8").lower()

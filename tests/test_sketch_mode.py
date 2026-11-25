@@ -1,4 +1,5 @@
-"""Sketch (docs/sketch-plan.md, build steps 3 and 4, 10.11.): the mode `sketch` of the four edit models, its templates in the
+# tags: sketch
+"""Sketch (docs/archiv/sketch-plan.md, build steps 3 and 4, 10.11.): the mode `sketch` of the four edit models, its templates in the
 prompt field, the lock of only the tab Sketch without the upsampler, and "Scribble on photo" in the bridge (find the scribble,
 generate only a crop, put it back with a fading layer mask, hide the scribble layer). Bridge against the PhotoCraft simulator
 of test_reference_mode, window with the stubbed Tk.
@@ -107,6 +108,7 @@ def test_models_and_texts():
     assert bridge.sketch_text(old_scribble) == bridge.sketch_text(models.SKETCH_SCRIBBLE)
     assert old_scribble in models.STOCK_PROMPTS
     assert models.SCRIBBLE_TIP == "Scribble in bright red or green and replace SUBJECT with what goes there."
+    assert models.SKETCH_TIP == "Replace SUBJECT with what your sketch shows and include its surroundings: “a dog in an empty street”."   # user 25.11.
 
 
 def test_manifest_lock_only_the_tab():

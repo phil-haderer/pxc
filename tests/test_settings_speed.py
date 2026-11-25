@@ -1,5 +1,6 @@
+# tags: settings
 """The settings window opens fast: no PowerShell lookup on the Tk thread, no second drawing when nothing changed, the ComfyUI folder and
-extra_model_paths.yaml read once per fill, and the text boxes measured only when their width changes (docs/plan/settings-tempo.md 1, 2, 3, 5).
+extra_model_paths.yaml read once per fill, and the text boxes measured only when their width changes (docs/archiv/settings-tempo.md 1, 2, 3, 5).
 
     python tests/test_settings_speed.py
 """

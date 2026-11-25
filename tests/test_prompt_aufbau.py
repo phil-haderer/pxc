@@ -1,3 +1,4 @@
+# tags: prompt, multiedit
 """The total prompt of Multi Image Edit per model, produced by the real functions (the slots, the window's prompt joining,
 the bridge, the workflow). Prints the four examples; with --write it writes docs/prompt-aufbau.md from them.
 

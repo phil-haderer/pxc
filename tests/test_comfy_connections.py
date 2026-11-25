@@ -1,3 +1,4 @@
+# tags: comfy
 """ComfyUI client connections: GETs share one keep-alive connection, the lists are read at most once per 10 s (also when two
 threads ask at once), a POST has a connection of its own, errors become ComfyError. A real local HTTP server counts them.
 

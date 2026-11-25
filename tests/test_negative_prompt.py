@@ -1,3 +1,4 @@
+# tags: prompt, moss
 """The negative prompt box works with MOSS Text to image (the only workflow with a real negative prompt): typed text goes into the
 node, an empty box keeps the workflow's own text; the box is enabled there and greyed out for a workflow without that node.
 

@@ -1,8 +1,11 @@
+# tags: prompt
 """Reroll prompt (user 18.11., choice A): the "Prompt writer seed" row is gone from the Advanced settings; the writer seed is
 hidden (start value 0, sent with every run, saved with My settings and the history, Reset = 0). A button "Reroll prompt" right
 of "Enhance my Prompt with LLM" draws a new one: the next run writes a new prompt, after that it stays the same again. The
 button is there only in the Enhance row, only while Enhance is ticked, only for a writer that samples (not Fibo),
-wherever the Enhance row is (MiniMax too); not in Sketch to image / Scribble (no Enhance row). The window with the stubbed Tk.
+wherever the Enhance row is (MiniMax too). Sketch to image / Scribble (user 25.11., "Nur Reroll-Knopf zeigen"): the writer
+always runs there, so the row shows "Reroll prompt" without the Enhance tick (Flux 3, Flux 2, Qwen; not Fibo or MiniMax,
+not with a written prompt from the history). The window with the stubbed Tk.
 
     python tests/test_prompt_reroll.py
 """
@@ -53,8 +56,28 @@ def main():
     app.v_enhance.set(True)                       # the tick alone (its trace) shows it again
     assert shown["on"]
     assert pick("qwen", "txt2img", True), "Qwen Text to image"
-    assert not pick("qwen", "sketch", True), "Sketch to image has no Enhance row"
-    assert not pick("qwen", "scribble", True), "Scribble on photo has no Enhance row"
+    tick = {"on": True}
+    app.cb_enhance.pack = lambda *a, **k: tick.__setitem__("on", True)
+    app.cb_enhance.pack_forget = lambda *a, **k: tick.__setitem__("on", False)
+    app.cb_enhance.winfo_manager = lambda: "pack" if tick["on"] else ""
+    for model in ("qwen", "flux3", "flux2"):
+        for mode in ("sketch", "scribble"):
+            assert pick(model, mode, False), f"{model} {mode}: Reroll prompt, also with Enhance off (the writer always runs)"
+            assert not tick["on"] and app._writer_only(), f"{model} {mode}: no Enhance tick"
+    assert not pick("fibo", "sketch", True) and not pick("minimax", "sketch", True), "no writer that samples: no button"
+    pick("qwen", "sketch", True)
+    app._written_for = "qwen"                     # a written prompt from the history runs without the writer: no button
+    app._update_prompt_hint()
+    assert not shown["on"] and not app._writer_only()
+    app._written_for = ""
+    app._update_prompt_hint()
+    assert shown["on"]
+    assert pick("qwen", "txt2img", True) and tick["on"], "back to Text to image: the tick is there again"
+    pick("qwen", "sketch", True)
+    app.v_writer_seed.set(0)
+    app.reroll_prompt()
+    assert app._request().params.writer_seed == app.v_writer_seed.get() != 0, "Sketch: the next run uses the new writer seed"
+    app.v_writer_seed.set(0)
     assert not pick("flux3", "inpaint", True), "Fill: no prompt writer, no row"
     assert pick("minimax", "txt2img", True), "MiniMax Text to image with Enhance on: the button is there"
     assert pick("minimax", "edit", True), "MiniMax Edit with Enhance on"

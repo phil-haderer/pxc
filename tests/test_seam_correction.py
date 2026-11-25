@@ -1,3 +1,4 @@
+# tags: fill, mask
 """Seam correction as an A/B test (OpenFill T2, user 28.10.): the tone difference where the result must match the
 original is measured, smoothed and added to the whole result (imaging.seam_correct). With the switch on, each result
 comes twice: "[seam fix]" on top and visible, "[raw]" hidden below it; the tone jump of #1 before and after goes into

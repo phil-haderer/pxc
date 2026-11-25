@@ -1,3 +1,4 @@
+# tags: upscale, flux3, workflows
 """Flux 3 Upscale: the stage "4x UltraSharp" (for generated pictures) next to "SeedVR2 pre-cleaning", in both graphs.
 
     python tests/test_upscale_ultrasharp.py

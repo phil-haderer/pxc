@@ -1,3 +1,4 @@
+# tags: window
 """Colours: the inactive tab / field colour (PANEL) is one constant, a tab that is not available is red on that background,
 nothing in the sources spells the old colour by hand, and text on PANEL stays readable.
 

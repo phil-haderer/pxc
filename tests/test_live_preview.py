@@ -1,3 +1,4 @@
+# tags: comfy, window
 """Live preview (T3a, user 29.10.: 1A with TAESD files optional, 2B, 3A, 4A): ComfyUI's binary preview frames are read
 from the websocket, the prompt asks for the preview method "taesd" only when the checkbox is on, the frame shows above the
 status line while the run goes and disappears with "Done". The checkbox is on at every start and after Reset.

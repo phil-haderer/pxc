@@ -1,3 +1,4 @@
+# tags: window
 """Function symbols: every function of the head has a shape of its own (fn-<key> in icons.py, img2img keeps the
 placeholder), every shape draws at 100 % and 150 %, a picture of the user (assets/functions/<key>.png) still comes first,
 and the function buttons show symbol and text left-aligned.

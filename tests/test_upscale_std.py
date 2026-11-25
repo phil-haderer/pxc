@@ -1,3 +1,4 @@
+# tags: upscale, flux3, workflows
 """Flux 3 Upscale built from standard nodes only (the A2 variant of the refine A/B test; the only one since 2.11.).
 
     python tests/test_upscale_std.py

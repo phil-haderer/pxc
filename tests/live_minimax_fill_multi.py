@@ -48,6 +48,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from PIL import Image, ImageFilter  # noqa: E402
 
+from live_progress import Left  # noqa: E402  (what is left of the round)
 import live_fill_flux as lff  # noqa: E402  (CASES of Fill round 1, selection)
 import live_remove_name as lrn  # noqa: E402  (CASES with the user's selections)
 import live_style_test as base  # noqa: E402  (make_app)
@@ -488,6 +489,7 @@ def cmd_run(a):
         from live_expand_remote import Timed
         comfy = Timed(url)
         key, js = {}, jobs(a.only)
+        left = Left(len(js))
         for i, (variant, cid, seed) in enumerate(js, 1):
             fid = fid_of(variant, cid, seed)
             t0 = time.time()
@@ -507,7 +509,7 @@ def cmd_run(a):
             json.dump({"items": key, "order": order, "names": NAME}, open(out / "key.json", "w", encoding="utf-8"),
                       indent=1, ensure_ascii=False)
             page(out, key)
-            print(f"{i}/{len(js)} {fid}: {secs} s", flush=True)
+            print(f"{i}/{len(js)} {fid}: {secs} s" + left(i), flush=True)
         print(f"Results: {(out / 'index.html').as_uri()}")
     finally:
         app.root.destroy()

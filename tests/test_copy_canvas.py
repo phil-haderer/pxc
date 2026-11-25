@@ -1,3 +1,4 @@
+# tags: photocraft, window
 """Copy canvas to clipboard (L3, header button, user 29.10. option A): the visible layers of the active picture as one
 image, through the export a run makes; hidden layers stay out, the document is left as it was. The window's button
 against the Tk stub with a fake clipboard.
@@ -130,6 +131,7 @@ def cut_checks():
         def has(self, name):
             return True
     app.inv = Inv2()
+    app._running = False        # the cut above has ended (its "done" event is not handled here); during a run it is grey (23.11.)
     app._update_cut_button()
     assert app.b_cut.cget("state") == "normal" and app.tt_cut.text == gui.CUTOUT_TIP
 

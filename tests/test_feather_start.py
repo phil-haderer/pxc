@@ -1,3 +1,4 @@
+# tags: mask, start
 """Edge feather at start: the function's own starting value, not a fixed 2 % (stubbed Tk, no display needed).
 
 Bug (28.10.): the feather is not part of the saved window state, so every start showed 2 %; Fibo Fill (10 %) and

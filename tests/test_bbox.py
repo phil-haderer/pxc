@@ -1,3 +1,4 @@
+# tags: mask, multiedit, flux3, workflows
 """BBOX in Multi Image Edit (Flux 3): the selection becomes the box <obj_1>. The graph change (workflows.add_layout) and the whole
 bridge run against the PhotoCraft simulator and the fake ComfyUI of test_reference_mode.
 
@@ -87,7 +88,8 @@ def main():
     assert 0 < o_[200, ox1 + 15] < 255 and o_[0, 0] == 0                    # soft beyond the box, nothing far away
     assert np.array_equal(np.asarray(imaging.box_margin_mask(big, (800, 600), 0.15, 0.0, outside=True)),
                           np.asarray(imaging.box_margin_mask(big, (800, 600), 0.15, 0.0)))   # no feather: no change
-    src_b = Path(bridge.__file__).read_text(encoding="utf-8")
+    src_b = "".join((Path(bridge.__file__).parent / f).read_text(encoding="utf-8")
+                    for f in ("bridge.py", "bridge_tools.py"))   # the preview went to bridge_tools.py (tempo plan S3, 24.11.)
     assert src_b.count("BBOX_MARGIN, req.feather_pct, outside=True)") == 2            # the layer mask and the preview
     assert "box_margin_mask(bbox, (W, H), BBOX_MARGIN, req.feather_pct).crop" in src_b    # Flux 3 Fill unchanged
     n_masked = lambda pc_:sum(1 for l in pc_.doc.layers if l.get("mask") is not None)
@@ -115,10 +117,19 @@ def main():
     lay = next(v for v in b.comfy.graphs[-1].values() if v["class_type"] == "Flux3LayoutPrompt")
     assert lay["inputs"]["prompt"] == "replace the tent <obj_1> with a dog"
 
-    # no selection: a normal run, no box nodes
-    pc, b, res = run("make it night", with_sel=False)
-    assert all(v["class_type"] not in ("CreateBoundingBoxes", "Flux3LayoutPrompt") for v in b.comfy.graphs[-1].values())
-    assert prompt_node(b.comfy.graphs[-1])["inputs"]["text"] == "make it night"
+    # no selection: no run at all (user 23.11.: "flux 3 reference shouldn't work without a selection"; was a plain edit)
+    tmp = tempfile.mkdtemp()
+    pc, _, b = t.make(tmp, with_sel=False)
+    b.comfy = t.FakeComfy()
+    req = Request(mode="edit", workflow=WF, bbox=True, enhance=False)
+    req.params = workflows.GenParams(prompt="make it night", seed=7)
+    try:
+        b.run(req)
+        raise AssertionError("Insert reference ran without a selection")
+    except bridge.BridgeError as e:
+        assert str(e) == bridge.BBOX_NO_SELECTION, e
+    assert not b.comfy.graphs, "nothing may go to ComfyUI"
+    assert bridge.BBOX_NO_SELECTION == "Insert reference needs a selection: draw a rectangle where the object goes."
 
     # BBOX off: the selection is ignored as before (the whole picture is selected, no box nodes)
     pc, b, res = run("make it night", bbox=False)

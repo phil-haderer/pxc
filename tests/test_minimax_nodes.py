@@ -1,3 +1,4 @@
+# tags: minimax, prompt, workflows
 """MiniMax H3 Image's prompt writer is a chain of three nodes (PLAN 2.0b, step 2): the pc:prompt node is a StringReplace
 that puts the typed text into the official task prompt (`pc_prompt_key` "replace"), a TextGenerateV2 writes JSON, a
 JsonExtractString (`pc_prompt_out`) takes "expanded_caption" out for MiniMaxH3ImageConditioning. The plugin treats the

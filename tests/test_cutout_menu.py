@@ -1,3 +1,4 @@
+# tags: workflows, multiedit
 """The scissors with a model menu (user 6.11., PLAN: Cutout-Knopf): BiRefNet, RMBG-2.0, Both; the edge colour clean-up (imaging.defringe);
 the manifest entry of rmbg-2.0.safetensors. Against the fake PhotoCraft and ComfyUI and the Tk stub.
 
@@ -234,6 +235,7 @@ def gui_checks():
     rows = app._cutout_rows()
     assert [(r[0], r[2], r[1] is None) for r in rows] == [("BiRefNet", "item", False), ("RMBG-2.0 (file missing)", "disabled", True),
                                                           ("Both (file missing)", "disabled", True)], rows
+    app._running = False        # the last cut above has ended (its "done" event is not handled here)
     app._update_cut_button()
     assert app.b_cut.cget("state") == "normal" and app.tt_cut.text == gui.CUTOUT_TIP
     # only RMBG-2.0: BiRefNet is greyed out; a click on a missing model says so and starts nothing
@@ -260,6 +262,37 @@ def gui_checks():
         assert len(opened) == 1 and [r[0] for r in opened[0][2]] == ["BiRefNet", "RMBG-2.0", "Both"]
         app._cutout_menu()      # a second click closes it
         assert len(opened) == 1
+        # during a run (or a queue job) no Cut out (user 23.11.): the scissors is grey with the reason, an open menu
+        # closes, a click opens nothing; the slot's Cut out icon is grey too, "Undo cut" stays; after the run all is back
+        closed = []
+        app._cut_popup = type("P", (), {"closed": False, "close": lambda s: closed.append(1)})()
+        app._running = True
+        app._go_stop(True)
+        assert closed == [1] and app._cut_popup is None
+        assert app.b_cut.cget("state") == "disabled" and gui.CUT_NOT_IN_RUN in app.tt_cut.text, app.tt_cut.text
+        said = []
+        real_status, app._status = app._status, lambda msg, **k: said.append(msg)
+        app._cutout_menu()
+        assert len(opened) == 1 and said == [gui.CUT_NOT_IN_RUN], said
+        app._status = real_status
+        it = type("It", (), {"cut_out": False})()
+        assert app._cut_slot_off(it) == gui.CUT_NOT_IN_RUN
+        it.cut_out = True
+        assert app._cut_slot_off(it) == "", "Undo cut stays clickable"
+        app._running = False
+        app._go_stop(False)
+        assert app.b_cut.cget("state") == "normal" and app.tt_cut.text == gui.CUTOUT_TIP
+        it.cut_out = False
+        assert app._cut_slot_off(it) == ""
+        # a batch of the queue counts as a run
+        real_busy, app._batch_busy = app._batch_busy, lambda: True
+        try:
+            app._go_stop(True)
+            assert app.b_cut.cget("state") == "disabled" and app._cut_slot_off(it) == gui.CUT_NOT_IN_RUN
+        finally:
+            app._batch_busy = real_busy
+            app._go_stop(False)
+        assert app.b_cut.cget("state") == "normal"
     finally:
         gui_run.ListPopup = real
 

@@ -1,3 +1,4 @@
+# tags: tools
 """PLAN.md stays an index (user 11.11.): at most 120 lines, and every file it links to exists (docs/plan/ and the topic
 plans under docs/). PLAN.md is private (the release export leaves it out), so the test skips without it.
 Run: python tests/test_plan_size.py"""

@@ -1,3 +1,4 @@
+# tags: window
 """Tip of the day: the tips file, the choice without repeats, the saved tick, and the popup in a real (hidden) Tk window.
 The window part is skipped when Tk cannot open a window.
 

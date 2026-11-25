@@ -1,3 +1,4 @@
+# tags: multiedit, fibo, workflows
 """The reference slot (pc:ref -> TextEncodeFibo2 images.image_2) of the Fibo workflows.
 
     python tests/test_reference_slot.py

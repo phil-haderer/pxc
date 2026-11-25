@@ -1,3 +1,4 @@
+# tags: window
 """The chip, Variants, Copy and "Copy download link" menus are self-drawn PopMenus (user 12.11.): real popups, blue hover row
 with white text, the chosen Variants number shows the tick, no tk.Menu( left in the files of these menus. Hidden Tk window.
 

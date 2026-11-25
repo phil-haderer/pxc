@@ -72,19 +72,21 @@ DOWNSIZE_TIP = ("Off: the picture opens as a new document in the chosen size. On
 NATIVE_TIP_END = " Bigger pictures are slower and need more VRAM; the models are made for about 1 MP, so test it per model."
 
 MODE_LABELS = [
-    ("txt2img", "Text to image"),
-    ("outpaint", "Expand image"),
+    ("txt2img", "Text to Image"),     # English title case in the function list (user 24.11.)
+    ("outpaint", "Expand Image"),
     ("inpaint", "Fill Selection"),
     ("remove", "Remove Selection"),
     ("edit", "Edit"),            # one function button for Edit canvas, Multi image edit and Insert reference (BBOX) (tabs under the prompt, refslots.py; user 7.11.)
-    ("multi_edit", "Multi Image Edit"),
-    ("sketch", "Sketch to image"),        # a tab of the Edit function too (refslots.py; docs/sketch-plan.md)
+    ("multi_edit", "Multi image edit"),      # as the Edit list names it (user 25.11.: everywhere as in the picker)
+    ("sketch", "Sketch to image"),        # a tab of the Edit function too (refslots.py; docs/archiv/sketch-plan.md)
     ("scribble", "Scribble on photo"),      # likewise, its own tab since plan B (10.11.); named so since 15.11. (user)
-    ("upscale", "Upscale (new file)"),
-    ("refine", "Refine (same size)"),
-    ("img2img", "Image → image"),    # only for a workflow of your own (no model tab)
+    ("refine", "Refine Image"),  # two functions again since 22.11. (user: Refine with its own symbol, in the list below Edit); "Refine Image" since 24.11.
+    ("upscale", "Upscale"),
+    ("img2img", "Image → Image"),    # only for a workflow of your own (no model tab)
 ]
-SCALE_FN_LABEL = "Upscale / Refine"      # the one function button of the standard mode for Upscale and Refine (user 6.11.)
+# the function labels before 24.11. (title case, "Refine Image"): a custom prompt saved before 15.11. names its function by label
+OLD_MODE_LABELS = {"Text to image": "txt2img", "Expand image": "outpaint", "Refine": "refine", "Image → image": "img2img",
+                   "Multi Image Edit": "multi_edit"}
 SHORT_MODES = {"txt2img": "Text", "edit": "Edit", "inpaint": "Fill Selection", "outpaint": "Expand", "multi_edit": "Multi Edit", "sketch": "Sketch", "scribble": "Scribble",
                "remove": "Remove Selection", "upscale": "Upscale", "refine": "Refine", "img2img": "Img2img"}   # layer names
 EXPAND_HINT = "Don't use a prompt for expanding."   # user 3.11.
@@ -827,13 +829,32 @@ HEADER_GAP = 3           # px between the letters and the sign (5, then 4, now 3
 # to this factor; what is left stays as a gap before Undo and Redo, two squares at the right edge. No Stop button since
 # 20.11. (user): Generate itself turns into "Stop" during a run (_go_stop)
 VARIANTS_GROW_MAX = 1.2
-GO_COL_STOP_ALL, GO_COL_GAP, GO_COL_UNDO = 2, 3, 4     # the grid columns of the row: 0 Generate, 1 variants, then these (Redo: 5)
+# the grid columns of the row: 0 Generate, 1 variants, then these (Redo: GO_COL_UNDO + 1); "Stop run" only while Generate
+# is "Add to queue" (docs/plan/generate-queue.md, Variant 1)
+GO_COL_STOP_RUN, GO_COL_STOP_ALL, GO_COL_GAP, GO_COL_UNDO = 2, 3, 4, 5
 GO_GAP_MIN_PX = 6        # px at least between the variants piece (or "Stop batch") and Undo, before the display scaling
 GO_STOP_TEXT, GO_STOP_RUN_TEXT, STOP_BATCH_TEXT = "Stop", "Stop run", "Stop batch"   # Generate during a run (user 20.11.)
 GO_TIP = "Generate (Ctrl+Enter)"
 GO_STOP_TIP = "Stop the run (Ctrl+Alt+Enter)."
 GO_STOP_RUN_TIP = ("Stop the run that is on (Ctrl+Alt+Enter); the variants still to come go on. "
                    "\"Stop batch\" stops them too.")
+QUEUE_ROW_GAP_PX = 4     # px before "Stop run" and "Stop batch" while Generate is "Add to queue" (6 did not fit at 100 %)
+ADD_QUEUE_TEXT = "Add to queue"     # Generate while a run is on, for a function that can wait in the queue (user 22.11.)
+ADD_QUEUE_TIP = ("Add this run to the queue (Ctrl+Enter): the picture in front and the settings are taken now; "
+                 "it starts when the runs before it are through.")
+STOP_RUN_TIP = "Stop the run that is on (Ctrl+Alt+Enter); what waits in the queue goes on."
+QUEUE_WINDOW_MODES = ("refine", "upscale", "edit", "txt2img")   # the window modes Generate can queue, each only behind
+                     # itself (user 23.11. evening, choice D; Multi Edit, Sketch, Scribble were taken out again)
+QUEUE_LOCKED = "{fn} can't wait in the queue. Wait until the run is over, or click Stop batch."   # no reason given (user 23.11.)
+QUEUE_NO_BBOX = QUEUE_LOCKED.format(fn="Insert reference")   # the tab's name, not BBOX (user 23.11.)
+QUEUE_OTHER_FN = "While {run} runs, only {run} can wait in the queue. Wait until the run is over, or click Stop batch."
+# a function as the picker names it (top list, and the Edit list for its tabs): everywhere a function is named, in messages,
+# the queue window and the Advanced settings (user 25.11.: "die Funktionen heißen überall wie im plugin mode wähler");
+# the layer names keep SHORT_MODES
+FN_NAMES = {**dict(MODE_LABELS), "edit": "Edit canvas", "multi_edit": "Multi image edit"}
+QUEUE_FN_NAMES = FN_NAMES      # the names in QUEUE_OTHER_FN and the queue window's Function column
+VARIANTS_QUEUED = "The first picture runs now; {n} more in the queue."   # ×n (user 23.11. evening: shorter)
+UNDO_HIDE_MODES = ("inpaint", "remove")   # Undo hides their result layer (user 23.11. late), like the queue modes
 STOP_GUARD_S = 0.5       # s after Generate turned into Stop in which a click on Stop is ignored (a double click, user 20.11.)
 GO_PAIR_GAP_PX = 3       # px between the Undo and Redo squares, before the display scaling
 from .refslots import EDTAB_PADX  # noqa: E402  (the tabs under the prompt; Generate and the variants piece are as wide as one)
@@ -858,6 +879,9 @@ CUTOUT_TIP = ("Remove background: choose a model (BiRefNet, RMBG-2.0 or Both); a
 CUTOUT_MISSING = ("No background-removal model found: download birefnet.safetensors (or rmbg-2.0.safetensors) in the gear window, "
                   "Models, Additional.")
 CUTOUT_BOTH_LABEL = "Both"
+CUT_NOT_IN_RUN = "Not while a run is on."     # Cut out (scissors and slots) is grey during a run or a queue job (user 23.11.)
+HISTORY_UNDO_TIP = "Back to the state before the last generation."
+HISTORY_REDO_TIP = "Brings the AI edit back after an Undo."
 NO_LLM_MODES = ("outpaint", "remove", "sketch", "scribble") + SCALE_MODES   # no "Enhance my Prompt with LLM" row: fixed or ready-made prompts (user 30.10.);
 # Sketch: the upsampler always runs with Flux 3, Flux 2 and Qwen, Fibo never has one (user 10.11.)
 EDIT_MODES = ("edit", "multi_edit", "sketch", "scribble")     # the window modes behind the one function button Edit (its tabs)
@@ -980,7 +1004,19 @@ __all__ = [
     "GO_TIP",
     "GO_STOP_TIP",
     "GO_STOP_RUN_TIP",
+    "GO_COL_STOP_RUN",
     "GO_COL_STOP_ALL",
+    "QUEUE_ROW_GAP_PX",
+    "ADD_QUEUE_TEXT",
+    "ADD_QUEUE_TIP",
+    "VARIANTS_QUEUED",
+    "STOP_RUN_TIP",
+    "QUEUE_WINDOW_MODES",
+    "QUEUE_LOCKED",
+    "QUEUE_OTHER_FN",
+    "QUEUE_FN_NAMES",
+    "FN_NAMES",
+    "QUEUE_NO_BBOX",
     "GO_COL_GAP",
     "GO_COL_UNDO",
     "GO_GAP_MIN_PX",
@@ -1063,7 +1099,7 @@ __all__ = [
     "writer_name",
     "FILL_CONTEXT",
     "MODE_LABELS",
-    "SCALE_FN_LABEL",
+    "OLD_MODE_LABELS",
     "SHORT_MODES",
     "EXPAND_HINT",
     "HINT_TEXT",
@@ -1105,6 +1141,10 @@ __all__ = [
     "CUTOUT_TIP",
     "CUTOUT_MISSING",
     "CUTOUT_BOTH_LABEL",
+    "CUT_NOT_IN_RUN",
+    "HISTORY_UNDO_TIP",
+    "HISTORY_REDO_TIP",
+    "UNDO_HIDE_MODES",
     "LIVE_TIP",
     "LLM_TIP",
     "STYLES_TIP",

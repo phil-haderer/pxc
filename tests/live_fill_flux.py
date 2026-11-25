@@ -15,7 +15,7 @@ Flux 3 and Flux 2 x 2 wordings x 8 x 2 = 64, Qwen 8 x 2 = 16, together 80 pictur
     python tests\\live_fill_flux.py preview --images <folder>   (the selections and what the model gets; no ComfyUI)
     python tests\\live_fill_flux.py run --images <folder> [--dry]   (--dry: everything but ComfyUI, the crop comes back as it is)
     python tests\\live_fill_flux.py run --images <folder> --round 2   (round 2: approaches A, C, D, E on 12 cases, 216
-                                                                       pictures, about 45 min; docs/tests/fill-flux-runde2-plan.md)
+                                                                       pictures, about 45 min; docs/archiv/tests/fill-flux-runde2-plan.md)
     python tests\\live_fill_flux.py run --images <folder> --round 4 [--url http://<ip>:8188]   (round 4: Flux 2, C against C+, 16 pictures)
     python tests\\live_fill_flux.py run --images <folder> --round 5   (round 5: Flux 3 with the box <obj_1> and no red mark,
                                                                        crop or whole picture, "Add" or "Place"; Flux 2 C as the
@@ -23,13 +23,13 @@ Flux 3 and Flux 2 x 2 wordings x 8 x 2 = 64, Qwen 8 x 2 = 16, together 80 pictur
     python tests\\live_fill_flux.py run ... --models flux2 --seeds 11 --cases 1,3,6,7,9,10,11   (a cut round; also
                                                                        --approaches; user 10.11. for PC B's 8 GB card)
     python tests\\live_fill_flux.py run --images <folder> --round 6   (round 6: the soft edge; Flux 2 C and Flux 3 B2 on 7 cases,
-                                                                       14 pictures, raw results kept; docs/tests/fill-rand-testplan.md)
+                                                                       14 pictures, raw results kept; docs/archiv/tests/fill-rand-testplan.md)
     python tests\\live_fill_flux.py edges --images <folder> [<round 6 folder>]   (no GPU: each raw result laid back with
                                                                        every edge variant, 56 pictures; then rate and summary)
     python tests\\live_fill_flux.py run --images "<testpics magnific 3>\\2MP" --round 7   (round 7: new photos, Flux 3 B2 on 13
                                                                        cases x 2 seeds, Flux 2 C, Qwen, Fibo on 7; 47 pictures;
                                                                        then "edges": Flux 3 heute + groesser, the others heute,
-                                                                       73 pictures; docs/tests/fill-runde7-testplan.md)
+                                                                       73 pictures; docs/archiv/tests/fill-runde7-testplan.md)
 Case 12 (the oak) is left out of every run since 11.11. (DROPPED_CASES, user; not in round 7, which has its own cases).
     python tests\\live_fill_flux.py merge <folder> <folder> ...   (several runs as one folder, for one blind rating)
     python tests\\live_fill_flux.py rate        (blind, one at a time: G good, S bad, 1 to 8 faults, also on good ones)
@@ -76,7 +76,7 @@ CASES = [
 ]
 WORDINGS = {"fit": FILL_PROMPT, "large": FILL_PROMPT_LARGE}
 
-# Round 2 (user 9.11., "wie vorgeschlagen", docs/tests/fill-flux-runde2-plan.md): new prompt approaches against round 1's
+# Round 2 (user 9.11., "wie vorgeschlagen", docs/archiv/tests/fill-flux-runde2-plan.md): new prompt approaches against round 1's
 # faults (red line left, large objects too small, the object takes the selection's shape, doubled parts), on the 8 cases
 # of round 1 plus 4 large objects (approved by the user on 9.11.)
 CASES2 = CASES + [
@@ -108,7 +108,7 @@ ADD_VERB = "Add "
 RUNS4 = [("flux2", ap) for ap in ("C", "C+")]
 ROUND4_CASES = (0, 2, 5, 6, 8, 9, 10, 11)            # cases 1, 3, 6, 7, 9, 10, 11, 12 (counted from 1 in the rating)
 ROUND4_SEEDS = (11,)
-# Round 5 (user 11.11., plan B step 4, docs/plan-edit-sketch-stile.md "Fill über die Box"): can Flux 3 fill a selection
+# Round 5 (user 11.11., plan B step 4, docs/archiv/plan-edit-sketch-stile.md "Fill über die Box"): can Flux 3 fill a selection
 # through its own layout input, the box <obj_1> (as Insert reference does), without a reference picture? No red mark: the
 # selection's bounding box becomes <obj_1> (the typed text also as the box's description), the sentence names the box.
 #   B1  crop around the selection (Context 40 %), "Add ..."      B2  crop, "Place ..."
@@ -122,7 +122,7 @@ BOX_APPROACHES = {"B1": ("Add", False), "B2": ("Place", False), "B3": ("Add", Tr
 RUNS5 = [("flux3", ap) for ap in BOX_APPROACHES] + [("flux2", "C")]
 ROUND5_CASES = (0, 1, 3, 4, 5, 6, 8, 11)            # cases 1, 2, 4, 5, 6, 7, 9, 12
 ROUND5_SEEDS = (11,)
-# Round 6 (user 11.11., docs/tests/fill-rand-testplan.md): the soft edge seen when the result is laid back ("mask too
+# Round 6 (user 11.11., docs/archiv/tests/fill-rand-testplan.md): the soft edge seen when the result is laid back ("mask too
 # small?" in rounds 4 and 5). The two Fill ways the plugin has now, Flux 2 C (red outline) and Flux 3 B2 (box in the crop,
 # "Place"), on the cases of round 5 without the oak, one seed: 7 x 2 = 14 pictures. Each raw result is kept (roh/), so
 # the command "edges" lays it back with several edges afterwards without the GPU (EDGE_VARIANTS).
@@ -133,7 +133,7 @@ ROUND6_SEEDS = (11,)
 #        colour match switched against today: Flux 3 matches today (match_box), Flux 2 does not)
 EDGE_VARIANTS = {"heute": (1.0, 0.0, False), "weich": (2.0, 0.0, False), "groesser": (1.0, 0.15, False),
                  "farbe": (1.0, 0.0, True)}
-# Round 7 (user 12.11., docs/tests/fill-runde7-testplan.md): before Flux 3 Fill gets the larger box (+ 30 %, "groesser" in
+# Round 7 (user 12.11., docs/archiv/tests/fill-runde7-testplan.md): before Flux 3 Fill gets the larger box (+ 30 %, "groesser" in
 # round 6: 7/7 against 5/7), the same question on new photos (testpics magnific 3\2MP, the user's pictures scaled to
 # 2 MP; cases approved by the user on 12.11.). Part A: Flux 3 B2 on all 13 cases x 2 seeds; "edges" lays each back with
 # "heute" and "groesser". Part B, the yardstick: the other Fill models the way the plugin runs them (Flux 2 C, Qwen with

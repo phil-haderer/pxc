@@ -1,3 +1,4 @@
+# tags: start
 """At every start the sliders, sampler, steps and LoRAs are the standard ones; model, function and prompt stay (user 4.11.).
 
     python tests/test_start_factory.py
@@ -6,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,15 +43,35 @@ def start(state: dict):
     return app
 
 
-def every_page_keeps_saved_steps():
-    """Saved Steps (chip menu "My settings") come back for EVERY model and function: at the start, after "Reset page" and when
-    the function is opened by a click (PLAN 2.5, 4.11.). Pages whose workflow has no steps field are skipped."""
-    done = []
+SLOW = os.environ.get("PCCOMFY_SLOW_TESTS") == "1"
+
+
+def pages_to_check(day: int, slow: bool) -> list[list[tuple[str, str, str]]]:
+    """Per model its pages (model, function, workflow), in the order they are tried. With PCCOMFY_SLOW_TESTS=1 every page is
+    checked; otherwise only the first page per model that can be checked, and the list starts at another page each day
+    (`day`), so over the days every page comes up (user 24.11., choice A3; the full run goes with every "fertig, lade hoch")."""
+    out = []
     for key, m in models.BY_KEY.items():
-        for mode in m.modes:
-            wf = m.modes[mode].workflow
-            if not wf:
-                continue
+        pages = [(key, mode, m.modes[mode].workflow) for mode in m.modes if m.modes[mode].workflow]
+        if pages and not slow:
+            i = day % len(pages)
+            pages = pages[i:] + pages[:i]
+        out.append(pages)
+    return out
+
+
+def every_page_keeps_saved_steps(slow: bool = SLOW, day: int | None = None):
+    """Saved Steps (chip menu "My settings") come back for every model and function: at the start, after "Reset page" and when
+    the function is opened by a click (PLAN 2.5, 4.11.). Pages whose workflow has no steps field are skipped. Every page with
+    PCCOMFY_SLOW_TESTS=1, else one page per model that changes daily (24.11., A3: an own window per page took about 2 min)."""
+    if day is None:
+        day = int(os.environ.get("PCCOMFY_START_SAMPLE_DAY") or date.today().toordinal())
+    done = []
+    for pages in pages_to_check(day, slow):
+        n_before = len(done)
+        for key, mode, wf in pages:
+            if not slow and len(done) > n_before:
+                break               # the sample: one checked page per model
             cfgmod.set_saved_page(key, mode, {"steps": 13})
             app = start({"model": key, "mode": mode, "workflow": wf})
             try:
@@ -106,8 +128,12 @@ def main():
     finally:
         app.root.destroy()
     cfgmod.set_saved_page("qwen", "inpaint", None)
+    every = [p for pages in pages_to_check(0, slow=True) for p in pages]
+    seen = {p for d in range(60) for pages in pages_to_check(d, slow=False) for p in pages[:1]}
+    assert seen == set(every), "over the days the sample starts at every page once"
     n = every_page_keeps_saved_steps()
-    print(f"ALL OK ({n} pages keep their saved steps; start with the standard settings, saved pages loaded)")
+    what = "all pages" if SLOW else f"sample of day {int(os.environ.get('PCCOMFY_START_SAMPLE_DAY') or date.today().toordinal())}, all {len(every)} with PCCOMFY_SLOW_TESTS=1"
+    print(f"ALL OK ({n} pages keep their saved steps, {what}; start with the standard settings, saved pages loaded)")
 
 
 if __name__ == "__main__":

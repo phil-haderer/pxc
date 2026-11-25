@@ -1,3 +1,4 @@
+# tags: photocraft
 """The result goes into PhotoCraft without its clipboard (layer.copyToDocument): what the user copied stays there.
 
 Checks against the PhotoCraft simulator (behaviour measured in 0.15.1 and 0.16): the layer lands exactly on the region,

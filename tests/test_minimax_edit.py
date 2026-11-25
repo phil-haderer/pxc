@@ -1,3 +1,4 @@
+# tags: minimax, edit, multiedit
 """MiniMax H3 Image, Edit and Multi image edit (PLAN 2.0b, step 4; docs/plan-minimax-h3-image.md).
 
 - the workflow is the official edit template as an API graph (task prompt word for word, ends "User input: {input text}"),
@@ -90,7 +91,11 @@ def main():
 
     # the model
     m = models.BY_KEY["minimax"]
-    assert list(m.modes) == ["txt2img", "edit", "multi_edit", "sketch", "scribble"]      # Sketch and Scribble since 21.11. (step 8)
+    assert list(m.modes) == ["txt2img", "edit", "multi_edit", "sketch", "scribble", "refine"]   # Sketch, Scribble 21.11. (step 8), Refine 22.11.
+    # Refine (user 22.11. "Ja, mit Default"): the Edit graph and start values with the Flux 2 Default text, one button, like Fibo
+    r = m.modes["refine"]
+    assert r.workflow == m.modes["edit"].workflow and r.settings == m.modes["edit"].settings and r.run_as == "edit"
+    assert r.prompt_hint == models.FLUX2_DEFAULT and not r.prompts and r.prompt_tip == models.REFINE_TIP
     for k in ("sketch", "scribble"):      # the Edit graph and the Edit start values, the writer off (user 21.11.: "ohne Schreiber")
         spec = m.modes[k]
         assert spec.workflow == WF.name and spec.settings == models.MINIMAX_EDIT and spec.run_as == "edit", k
@@ -104,7 +109,7 @@ def main():
         spec = m.modes[k]
         assert spec.workflow == WF.name and spec.settings["gen_mp"] == 4 and spec.settings["downsize"] is True, k
         assert spec.settings["enhance"] is False and spec.settings["layer_mask"] == "none", k
-    assert m.modes["edit"].prompt_tip == models.EDIT_TIP and m.modes["multi_edit"].prompt_tip == models.MULTI_TIP
+    assert m.modes["edit"].prompt_tip == models.EDIT_TIP and m.modes["multi_edit"].prompt_tip == ""   # the @ tip under the slots (user 23.11.)
     assert m.modes["multi_edit"].run_as == "edit" and m.modes["txt2img"].settings["downsize"] is False
     assert set(m.workflows()) == {"minimax-h3-image-t2i.json", WF.name}
 

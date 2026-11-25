@@ -36,6 +36,8 @@ class StateMixin:
         self._comfy_up = ok
         self._comfy_read = None             # not read yet: the dot turns green when refresh() has read the lists
         show_comfy(self, ok, None)
+        if hasattr(self, "_apply_start_state"):     # the empty window's sentence follows the probe at once (ui_settings "no_comfy")
+            self._apply_start_state(fit=False)
 
     def _watch_comfy(self):
         """The dot at the bottom left follows ComfyUI while the window is open: every COMFY_WATCH_MS a short question on a fresh

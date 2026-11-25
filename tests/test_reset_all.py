@@ -1,3 +1,4 @@
+# tags: start, window
 """Reset brings back everything a fresh start of the same tab and function has (stubbed Tk).
 
 Every setting in the window is changed, then Reset; the result must equal a new window opened on that tab. Kept on

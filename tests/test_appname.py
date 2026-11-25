@@ -1,3 +1,4 @@
+# tags: release
 """The visible app name lives only in pccomfy/appname.py (PLAN.md point 20): no other module holds it as a string literal,
 and the places that show it take it from there.
 

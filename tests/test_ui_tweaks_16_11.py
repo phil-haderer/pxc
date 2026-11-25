@@ -1,3 +1,4 @@
+# tags: window
 """Small window changes of 16.11., measured in the real Tk window (skipped when Tk cannot open one): the run bar half as high
 (9 px instead of 18), the Generate row under the prompt and its tip for every function, no "Reset page" button in the
 footer (the two resets are in the hamburger menu, tests/test_batch_gui.py).

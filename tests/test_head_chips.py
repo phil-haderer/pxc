@@ -1,3 +1,4 @@
+# tags: window
 """The head has two chips with a list since 20.11. (user): the function chip on the left (symbol, name, arrow), the model chip
 right beside it; grey like the former function buttons, each as wide as its longest entry, so neither changes its width.
 The function list has the order of the former buttons, the model list the order of the former chips; a model that cannot do
@@ -75,7 +76,7 @@ def main():
     # both fit at the narrow window width (the window's side gaps of 10 px each); since 20.11. they share it in two equal
     # halves, so each one's longest entry must fit in half of it
     half = (app._px(gui.MIN_W) - 2 * app._px(10) - app._px(gui.PICK_GAP) - 1) // 2
-    for b, labels in ((app.b_mode, ["Remove Selection", gui.SCALE_FN_LABEL, "Fill Selection"]), (app.b_model, [m.label for m in models.MODELS])):
+    for b, labels in ((app.b_mode, ["Remove Selection", "Fill Selection", "Upscale", "Refine Image"]), (app.b_model, [m.label for m in models.MODELS])):
         frame = b.winfo_reqwidth() - app._pick_measure(str(b["text"]))       # padding, border, symbol
         need = frame + max(app._pick_measure(t) for t in labels) + app._pick_measure(gui.PICK_ARROW)
         assert need <= half, (str(b), need, half)
@@ -83,14 +84,15 @@ def main():
     assert abs(app.b_mode.winfo_width() - app.b_model.winfo_width()) <= 2, (app.b_mode.winfo_width(), app.b_model.winfo_width())
     assert abs(app.b_mode.winfo_height() - app.b_model.winfo_height()) <= 1     # as high as the function chip (user 20.11.)
 
-    # the function list: the order of the former buttons, Edit for its tabs, Upscale / Refine as one entry, the dot on the chosen one
+    # the function list: the order of the former buttons, Edit for its tabs, Refine below Edit, then Upscale (two functions
+    # again, user 22.11.), the dot on the chosen one
     popmenu.CLOSE_ON_FOCUS_LOSS = False
     app.v_model.set("qwen")
     app._on_model()
     app._pick_mode("inpaint")
     app._mode_menu()
     labels = [e["label"] for e in app.m_mode.entries]
-    assert labels == ["Text to image", "Expand image", "Fill Selection", "Remove Selection", "Edit", "Upscale / Refine"], labels
+    assert labels == ["Text to Image", "Expand Image", "Fill Selection", "Remove Selection", "Edit", "Refine Image", "Upscale"], labels
     assert all(e["icon"] is not None for e in app.m_mode.entries)
     assert app.v_pick_mode.get() == "inpaint"
     app.m_mode.unpost()
@@ -100,8 +102,12 @@ def main():
     app.v_mode.set("multi_edit")                                      # a tab of Edit: the chip still says Edit
     app._show_picks()
     assert app.b_mode["text"].startswith("Edit")
-    app._pick_mode("scale")
-    assert app.v_mode.get() in gui.SCALE_MODES and app.b_mode["text"].startswith("Upscale / Refine")
+    app._pick_mode("refine")
+    assert app.v_mode.get() == "refine" and app.b_mode["text"].startswith("Refine")
+    assert str(app._function_icon("refine")[0]) in str(app.b_mode["image"])       # its own symbol
+    app._pick_mode("upscale")
+    assert app.v_mode.get() == "upscale" and app.b_mode["text"].startswith("Upscale")
+    assert str(app._function_icon("upscale")[0]) in str(app.b_mode["image"])
 
     # the model list: every model in the order of the chips, greyed out when it cannot do the function, the chosen one dotted
     app._pick_mode("inpaint")
@@ -151,6 +157,25 @@ def main():
     labels = [e["label"] for e in app.m_chip.entries if e["type"] != "separator"]
     assert labels[-1] == "Hide this model" and labels[0].startswith("Set current settings"), labels
     app.m_chip.unpost()
+
+    # the gap to the prompt box (user 22.11.): without the Edit list (Fill, Refine, Text to image) from the chips to the box
+    # as wide as from the Edit list to the box with it, and that is the gap between the two chips
+    app.root.deiconify()
+    app.v_model.set("flux3")
+    app._on_model()
+
+    def gap(mode):
+        app._pick_mode(mode)
+        app.root.update()
+        above = app.f_edtabs if app.f_edtabs.winfo_manager() else app.f_tabs     # Flux 3 Fill has its tabs too
+        return app.f_prompt.winfo_rooty() - (above.winfo_rooty() + above.winfo_height())
+
+    with_list = gap("edit")
+    assert app.f_edtabs.winfo_manager()
+    chips = app.b_model.winfo_rootx() - (app.b_mode.winfo_rootx() + app.b_mode.winfo_width())
+    assert abs(with_list - chips) <= 1, (with_list, chips)
+    for mode in ("inpaint", "refine", "txt2img", "upscale"):
+        assert abs(gap(mode) - with_list) <= 1, (mode, gap(mode), with_list)
     app.root.destroy()
     print("ALL OK (head chips)")
 

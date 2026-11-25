@@ -1,3 +1,4 @@
+# tags: qwen, upscale, workflows
 """Qwen Image 2.1 Upscale (workflow qwen212KUpscale_v10 as an API graph): the picture, the result's size, the prompt and the seed reach
 the right nodes; no LoRA and no upscaler node; Qwen offers the function.
 
@@ -32,7 +33,9 @@ def main():
     assert mode.workflow == WF.name and mode.settings["turbo"] is False and mode.prompt_hint == models.QWEN_UPSCALE_DEFAULT
     assert mode.prompts == ()                                    # no Default / Detailed switches (user 2.11.)
     refine = models.BY_KEY["qwen"].modes["refine"]               # the same graph at the canvas size, with a Turbo LoRA switch
-    assert refine.workflow == "qwen-image-21-refine.json" and refine.prompt_hint == models.QWEN_UPSCALE_DEFAULT and refine.prompts == ()
+    # one prompt since 24.11. (user: "qwen keep colors wird zu default"), no buttons
+    assert refine.workflow == "qwen-image-21-refine.json" and refine.prompt_hint == models.QWEN_KEEP_COLORS and refine.prompts == ()
+    assert models.QWEN_KEEP_COLORS in models.STOCK_PROMPTS and models.QWEN_UPSCALE_DEFAULT in models.STOCK_PROMPTS
     assert refine.settings["turbo"] is False                      # starts off: 25 steps like Upscale
     r = json.loads((ROOT / "workflows" / refine.workflow).read_text(encoding="utf-8"))
     assert workflows.lora_subgraph(r) and workflows.lora_strength(r) == 1

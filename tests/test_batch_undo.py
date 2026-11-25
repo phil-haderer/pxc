@@ -1,3 +1,4 @@
+# tags: queue, undo
 """"Undo AI edit" after a batch over the open documents (pccomfy/jobqueue.py, Bridge.batch_snapshot): the active document
 decides. One that got a batch result goes back to its state before the batch, the others stay; a Generate after the batch
 still takes back only that run; Upscale batches open new documents and take no snapshot (like a normal Upscale run);

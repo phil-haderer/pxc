@@ -1,3 +1,4 @@
+# tags: qwen, fill, prompt
 """Fill with Qwen asks for the full size of the outline; Fibo keeps its wording (stubbed PhotoCraft and ComfyUI).
 
 Test round 28.10.: with "scaled to fit it" Qwen drew the object small, far inside the outline; Fibo filled it.

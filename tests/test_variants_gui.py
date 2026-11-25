@@ -1,3 +1,4 @@
+# tags: models, window
 """The window with a known model variant (pccomfy/variants.py, user 20.11.): its values stand in the fields, Qwen Turbo greys
 out the Turbo LoRA and Steps, and the request names the variant.
 

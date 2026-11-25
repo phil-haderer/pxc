@@ -1,3 +1,4 @@
+# tags: photocraft, window
 """'Stay with PhotoCraft' in the window (stubbed Tk, faked winlink): link on, unlink off, retries, state on destroy.
 
     python tests/test_winlink_gui.py

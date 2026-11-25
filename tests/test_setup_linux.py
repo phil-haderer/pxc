@@ -1,3 +1,4 @@
+# tags: release, linux
 """setup-linux.sh: the file itself everywhere, its functions on Linux (the script is sourced, nothing is installed).
 
     python tests/test_setup_linux.py

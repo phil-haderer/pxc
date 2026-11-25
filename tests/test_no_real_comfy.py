@@ -1,3 +1,4 @@
+# tags: comfy, tools
 """A test script never talks to the ComfyUI of this PC (port 8188): three test runs ended the listening socket of the real ComfyUI
 (WinError 64 in asyncio's accept, 3.11.2026). `comfy.real_comfy_blocked` stops it in ComfyUI._request, open_events and
 comfyaddr.probe. Nothing here connects anywhere.
@@ -60,6 +61,26 @@ def main():
         h.write_text(f"import runpy\nrunpy.run_path({str(t / 'test_inner.py')!r}, run_name='__main__')\n", encoding="utf-8")
         r = subprocess.run([sys.executable, "-B", str(h)], cwd=tmp, capture_output=True, text=True, env=env, timeout=60)
         assert r.returncode == 0 and r.stdout.strip() == "blocked", (r.stdout, r.stderr)
+
+    # T5 (24.11.): in a test the dead port 1 fails at once (Windows waits about 2 s for a refused local port), with the same
+    # error type the plugin already handles; the plugin outside tests is untouched (the probe above runs no test code)
+    import socket
+    import time
+    from pccomfy import config, testguard  # noqa: F401  (config installs the guard at import)
+    assert testguard.DEAD_PORT == 1
+    for host in ("127.0.0.1", "localhost"):
+        t0 = time.monotonic()
+        try:
+            socket.create_connection((host, testguard.DEAD_PORT), timeout=5)
+            raise AssertionError("port 1 must refuse")
+        except ConnectionRefusedError:
+            pass
+        assert time.monotonic() - t0 < 0.2, f"{host}:1 took {time.monotonic() - t0:.2f} s"
+    try:
+        comfy.ComfyUI("http://127.0.0.1:1").object_info("KSampler")
+        raise AssertionError("no ComfyUI on port 1")
+    except comfy.ComfyError as e:
+        assert e.transient and "not running" in str(e), e
     print("ALL OK (tests never touch the real ComfyUI)")
 
 

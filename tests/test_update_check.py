@@ -1,3 +1,4 @@
+# tags: release, window
 """The update check (docs/plan/update.md, user 19.11.: A1 + A2, H2, B1, B3). Never asks GitHub: a small server of its own.
 
     python tests/test_update_check.py

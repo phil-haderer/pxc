@@ -1,3 +1,4 @@
+# tags: prompt, qwen, workflows
 """The picture tag a workflow names for its model ("<image1>" for Qwen Image 2.1) goes in front of the typed prompt.
 
     python tests/test_image_tag.py

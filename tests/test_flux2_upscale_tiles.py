@@ -1,3 +1,4 @@
+# tags: upscale, flux2, workflows
 """Flux 2 Upscale always runs in tiles (user 12.11.; upscale stage round 9.11.: 2 of 3 good with tiles, 0 of 3 without): no
 "Tiles" switch in the window, the tile graph is the base of the workflow, a saved "Tiles off" is ignored, and without
 ComfyUI-KJNodes (Color Match) the model Flux 2 is locked. Refine keeps its own graph without tiles.

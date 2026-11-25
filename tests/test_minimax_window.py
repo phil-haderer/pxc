@@ -1,3 +1,4 @@
+# tags: minimax, window
 """MiniMax H3 Image in the window (PLAN 2.0b, step 3): the size row (4 / 8 / 12 / 16 / 20 MP) and the tick "Downsize to
 canvas" are shown only for MiniMax Text to image, where "Use canvas size up to" goes away; they start at 4 MP and off,
 travel with saved settings, and go into the request (off = a new document). Other models send gen_mp 0.

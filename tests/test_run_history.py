@@ -1,3 +1,4 @@
+# tags: queue, window
 """The last 20 runs (PLAN point 13, user 30.10.): the clock in the header lists finished runs; a click loads every setting
 with a new seed and starts nothing; when the text model wrote the prompt, that text comes back with Enhance off. The
 history file on its own, then the window against the Tk stub.
@@ -44,13 +45,13 @@ def gui_checks():
     cfgmod.HISTORY_FILE = Path(tempfile.mkdtemp()) / "history.json"
     app = gui.App(cfgmod.load())
     app.cb_workflow["values"] = [gui.BUILTIN, "fibo2-edit.json", "fibo2-edit-both.group.json"]
-    app.b_history.winfo_rootx = app.b_history.winfo_rooty = app.b_history.winfo_height = lambda: 0
+    app.b_menu.winfo_rootx = app.b_menu.winfo_rooty = app.b_menu.winfo_height = lambda: 0    # the list opens above ⋯ (24.11.)
 
     # nothing run yet: "Erase history" is greyed out, one note; the list itself opens (the window is the Tk stub here)
     assert app._history_rows() == [("Erase history", app.erase_history, "disabled"), ("No runs yet.", None, "disabled")]
     app._history_menu()
     assert app._history_popup is not None and not app._history_popup.closed
-    app._history_menu()                                                      # a second click on the clock closes it
+    app._history_menu()                                                      # picked again while open: it closes
     assert app._history_popup is None
 
     # a run: Fill with Fibo, the text model rewrites the prompt

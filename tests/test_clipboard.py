@@ -1,3 +1,4 @@
+# tags: photocraft
 """clipboard.py without touching the real clipboard (the Windows calls are replaced).
 Run: python tests/test_clipboard.py"""
 import io

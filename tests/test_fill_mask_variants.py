@@ -1,3 +1,4 @@
+# tags: mask, fill
 """Fill mask test round, stage 1 (no GPU; user 30.10.): every layer-mask variant of pccomfy/fillmask.py at every position
 (middle, touching each canvas edge, in two corners, a few px from an edge), as rectangle and as hard lasso, with several
 Edge feather and Context values, against fixed rules:

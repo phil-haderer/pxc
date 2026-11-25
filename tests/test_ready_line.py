@@ -1,3 +1,4 @@
+# tags: window, models
 """The idle line at the bottom (user 3.11.): empty (no "Ready" since 21.11.) when the chosen model and function can run; else it says what to get.
 A custom node pack that the workflow needs (ComfyUI-KJNodes for Flux 3 Upscale) is named, and Generate stops with the same hint.
 Hidden Tk window.

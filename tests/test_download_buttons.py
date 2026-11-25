@@ -1,3 +1,4 @@
+# tags: settings, models
 """The download symbols of the settings window and the ComfyUI folder finder, against the stubbed Tk (no network, no GPU).
 
     python tests/test_download_buttons.py

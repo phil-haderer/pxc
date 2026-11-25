@@ -1,3 +1,4 @@
+# tags: queue, workflows
 """The middle part of a run without PhotoCraft (docs/plan/speichern-queue-batch.md, step 2): Bridge.process_image takes a
 picture and a ComfyUI, nothing else. Refine, Upscale and Edit against a small fake ComfyUI over HTTP on a free port (never
 8188); the graphs it sends are the ones a run from PhotoCraft sends for the same picture. And the split of Bridge._run did

@@ -1,3 +1,4 @@
+# tags: models, window
 """The model tabs: a tab enables only its model's modes, brings its workflow and starting settings, follows presets.
 
     python tests/test_model_tabs.py
@@ -67,7 +68,7 @@ def main():
     app.v_mode.set("inpaint"); app._on_mode()
 
     # the modes follow each other in the order text, edit, fill, remove, expand, reference, upscale, refine
-    assert [k for k, _ in gui.MODE_LABELS] == ["txt2img", "outpaint", "inpaint", "remove", "edit", "multi_edit", "sketch", "scribble", "upscale", "refine", "img2img"]
+    assert [k for k, _ in gui.MODE_LABELS] == ["txt2img", "outpaint", "inpaint", "remove", "edit", "multi_edit", "sketch", "scribble", "refine", "upscale", "img2img"]   # Refine below Edit (22.11.)
 
     # MOSS: text to image, Generative fill, Expand (a test); the DMD2 LoRA is its own LoRA, Lenovo and SLG are switches
     app.v_model.set("moss")
@@ -202,16 +203,16 @@ def main():
     app._on_model()
     assert app.v_lmask.get() == gui.LAYER_MASKS["soft"] and app.v_feather.get() == 10.0
     assert gui.LAYER_MASKS["soft"] == "soft"
-    # Flux 2 refine: ready-made prompts as radio buttons that fill the field; upscale starts at 1.5
+    # Flux 2 refine: one prompt, Neutral (user 24.11.), no buttons to choose; upscale starts at 1.5
     app.v_model.set("flux2")
     app.v_mode.set("refine")
     app._on_model()
-    assert app._pchoice_key == ("flux2", ("Default", "Neutral", "Studio portrait")) and list(app.rb_refine) == ["Default", "Neutral", "Studio portrait"]
+    assert app._pchoice_key == ("flux2", ("Default",)) and app._prompt_text() == models.RELIGHT_NEUTRAL
     app._insert_prompt(models.RELIGHT_NEUTRAL)
     assert app._prompt_text().startswith("A crystal-clear, high-fidelity photograph")
     app.v_mode.set("upscale")
     app._on_model()
-    assert app._scale() == 1.5 and app.v_scale.get() == "x 1.5" and app._pchoice_key == ("flux2", ("Default", "Neutral", "Studio portrait"))
+    assert app._scale() == 1.5 and app.v_scale.get() == "x 1.5" and app._pchoice_key == ("flux2", ("Default",))
     # Expand image: the prompt field turns orange with a hint
     app.v_mode.set("outpaint")
     app._on_model()
@@ -254,19 +255,22 @@ def main():
     assert mm["fibo"].modes["inpaint"].prompt_tip == models.FILL_TIP   # the user's wording
     assert mm["qwen"].modes["inpaint"].prompt_tip == models.FILL_TIP + " Small selections don't work well with Qwen."   # user 30.10.
     assert models.FILL_TIP == "Draw a selection and prompt e.g. “add a red flower”."   # user 3.11., second sentence dropped 17.11.
-    assert [p[0] for p in mm["flux2"].modes["refine"].prompts] == ["Default", "Neutral", "Studio portrait"]
+    assert mm["flux2"].modes["refine"].prompts == () and mm["flux2"].modes["refine"].prompt_hint == models.RELIGHT_NEUTRAL
     assert mm["flux3"].modes["upscale"].prompts == () and mm["flux2"].modes["upscale"].prompts == ()   # Flux 3: the workflow's own prompt only
     # the prompt a refine starts with is the one the workflow sends by default
     import json as _j
     wf2 = _j.loads((t.ROOT / "workflows" / "flux2-klein-upscale.json").read_text(encoding="utf-8"))
     wf3 = _j.loads((t.ROOT / "workflows" / "flux3-klein-upscale.json").read_text(encoding="utf-8"))
-    assert wf2["206"]["_meta"]["pc_default_prompt"] == models.FLUX2_DEFAULT == mm["flux2"].modes["refine"].prompt_hint
+    assert wf2["206"]["_meta"]["pc_default_prompt"] == models.FLUX2_DEFAULT == mm["flux2"].modes["upscale"].prompt_hint
+    for key, wf in (("flux2", "flux2-klein-refine.json"), ("qwen", "qwen-image-21-refine.json"), ("flux3", "flux3-klein-refine.json")):
+        g = _j.loads((t.ROOT / "workflows" / wf).read_text(encoding="utf-8"))      # Refine's one prompt also when the field is empty (24.11.)
+        assert [n["_meta"]["pc_default_prompt"] for n in g.values() if "pc_default_prompt" in n.get("_meta", {})] == [mm[key].modes["refine"].prompt_hint], wf
     assert wf3["159"]["_meta"]["pc_default_prompt"] == models.FLUX3_DEFAULT == mm["flux3"].modes["upscale"].prompt_hint
     assert wf3["159"]["inputs"]["text"] == ""          # the pc:prompt node itself (no AusBoss text node since 2.11.)
     assert {m.modes["upscale"].prompt_tip for m in models.MODELS if "upscale" in m.modes} == {""}     # no description advice (user 12.11., P8)
     assert {m.modes["refine"].prompt_tip for m in models.MODELS if "refine" in m.modes} == {models.REFINE_TIP}
     assert not hasattr(models, "DESCRIBE_TIP")          # dropped 12.11. (docs/tests/p8-upscale-prompt-ergebnis.md)
-    assert models.REFINE_TIP == "Refine keeps the size and redraws fine detail."
+    assert models.REFINE_TIP == "Refine Image keeps the size and redraws fine detail."
     # Remove (a test) for Flux 2 and 3: the Qwen way, soft mask with 10 % feather
     for k in ("flux2", "flux3"):
         assert mm[k].modes["remove"].settings["feather_pct"] == 10.0 and mm[k].modes["remove"].settings["layer_mask"] == "soft"

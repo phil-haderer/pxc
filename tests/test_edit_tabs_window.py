@@ -1,3 +1,4 @@
+# tags: edit, sketch, multiedit, window
 """The tabs under Edit (Edit canvas / Multi image edit; Sketch to image / Scribble on photo / Scribble with reference, plan B
 10.11.) in the real window: since 20.11. (user) one list chip in the look of the function chip, with its arrow, the full
 width, a little higher than the tabs were and lower than the function chip; and a chosen chip is blue to its edge (no

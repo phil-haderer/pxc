@@ -1,3 +1,4 @@
+# tags: window
 """The window without title bar (Windows) has a 1 px frame: blue (ACCENT) while the plugin has the focus, grey otherwise
 (user 18.11.). Stubbed Tk.
 

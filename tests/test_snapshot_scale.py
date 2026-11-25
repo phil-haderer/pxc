@@ -1,3 +1,4 @@
+# tags: upscale, refine, workflows
 """The snapshot script of Upscale and Refine (tests/snapshot_scale_graphs.py) is deterministic and covers every model x mode.
 
     python tests/test_snapshot_scale.py
@@ -15,7 +16,8 @@ def main():
     assert not any("error" in v for v in a.values()), [k for k, v in a.items() if "error" in v]
     seen = {(S.json.loads(k)["model"], S.json.loads(k)["mode"]) for k in a}
     assert seen == {("qwen", "upscale"), ("qwen", "refine"), ("flux2", "upscale"), ("flux2", "refine"),
-                    ("flux3", "upscale"), ("flux3", "refine"), ("fibo", "refine"), ("fibo", "upscale")}, seen
+                    ("flux3", "upscale"), ("flux3", "refine"), ("fibo", "refine"), ("fibo", "upscale"),
+                    ("minimax", "refine")}, seen                       # MiniMax Refine since 22.11.
     k = next(k for k in a if '"mode": "refine"' in k and '"model": "flux3"' in k)
     assert len(a[k]["graphs"]) == 1 and a[k]["layers"] == 1, a[k]["layers"]
     k = next(k for k in a if '"mode": "upscale"' in k and '"model": "qwen"' in k)

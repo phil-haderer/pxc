@@ -1,6 +1,8 @@
 # Install matrix: runs setup-windows.bat / setup-linux.sh on fresh machines the way a new user would, then checks that the
 # plugin starts (tests/ci_install_smoke.py) and runs the tests. No GPU, no ComfyUI, no PhotoCraft (a stand-in file only):
 # it finds install problems (Python versions, folders with spaces and umlauts, distributions, packages), not image quality.
+# Every job runs in the public release repo only (if: github.repository == ...): the private working repo gets this file too,
+# and there each push of "fertig, lade hoch" and the Monday run used up the account's Actions minutes (user 24.11.).
 name: Install matrix
 
 on:
@@ -16,6 +18,7 @@ permissions:
 jobs:
   windows:
     name: Windows, Python ${{ matrix.python }}${{ matrix.own_pick && ' (setup picks Python itself)' || '' }}
+    if: github.repository == 'phil-haderer/pxc'
     runs-on: windows-latest
     timeout-minutes: 25
     strategy:
@@ -66,6 +69,7 @@ jobs:
 
   windows-no-python:
     name: Windows without Python (setup offers winget, answer Y)
+    if: github.repository == 'phil-haderer/pxc'
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -108,6 +112,7 @@ jobs:
 
   ubuntu:
     name: ${{ matrix.os }}, Python of the distribution
+    if: github.repository == 'phil-haderer/pxc'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -151,6 +156,7 @@ jobs:
 
   distro:
     name: ${{ matrix.image }} (container)
+    if: github.repository == 'phil-haderer/pxc'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     container: ${{ matrix.image }}

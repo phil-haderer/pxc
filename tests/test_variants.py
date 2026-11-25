@@ -1,3 +1,4 @@
+# tags: models, workflows
 """Known model variants (pccomfy/variants.py, user 20.11.): detection, aliases, the values sent, Qwen Turbo's sigma schedule.
 
     python tests/test_variants.py

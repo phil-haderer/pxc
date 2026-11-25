@@ -1,3 +1,4 @@
+# tags: prompt, comfy
 """The written prompt is kept (user 20.11.): the same request, picture, text model and writer seed send the text the writer
 wrote before, so a run of another graph in between (ComfyUI keeps only the last graph's results) does not make it write
 again. "Reroll prompt" (a new writer seed) gives a new key.

@@ -1,3 +1,4 @@
+# tags: window, linux
 """The Linux display scale (pccomfy/uiscale.py): parsing, the order of the sources, PhotoCraft's uiScale in an answer.
 
     python tests/test_uiscale.py

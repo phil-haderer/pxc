@@ -1,3 +1,4 @@
+# tags: prompt
 """The stock text of a function always wins over your own text (user 11.11.; until then your text stayed, user 3.11.):
 Upscale, Refine, Scribble on photo and the style of Sketch to image put their text into the field, your text waits aside
 and comes back with the next function without a stock text. An edited stock text never pushes your own text out.
@@ -50,7 +51,47 @@ def main():
     app._on_model()
     app.root.update()
     up = models.FLUX2.modes["upscale"].prompt_hint
-    refine = models.FLUX2.modes["refine"].prompts[0][1]
+    refine = models.FLUX2.modes["refine"].prompt_hint
+
+    # 0. Multi image edit (user 23.11., choice A): its text names the reference images, so it does not go along to another
+    # function; it waits aside and comes back with Multi image edit, and the other function's own text waits meanwhile
+    go("edit")
+    put("")
+    go("multi_edit")
+    put("place the bag from image 2 on the table")
+    go("txt2img")
+    assert text() == "", text()
+    put("a red car")
+    go("multi_edit")
+    assert text() == "place the bag from image 2 on the table", text()
+    go("txt2img")
+    assert text() == "a red car", text()
+    put("")
+    go("edit")
+    put("")
+    app._sketch_away.pop("multi_edit", None)
+    # 0b. to Multi image edit: the Multi Edit text of this session, else empty (user 24.11. evening: the text of Scribble on
+    # photo had stayed); the text there before comes back when Multi image edit is left
+    go("scribble")
+    put("turn the scribble into a red kite, " + text())        # an edited stock text of Scribble on photo
+    edited = text()
+    go("multi_edit")
+    assert text() == "", text()
+    go("scribble")
+    assert text() == edited, text()
+    go("edit")
+    put("make it night")
+    go("multi_edit")
+    assert text() == "", text()
+    put("the bag from image 2 on the table")
+    go("edit")
+    assert text() == "make it night", text()
+    go("multi_edit")
+    assert text() == "the bag from image 2 on the table", text()
+    put("")
+    go("edit")
+    put("")
+    app._sketch_away.clear()
 
     # 1. own text -> Refine (ready-made prompts) and Upscale: the stock text wins; back in Edit canvas the own text
     go("edit")

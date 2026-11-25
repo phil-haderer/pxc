@@ -1,3 +1,4 @@
+# tags: upscale, refine, photocraft
 """Upscale (new file) and Refine (same size): the whole bridge run against the PhotoCraft simulator and a fake ComfyUI.
 
 The picture goes to the workflow at its own size; a node titled pc:upscale gets the result's megapixels. Upscale opens

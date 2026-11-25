@@ -1,3 +1,4 @@
+# tags: workflows, linux
 """An old config.toml can point workflows_dir at a folder without the plugin's workflows (the former Linux default
 ~/.config/pccomfy/workflows, nobody filled it); then no model had a workflow and the window ran the built-in SD1.5 graph
 (tester 7.11.). The plugin's own folder is used instead, with a note. No Tk.

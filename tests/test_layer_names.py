@@ -1,3 +1,4 @@
+# tags: photocraft
 """Layers are named after the preset and a running number.
 
     python tests/test_layer_names.py

@@ -39,6 +39,22 @@
       "pc_size_multiple": 32
     }
   },
+  "9": {
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "pc:lora LoRA Loader - Restore LoRA",
+      "pc_lora_label": "Restore LoRA",
+      "pc_lora_tip": "Restore LoRA: faces and details stay closer to the picture."
+    },
+    "inputs": {
+      "lora_name": "Flux 3\\flux-3-image-klein-restore.safetensors",
+      "strength_model": 0.5,
+      "model": [
+        "8",
+        0
+      ]
+    }
+  },
   "159": {
     "class_type": "CLIPTextEncode",
     "inputs": {
@@ -51,7 +67,7 @@
     "_meta": {
       "title": "pc:prompt Edit instruction",
       "pc_size_multiple": 32,
-      "pc_default_prompt": "Restore the photo: remove blur, noise and compression artifacts and recover sharp, natural detail, keeping the same composition and colors."
+      "pc_default_prompt": "Restore this old photo: remove scratches, white lines, dust, folds and stains, and bring back sharp facial detail. Keep the people, their faces, their expressions, their poses and the framing exactly unchanged."
     }
   },
   "160": {
@@ -114,7 +130,7 @@
       "scheduler": "simple",
       "denoise": 1,
       "model": [
-        "8",
+        "9",
         0
       ],
       "positive": [

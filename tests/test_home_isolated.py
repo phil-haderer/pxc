@@ -1,3 +1,4 @@
+# tags: tools
 """pccomfy.config reads PCCOMFY_HOME once, at import. A test that imports pccomfy before setting its own PCCOMFY_HOME would use
 the real data/ folder (settings, state, queue) and could read or overwrite it. The runner therefore gives every test process a
 throw-away PCCOMFY_HOME (run_all.child_env); this test pins that, and that a test's own value still wins. Nothing here talks to

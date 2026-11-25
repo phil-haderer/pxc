@@ -1,3 +1,4 @@
+# tags: t2i, qwen, flux3, prompt
 """Qwen text to image (a blank canvas goes in as the picture), the Flux 3 text-to-image prompt upsampler, no "select.deselect"
 without a selection.
 

@@ -1,3 +1,4 @@
+# tags: comfy, window
 """The ComfyUI dot stays green over short stalls (a big model loading, user 11.11.): red only after 3 failed probes in a row,
 a success resets the count, and during a run the poll never turns it red. Run against the stubbed Tk of test_gui_presets.
 

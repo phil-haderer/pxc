@@ -184,7 +184,7 @@ class Inventory:
     def rows(self) -> list[dict]:
         """One row per tab for the overlay: its status and every manifest file with found / missing."""
         out = []
-        for m in models.MODELS:
+        for m in models.PICK_ORDER:       # the order of the model chip (user 22.11.)
             st = self.tab_status(m.key)
             names = list(manifest.TABS[m.key].required) if m.key in manifest.TABS else []
             modes = manifest.TABS[m.key].modes if m.key in manifest.TABS else {}
@@ -220,7 +220,7 @@ def bundled_classes() -> list:
         seen: dict = {}
         for p in sorted(BUNDLED_WORKFLOWS_DIR.glob("*.json")):
             try:
-                graph = json.loads(p.read_text(encoding="utf-8"))
+                graph = workflows.read_graph(p)
             except (OSError, ValueError):
                 continue
             for node in graph.values() if isinstance(graph, dict) else ():
@@ -334,4 +334,4 @@ def tooltip_text(st: Status, what: str = "") -> str:
 # ---------- helpers ----------
 
 def load_workflow(path: str | Path) -> dict:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return workflows.read_graph(path)

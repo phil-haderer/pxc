@@ -1,4 +1,4 @@
-"""Manual check (not part of run_all.py): the MiniMax H3 Image Edit blind test (docs/tests/minimax-edit-testplan.md,
+"""Manual check (not part of run_all.py): the MiniMax H3 Image Edit blind test (docs/archiv/tests/minimax-edit-testplan.md,
 17.11.2026; docs/plan-minimax-h3-image.md step 7, part Edit). Does MiniMax Edit keep up with Flux 3 and Qwen Image 2.1,
 and where are its weak spots? 13 edits on 4 photos x 5 passes = 65 pictures, seed 1234, through the real plugin path of
 live_style_round.py (the window's request with the start settings of Edit canvas, the bridge with the PhotoCraft
@@ -28,6 +28,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from live_progress import Left         # what is left of the round
 import live_style_round as lsr          # sets its own PCCOMFY_HOME before the plugin is imported
 from PIL import Image
 
@@ -211,6 +212,7 @@ def cmd_run(a):
                 print(f"WARNING: {mk}: not all its files are there", flush=True)
     app = lsr.live_sketch.make_app("http://127.0.0.1:1" if a.dry else (a.url or cfgmod.load()["comfyui"]["url"]))
     failed, t_start = 0, time.time()
+    left = Left(len(js))
     for i, (p, n, ph, text) in enumerate(js, 1):
         fid = f"{p}-{n:02d}"
         if fid in key:
@@ -235,7 +237,7 @@ def cmd_run(a):
                     "photo": ph, "input": f"{ph}.png", "text": text, "caption": res.get("vgl", ""), "seed": SEED,
                     "secs": round(time.time() - t0, 1)}
         write_key()
-        print(f"{i}/{len(js)} {fid} {ph}: {key[fid]['secs']} s", flush=True)
+        print(f"{i}/{len(js)} {fid} {ph}: {key[fid]['secs']} s" + left(i), flush=True)
         if a.free:
             lsr.free_memory(comfy)
     app.root.destroy()
@@ -244,7 +246,7 @@ def cmd_run(a):
     else:
         write_key()
     print(f"\n{'DRY RUN' if a.dry else 'DONE'} in {(time.time() - t_start) / 60:.1f} min, {len(js)} pictures, {failed} failed"
-          + ("" if a.dry else f", in {out}\nNext: python tests\\live_minimax_edit.py rate"), flush=True)
+          + ("" if a.dry else f", in {out}\nNext: python tests\\{Path(sys.argv[0]).name} rate"), flush=True)
     return failed
 
 

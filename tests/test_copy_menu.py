@@ -1,3 +1,4 @@
+# tags: window, comfy
 """Right-click on a label or a link symbol offers "Copy" / "Copy link" (user 3.11.); the ComfyUI dot is red or green only;
 the "!" of an error sits at the top left; a refused connection gives one short English message. Hidden Tk window.
 

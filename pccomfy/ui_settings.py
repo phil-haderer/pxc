@@ -12,19 +12,19 @@ name" and other settings. All decisions live in ``inventory.py`` and ``manifest.
 """
 from __future__ import annotations
 
-import difflib
 import tkinter.font as tkfont
 import webbrowser
 
-from . import comfyaddr, comfydir, hostos, icons, inventory, jobqueue, linkpicker, manifest, namematch, savefile, spacing, sthead
+from . import hostos, icons, inventory, linkpicker, manifest, namematch, spacing
 from .gui_common import *  # noqa: F401,F403
 from .gui_common import __all__ as _ALL  # noqa: F401
 from .gui_theme import HEADER_H, ICON_PX
 from .popmenu import PopMenu
-from .ui_downloads import DownloadMixin, browser_only, site_hint, size_text
+from .ui_downloads import DownloadMixin
 from .ui_update import UpdateMixin
 
-EMPTY_TEXT = {"choose": "Choose a model", "none_linked": "Link your models in the settings"}
+EMPTY_TEXT = {"choose": "Choose a model", "none_linked": "Link your models in the settings",
+              "no_comfy": "ComfyUI is not running. Start it, then press Refresh."}      # user 22.11., choice A
 STATE_TEXT = {"ready": "ready", "partial": "not ready", "missing": "not ready"}      # small after the model name (user 19.11.; before "is ready.", 1.11.)
 # the state of a model in Model Links as a coloured chip right of "Show in PxC" (user 20.11.; before a small tick and grey word):
 # white bold text on green or red, as high as the mode tiles
@@ -168,7 +168,11 @@ GEAR_HEAD_PX = round(ICON_PX * 0.6 * 1.2)      # the gear, now in the header: 12
 FOOT_REFRESH_PADX, FOOT_RESET_PADX = (4, 0), (12, 0)     # footer: the refresh arrow close to the ComfyUI dot, "Reset page" apart
 
 
-class SettingsMixin(DownloadMixin, UpdateMixin):
+from .ui_settings_data import SettingsDataMixin  # noqa: E402  (after the names it takes from here, see its module text)
+from .ui_other_settings import OtherSettingsMixin  # noqa: E402  (the same)
+
+
+class SettingsMixin(DownloadMixin, UpdateMixin, SettingsDataMixin, OtherSettingsMixin):
     inv = None                  # inventory.Inventory of the last successful reading (None = ComfyUI not read / not reachable)
     _inv_error = ""
     _settings_win = None
@@ -209,6 +213,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         self._detect_async()
 
     def _detect_async(self):
+        self._reread_at = None             # a full reading follows: Generate may look again at once afterwards (P4)
         mapping, comfy = cfgmod.model_map(), self.comfy
         self._comfy_root_start()           # ComfyUI's folder, looked up once in the background (not on the Tk thread)
 
@@ -305,11 +310,18 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
     # ---------- no model chosen ----------
 
     def start_state(self) -> str:
-        """"none_linked": ComfyUI was read and not one tab can run; "choose": no tab is chosen; "": a model is chosen. The window
-        shows no parameters in the first two (the look of those states is decided in FRAGEN.md / docs, see entscheidungen)."""
+        """"none_linked": ComfyUI was read and not one tab can run; "no_comfy": no tab is chosen and ComfyUI could not be read
+        (not running, so it is unknown which models are there; user 22.11.); "choose": no tab is chosen; "": a model is chosen.
+        The window shows no parameters in the first three (the look of those states is decided in FRAGEN.md / docs, see
+        entscheidungen); "no_comfy" looks like "choose", only its sentence differs."""
         if self.inv is not None and all(self.inv.tab_status(m.key).state == "missing" for m in models.MODELS):
             return "none_linked"
-        return "choose" if (not self.v_model.get() and self.v_workflow.get() in ("", BUILTIN)) else ""      # (a workflow of your own is no "no model")
+        if self.v_model.get() or self.v_workflow.get() not in ("", BUILTIN):      # (a workflow of your own is no "no model")
+            return ""
+        # not read and either the reading failed or the short probe before the window appeared (gui_state._initial_comfy_state)
+        # found no ComfyUI: the sentence is right from the first moment, not only after the reading's 2 s (user 22.11.)
+        down = self._inv_error or getattr(self, "_comfy_up", None) is False
+        return "no_comfy" if (self.inv is None and down) else "choose"
 
     def _apply_start_state(self, fit: bool = True):
         """Show what belongs to the state: a model is chosen = everything; none chosen = the tabs, one sentence, the footer; no model
@@ -388,8 +400,20 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
 
     # ---------- preflight ----------
 
+    # Generate with a missing file reads ComfyUI's lists again in the window's thread (P4, user 24.11. choice D): not while the
+    # dot says ComfyUI is off (the 0.3 s of a refused connection, or a timeout), and at most once per PREFLIGHT_REREAD_S, so
+    # clicking again gives the same message at once. A full reading (Refresh, ComfyUI back, a download) resets the wait.
+    PREFLIGHT_REREAD_S = 10.0
+
     def _reread_inventory(self):
-        """A fresh reading, in the calling thread (only used when the cached one says something is missing)."""
+        """A fresh reading, in the calling thread (only used when the cached one says something is missing); None = not read."""
+        if getattr(self, "_comfy_up", None) is False:
+            return None
+        last = getattr(self, "_reread_at", None)
+        now = time.monotonic()
+        if last is not None and now - last < self.PREFLIGHT_REREAD_S:
+            return None
+        self._reread_at = now
         try:
             return inventory.fetch(self.comfy, cfgmod.model_map())
         except ComfyError:
@@ -475,217 +499,6 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
             self._status(inventory.short_message(lines, self._model().label), error=True)
             return
         super().generate()
-
-    # ---------- the overlay: content as plain data (tested without Tk) ----------
-
-    def _settings_rows(self) -> list[tuple]:
-        """The "Models" tab as rows (kind, data), drawn by _settings_draw; no Tk here. Kinds (user 19.11.): "links" (the top row:
-        Undo and Reset; no count, choice A), "error" (text, detail), "model" (key, label, state, focus, can be shown), "modes" (key, cover),
-        "download" (key, what is missing), "file" (a dict, see below), "gguf" (url), "node" (class, pack, url), "head" (text),
-        "stop" (file names). A file row: expected name, path with its folder ("/vae/flux2-vae.safetensors"), kind, found (your
-        file's name or None), linked, level (required / optional), size text, download url, found on disk (a path or "")."""
-        self._fill_ctx = {"extra": {}, "disk": {}, "cands": {}}      # models folder, yaml, disk files, candidates: once per fill
-        try:
-            return self._settings_rows_now()
-        finally:
-            self._fill_ctx = None
-
-    def _settings_rows_now(self) -> list[tuple]:
-        rows: list[tuple] = []
-        links = cfgmod.model_map()
-        if self._fill_ctx is not None:
-            self._fill_ctx["links"] = links
-        # the top row: how many files are linked, with Undo and Reset (user 19.11.: no intro text and no list; a linked file is
-        # blue in its own field)
-        rows.append(("links", len(links)))      # no "N files linked" (user 19.11., choice A: it read as wrong; a linked file is blue)
-        if self.inv is None:
-            rows.append(("error", "ComfyUI could not be read.", (self._inv_error or "Not connected yet.")
-                         + "\nStart ComfyUI, then click the refresh arrow (⟳) at the bottom of PxC."))
-            rows += [("model", m.key, m.label, "", False, True) for m in models.MODELS]      # only "Show in PxC" (no mark, no state)
-        else:
-            for row in self.inv.rows():
-                miss = [f for f, found, lv in row["files"] if found is None and f.url and not self._dl_done(f)]      # every file of the package (user 3.11.)
-                direct = [f for f in miss if not browser_only(f)]
-                # the head: mark, name, state and "Show in PxC" in one line (user 19.11.); the last value: can it be shown
-                rows.append(("model", row["key"], row["label"], row["status"].state, row["key"] == self._settings_focus,
-                             row["status"].state != "missing"))
-                rows.append(("modes", row["key"], self._mode_cover(row["key"])))      # small tiles (user 19.11.)
-                if miss:      # the one blue button of the page (user 19.11.)
-                    rows.append(("download", row["key"], {"count": len(direct), "site": len(miss) - len(direct),
-                                                          "size": size_text(sum(f.size for f in direct))}))
-                needed = [x for x in row["files"] if x[2] == "required"]
-                extra = [x for x in row["files"] if x[2] != "required"]
-                rows.append(("head", REQUIRED_HEAD))
-                last_unet = max((i for i, x in enumerate(needed) if x[0].kind == "unet"), default=-1)
-                for i, (f, found, level) in enumerate(needed):
-                    rows.append(("file", self._file_data(f, found, level)))
-                    if i == last_unet and row["key"] in manifest.GGUF_PAGES:      # under the main model's weights (user 5.11.)
-                        rows.append(("gguf", manifest.GGUF_PAGES[row["key"]]))
-                for c in row["status"].nodes:
-                    pack = manifest.node_pack(c)
-                    rows.append(("node", c, pack[0] if pack else "", pack[1] if pack else ""))
-                if extra:       # the files of the extra features, apart from the ones the standard settings need (user 2.11.)
-                    rows.append(("head", OPTIONAL_HEAD))
-                    for f, found, level in extra:      # what each file is for, in brackets after it (user 16.11.)
-                        rows.append(("file", {**self._file_data(f, found, level), "feature": manifest.feature_use(row["key"], f.name)}))
-                rows.append(("stop", [f.name for f, _fd, _lv in row["files"]]))
-            rows.append(("head", ADDITIONAL_HEAD))
-            add_names = []
-            for f, found, use, keys in self.inv.additional_rows():
-                add_names.append(f.name)
-                rows.append(("file", {**self._file_data(f, found, "optional"),
-                                      "use": manifest.ADDITIONAL_USE.get(f.name) or f"{use}: " + ", ".join(models.SHORT[k] for k in keys)}))
-            rows.append(("stop", add_names))
-        return rows
-
-    def _mode_cover(self, key: str) -> list[tuple]:
-        """The functions a model covers: (mode key, label, state, tooltip); state ready / missing (a file or node is missing) /
-        none (the model does not offer it). Named as in the main window (user 19.11.): the tab "Edit canvas" for the whole-picture
-        edit, and the two tabs that are no mode of their own: "Insert reference" (Flux 3, under Fill; runs as Multi image edit)
-        and "Scribble with reference" (runs as Scribble on photo)."""
-        m = models.BY_KEY[key]
-        names = {"edit": "Edit canvas", "multi_edit": "Multi image edit"}      # the tab names under the prompt
-        extra = {"inpaint": ("bbox", "Insert reference", "multi_edit", bool(m.bbox)),
-                 "scribble": ("refscribble", models.REF_SCRIBBLE_LABEL, "scribble", "scribble" in m.modes and models.offers_ref_scribble(m))}
-        out = []
-
-        def add(mode, label, status_of, offered):
-            if not offered:
-                out.append((mode, label, "none", "This model does not offer this function."))
-                return
-            st = self.inv.mode_status(key, status_of) if self.inv is not None else None
-            if st is None or st.state == "ready":
-                out.append((mode, label, "ready", "Ready."))
-            else:
-                need = [f.name for f in st.missing] + list(st.nodes)
-                out.append((mode, label, "missing", "Missing: " + ", ".join(need[:3]) + (" ..." if len(need) > 3 else "")))
-
-        for mode, label in MODE_LABELS:           # noqa: F405
-            if mode == "img2img":
-                continue
-            add(mode, names.get(mode, label), mode, mode in m.modes)
-            if mode in extra:
-                add(*extra[mode])
-        return out
-
-    def _file_data(self, f, found, level) -> dict:
-        """One file row: expected name, path, found (your file's name or None), level, size, url, note, the download state
-        (see DownloadMixin._dl_info), "restart" (loaded, ComfyUI does not list it yet) and "browser" (its page opens instead)."""
-        probable = self._probable_file(f) if found is None else ""
-        ctx = getattr(self, "_fill_ctx", None)
-        links = ctx["links"] if (ctx and "links" in ctx) else cfgmod.model_map()
-        return {"name": f.name, "path": file_path(f), "found": found, "level": level, "size": f.size_text, "url": f.url,
-                "kind": manifest.KIND_LABEL.get(f.kind, f.kind), "linked": f.name in links,      # the field of the file (user 19.11.)
-                "dl": self._dl_info(f.name),        # no note of models.json under a file (user 16.11. evening; before: no licence, 2.11.)
-                "restart": found is None and f.name in self._dl_restart, "browser": browser_only(f) if f.url else False,
-                "hint": site_hint(f) if (found is None and f.url and browser_only(f)) else "",
-                "other": found is not None and self._is_other_file(f, found),
-                "probable": probable,
-                "similar": self._similar_file(f) if (found is None and not probable) else ""}
-
-    def _probable_file(self, f) -> str:
-        """A file ComfyUI lists under another name that is the missing ``f`` (same size, complete safetensors header), or "".
-        Needs the models folder (not asked for here) and, for a file that was just renamed, a ComfyUI restart."""
-        base = self.models_dir(ask=False) if f.size else None
-        if base is None:
-            return ""
-        same = []
-        for n in self._link_candidates(f.name):
-            p = self._disk_file(f, n)
-            if p is not None and p.stat().st_size == f.size:
-                same.append(n)
-        hints = self._link_hints(f.name, same)
-        return next((n for n in same if hints.get(n) == HINT_SAME + f.name), "")
-
-    def _similar_file(self, f) -> str:
-        """A file ComfyUI lists whose NAME is like the missing ``f`` (same model in another precision or spelling: namematch.py), or "".
-        Files the plugin itself knows (another entry of models.json) are no stand-ins. A hint only; a renamed copy found by size
-        and header (``_probable_file``) is named first and wins (the caller asks only when there is none)."""
-        known = [g.name for g in manifest.FILES.values() if g.name != f.name]
-        return namematch.suggest(f.name, self._link_candidates(f.name), known)
-
-    @staticmethod
-    def _is_other_file(f, found: str) -> bool:
-        """Show "your file: ..." when ComfyUI's file is not the expected one by name, folder included (user 7.11.: a tester's file in
-        ``flux/`` was found but looked missing; before, a main diffusion model in another folder was left out). Only case and the
-        kind of slash do not count."""
-        return inventory.norm(found) != inventory.norm(f.name)
-
-    def _link_candidates(self, expected: str) -> list[str]:
-        """The files ComfyUI lists for the kind of ``expected`` that can stand in for it (itself left out), the ones with a
-        name most like it first. ComfyUI's own list: it knows its folders, the default one, the extra ones and links."""
-        f = manifest.FILES.get(expected)
-        if f is None or self.inv is None:
-            return []
-        ctx = getattr(self, "_fill_ctx", None)
-        if ctx is not None and expected in ctx["cands"]:
-            return list(ctx["cands"][expected])
-        avail = list(self.inv.lists.get(f.kind, []))
-        own = inventory.resolve(f.name, avail, None, f.aliases)
-        base = lambda n: n.replace("\\", "/").rpartition("/")[2].lower()      # noqa: E731
-        out = sorted((n for n in avail if n != own),
-                     key=lambda n: -difflib.SequenceMatcher(None, base(n), base(f.name)).ratio())
-        if ctx is not None:
-            ctx["cands"][expected] = out
-        return list(out)
-
-    def _disk_file(self, f, name: str):
-        """The path on disk of ``name`` (as ComfyUI lists it) for the kind of ``f``: in ComfyUI's models folder or in one of the extra
-        folders of its extra_model_paths.yaml; None when it is in none of them."""
-        base = self.models_dir(ask=False)
-        if base is None:
-            return None
-        ctx = getattr(self, "_fill_ctx", None)
-        if ctx is not None and (f.folder, name) in ctx["disk"]:
-            return ctx["disk"][f.folder, name]
-        if ctx is not None:
-            if f.folder not in ctx["extra"]:          # extra_model_paths.yaml: read once per folder and fill
-                ctx["extra"][f.folder] = comfydir.extra_model_dirs(base, f.folder)
-            dirs = [Path(base) / f.folder, *ctx["extra"][f.folder]]
-        else:
-            dirs = [Path(base) / f.folder, *comfydir.extra_model_dirs(base, f.folder)]
-        rel, found = name.replace("\\", "/"), None
-        for d in dirs:
-            try:
-                if (d / rel).is_file():
-                    found = d / rel
-                    break
-            except OSError:
-                continue
-        if ctx is not None:
-            ctx["disk"][f.folder, name] = found
-        return found
-
-    def _link_hints(self, expected: str, cands: list[str]) -> dict[str, str]:
-        """For the files of the chain list: "same size and header as <file>" when the file's size and its safetensors header match a file of
-        the manifest (a renamed copy; for the expected file itself it names <expected>), "incomplete? ..." when the header promises
-        more bytes than the file has. Files in the extra folders of extra_model_paths.yaml count too."""
-        f = manifest.FILES.get(expected)
-        base = self.models_dir(ask=False) if f is not None else None
-        if base is None:
-            return {}
-        by_size = {g.size: g.name for g in manifest.FILES.values() if g.kind == f.kind and g.size}
-        out: dict[str, str] = {}
-        for n in cands:
-            p = self._disk_file(f, n)
-            if p is None:
-                continue
-            size = p.stat().st_size
-            head = sthead.read_header(p)
-            if head is None:
-                continue
-            if not sthead.is_complete(p):
-                out[n] = HINT_INCOMPLETE
-            elif size in by_size:
-                out[n] = HINT_SAME + by_size[size]
-        return out
-
-    @staticmethod
-    def _menu_hints(expected: str, hints: dict[str, str]) -> dict[str, str]:
-        """The hints shown in the chain list: "same size and header as <file>" only for a file that equals ANOTHER file of the manifest
-        than the expected one (a warning against mixing them up); a copy of the expected file is already named under the missing
-        file ("This is probably the right file"). "incomplete?" always stays (user 6.11.)."""
-        return {n: h for n, h in hints.items() if h != HINT_SAME + expected}
 
     # ---------- the overlay window ----------
 
@@ -818,7 +631,7 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         self.nb_models.pack(fill="both", expand=True, padx=(12, 0), pady=(12, 0))      # the field 12 px in; the page's scroll bar at the right edge
         self.nb_models.bar.pack_configure(padx=(0, 12))      # the field ends 12 px before the right edge too
         self.nb_models.body.pack_configure(pady=(MODEL_GAP, 0))      # room between the field and the model's name
-        self._set_pages = {m.key: self._scroll_page(m.key, m.label) for m in models.MODELS}
+        self._set_pages = {m.key: self._scroll_page(m.key, m.label) for m in models.PICK_ORDER}      # order of the model chip (22.11.)
         self._set_pages["additional"] = self._scroll_page("additional", "Additional")
         keys = {str(p["page"]): k for k, p in self._set_pages.items()}
         self.nb_models.on_select = lambda page: self._draw_page(keys.get(str(page), ""))
@@ -875,370 +688,6 @@ class SettingsMixin(DownloadMixin, UpdateMixin):
         grip.bind("<ButtonPress-1>", grip_start)
         grip.bind("<B1-Motion>", grip_move)
         self._set_bar, self._set_grip = bar, grip
-
-    def _other_settings(self, parent):
-        """The tab "Other settings" (user 1.11.; sections since 20.11.): the update line on top (only while one is known) and the
-        answer of Check now, then Connection, Save image, Appearance and Maintenance, one line between two sections.
-        "Check for updates" and "Check now" sit at the right end of the chip row (_update_check_row, user 20.11.)."""
-        self._update_note_row(parent)         # "Update X available" at the very top, only while one is known (user 19.11., H2)
-        self._update_status_row(parent)       # the answer of Check now, only while it has text
-        self._other_head(parent, "Connection", first=True)
-        self._comfy_address_row(parent)
-        self._owner_name_row(parent)
-        self._other_sep(parent)
-        self._save_image_row(parent)
-        self._other_sep(parent)
-        self._other_head(parent, "Appearance")
-        self._ui_scale_row(parent)
-        self._tips_setting_row(parent, pady=(10, 0))
-        self._other_sep(parent)
-        self._other_head(parent, "Maintenance")
-        self._maintenance_row(parent)
-
-    @staticmethod
-    def _other_sep(parent):
-        """The light line (style Sep.TFrame, as in the model tabs) between two sections of Other settings (user 12.11., 20.11.)."""
-        ttk.Frame(parent, style="Sep.TFrame", height=1).pack(side="top", fill="x", padx=14, pady=(14, 0))
-
-    @staticmethod
-    def _other_head(parent, text: str, first: bool = False):
-        """The name of a section of Other settings, in the style of "Save image" (user 20.11.)."""
-        ttk.Label(parent, text=text, style=SET_STYLES["head"]).pack(side="top", anchor="w", padx=14, pady=(10 if first else 12, 0))
-
-    MAINTENANCE = (
-        ("Show all hidden models", "Brings back every model chip that was hidden (right-click menu of a chip or the tick in the model tab).",
-         "_show_hidden_models"),
-        ("Reset all modes to default settings", "Forgets every page you saved with “Set current settings as startup settings (for this mode and model)” (right-click on a model chip): "
-         "all models and functions start with the PxC standard settings again. Asks first.", "_reset_all_modes"),
-        ("Copy report", "Copies a report to the clipboard for a bug report: PxC version, where it is installed, Python, "
-         "which config files it reads and what they change, the ComfyUI address, which model files are missing. No prompts, "
-         "no passwords; your user folder is shown as ~.", "_copy_report"))
-
-    def _maintenance_row(self, parent):
-        """The buttons of Maintenance side by side; one that does not fit any more goes into the next line (user 20.11.)."""
-        box = ttk.Frame(parent)
-        box.pack(side="top", fill="x", padx=14, pady=(8, 12))
-        self.b_maintenance = []
-        for text, tip, name in self.MAINTENANCE:
-            b = ttk.Button(box, text=text, style="SetSmall.TButton", command=getattr(self, name))
-            Tooltip(b, tip)
-            self.b_maintenance.append(b)
-        gap = spacing.scale(6)
-
-        def flow(e=None):
-            width = (e.width if e is not None else box.winfo_width()) or 0
-            x = y = line_h = 0
-            for b in self.b_maintenance:
-                w, h = b.winfo_reqwidth() or 0, b.winfo_reqheight() or 0
-                if x and x + w > width:
-                    x, y, line_h = 0, y + line_h + gap, 0
-                b.place(x=x, y=y)
-                x, line_h = x + w + gap, max(line_h, h)
-            box.configure(height=y + line_h)
-        box.bind("<Configure>", flow, add="+")
-        flow()
-
-    # ---- Save image: folder, format and file name (the hamburger menu and Ctrl+S, savefile.py) ----
-
-    SAVE_CUSTOM = "Custom…"
-    SAVE_FORMATS = {"png": "PNG", "jpg": "JPG", "webp": "WebP"}
-
-    def _save_image_row(self, parent):
-        """The section "Save image": the folder (Change… / Default), the format and the file name (one of the patterns of
-        savefile.PATTERNS or your own with clickable placeholders), and a live example line under them."""
-        cur = savefile.load_settings()
-        box = ttk.Frame(parent)
-        box.pack(side="top", fill="x", padx=14, pady=(10, 0))
-        ttk.Label(box, text="Save image", style=SET_STYLES["head"]).pack(anchor="w")
-        grid = ttk.Frame(box)
-        grid.pack(fill="x", pady=(4, 0))
-        ttk.Label(grid, text="Folder", style="SetText.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
-        folder = ttk.Frame(grid)
-        folder.grid(row=0, column=1, sticky="w", pady=2)
-        self.lbl_save_folder = ttk.Label(folder, text=str(cur.folder), style=SET_STYLES["muted"])
-        self.lbl_save_folder.pack(side="left", padx=(0, 8))
-        b = self.b_save_folder = ttk.Button(folder, text="Change…", style="SetSmall.TButton", command=self._save_folder_pick)
-        b.pack(side="left")
-        Tooltip(b, "Where Save image puts the files.")
-        b = self.b_save_default = ttk.Button(folder, text="Default", style="SetSmall.TButton", command=self._save_folder_default)
-        b.pack(side="left", padx=(6, 0))
-        Tooltip(b, "Back to your Downloads folder.")
-        ttk.Label(grid, text="Format", style="SetText.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
-        fmt = cur.fmt if cur.fmt in savefile.FORMATS else savefile.DEFAULT_FORMAT
-        self.v_save_fmt = tk.StringVar(value=self.SAVE_FORMATS[fmt])
-        cb = self.cb_save_fmt = ttk.Combobox(grid, textvariable=self.v_save_fmt, values=list(self.SAVE_FORMATS.values()),
-                                             state="readonly", width=8)
-        cb.grid(row=1, column=1, sticky="w", pady=2)
-        cb.bind("<<ComboboxSelected>>", lambda e: self._save_format_pick())
-        ttk.Label(grid, text="File name", style="SetText.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=2)
-        custom = cur.pattern not in savefile.PATTERNS
-        self.v_save_pattern = tk.StringVar(value=self.SAVE_CUSTOM if custom else cur.pattern)
-        cb = self.cb_save_pattern = ttk.Combobox(grid, textvariable=self.v_save_pattern,
-                                                 values=list(savefile.PATTERNS) + [self.SAVE_CUSTOM], state="readonly", width=34)
-        cb.grid(row=2, column=1, sticky="w", pady=2)
-        cb.bind("<<ComboboxSelected>>", lambda e: self._save_pattern_pick())
-        Tooltip(cb, "How the file is called. The extension follows the format.")
-        # your own pattern: a field and the placeholders as buttons (a click puts one in at the cursor)
-        self.f_save_custom = ttk.Frame(box)
-        self.v_save_custom = tk.StringVar(value=cur.pattern)
-        self.e_save_custom = ttk.Entry(self.f_save_custom, textvariable=self.v_save_custom, width=44)
-        self.e_save_custom.pack(anchor="w", pady=(2, 0))
-        self.v_save_custom.trace_add("write", lambda *a: self._save_custom_changed())
-        self.e_save_custom.bind("<ButtonPress-1>", lambda e: idle(self.e_save_custom, self._force_focus, self.e_save_custom), add="+")
-        chips = ttk.Frame(self.f_save_custom)
-        chips.pack(anchor="w", pady=(4, 0))
-        self.b_save_chips = []
-        for name in savefile.PLACEHOLDERS:
-            b = ttk.Button(chips, text="{" + name + "}", style="SetSmall.TButton", command=lambda n=name: self._save_insert(n))
-            b.pack(side="left", padx=(0, 4))
-            self.b_save_chips.append(b)
-        self.lbl_save_example = ttk.Label(box, text="", style=SET_STYLES["muted"])
-        self.lbl_save_example.pack(anchor="w", pady=(4, 0))
-        if custom:
-            self.f_save_custom.pack(fill="x", before=self.lbl_save_example)
-        self._save_example_update()
-
-    def _save_pattern_now(self) -> str:
-        """The pattern the section shows right now (the picked one, or the text of the custom field)."""
-        v = self.v_save_pattern.get()
-        return self.v_save_custom.get() if v == self.SAVE_CUSTOM else v
-
-    def _save_format_now(self) -> str:
-        shown = self.v_save_fmt.get()
-        return next((k for k, v in self.SAVE_FORMATS.items() if v == shown), savefile.DEFAULT_FORMAT)
-
-    def _save_example_update(self):
-        """"Example: beach-upscale-…png", or the error in its place while the pattern is invalid."""
-        pattern = self._save_pattern_now()
-        err = savefile.validate_pattern(pattern)
-        self.lbl_save_example.configure(text=err if err else "Example: " + savefile.example_name(pattern, self._save_format_now()),
-                                        style=SET_STYLES["red"] if err else SET_STYLES["muted"])
-
-    def _save_folder_pick(self):
-        from tkinter import filedialog
-        chosen = filedialog.askdirectory(parent=self._settings_win or self.root, title="Folder for saved images",
-                                         initialdir=str(savefile.load_settings().folder))
-        if chosen:
-            cfgmod.set_setting(savefile.SAVE_FOLDER_KEY, str(Path(chosen)))
-            self.lbl_save_folder.configure(text=str(savefile.load_settings().folder))
-
-    def _save_folder_default(self):
-        cfgmod.set_setting(savefile.SAVE_FOLDER_KEY, None)
-        self.lbl_save_folder.configure(text=str(savefile.load_settings().folder))
-
-    def _save_format_pick(self):
-        cfgmod.set_setting(savefile.SAVE_FORMAT_KEY, self._save_format_now())
-        self._save_example_update()
-
-    def _save_pattern_pick(self):
-        if self.v_save_pattern.get() == self.SAVE_CUSTOM:
-            self.f_save_custom.pack(fill="x", before=self.lbl_save_example)
-            self._save_custom_changed()
-        else:
-            self.f_save_custom.pack_forget()
-            cfgmod.set_setting(savefile.SAVE_PATTERN_KEY, self.v_save_pattern.get())
-            self.v_save_custom.set(self.v_save_pattern.get())       # "Custom…" later starts from the last pick
-            self._save_example_update()
-
-    def _save_custom_changed(self):
-        """Typing in the custom field: a valid pattern is saved, an invalid one only shows its error."""
-        pattern = self.v_save_custom.get()
-        if savefile.validate_pattern(pattern) is None and self.v_save_pattern.get() == self.SAVE_CUSTOM:
-            cfgmod.set_setting(savefile.SAVE_PATTERN_KEY, pattern)
-        self._save_example_update()
-
-    def _save_insert(self, name: str):
-        """A placeholder button: {name} goes into the custom field at the cursor."""
-        e = self.e_save_custom
-        e.insert(e.index("insert"), "{" + name + "}")
-        e.focus_set()
-
-    # ---- the name on the batch jobs (the queue, jobqueue.py; 12.11.) ----
-
-    def _owner_name_row(self, parent):
-        """"Name in the queue": the name other PCs on the same ComfyUI see on this plugin's runs, batch and Generate (setting owner_name);
-        empty = the login name."""
-        box = ttk.Frame(parent)
-        box.pack(side="top", fill="x", padx=14, pady=(10, 0))
-        row = ttk.Frame(box)
-        row.pack(fill="x")
-        ttk.Label(row, text="Name in the queue", style="SetText.TLabel").pack(side="left", padx=(0, 8))
-        saved = cfgmod.get_setting(jobqueue.OWNER_SETTING)
-        self.v_owner_name = tk.StringVar(value=saved.strip() if isinstance(saved, str) else "")
-        e = self.e_owner_name = ttk.Entry(row, textvariable=self.v_owner_name, width=24)
-        e.pack(side="left")
-        e.bind("<ButtonPress-1>", lambda ev: idle(e, self._force_focus, e), add="+")
-        Tooltip(e, "Other PCs on the same ComfyUI see this name on your batch jobs. Empty: your login name.")
-        self.lbl_owner_name = ttk.Label(row, text="", style=SET_STYLES["muted"])
-        self.lbl_owner_name.pack(side="left", padx=(8, 0))
-        self.v_owner_name.trace_add("write", lambda *a: self._owner_name_changed())
-        self._owner_name_hint()
-
-    def _owner_name_changed(self):
-        name = self.v_owner_name.get().strip()[:64]
-        cfgmod.set_setting(jobqueue.OWNER_SETTING, name or None)
-        runner = getattr(self, "runner", None)
-        if runner is not None:
-            runner.owner = jobqueue.owner_name()      # the next batch carries it
-        comfy = getattr(getattr(self, "bridge", None), "comfy", None)
-        if comfy is not None:
-            comfy.owner = jobqueue.owner_name()       # and the next Generate run (18.11.)
-        self._owner_name_hint()
-
-    def _owner_name_hint(self):
-        self.lbl_owner_name.configure(text="" if self.v_owner_name.get().strip() else f"Empty: {jobqueue.owner_name()}")
-
-    # ---- the interface scale (user 4.11.; Linux and Windows) ----
-
-    UI_SCALE_CHOICES = ("Auto", "50 %", "60 %", "70 %", "80 %", "90 %", "100 %", "110 %", "120 %", "125 %", "150 %", "175 %", "200 %", "250 %", "300 %")
-
-    def _ui_scale_row(self, parent):
-        """"Interface scale": Auto takes the scale from the system (Linux: the first source that names one, uiscale.py; Windows: the
-        display's own scale, as before). A value here sets the size of the whole window, also below 100 %, and wins over everything
-        but the environment variable PCCOMFY_SCALE. The window is built once, so the value counts from the next start."""
-        box = ttk.Frame(parent)
-        box.pack(side="top", fill="x", padx=14, pady=(10, 0))
-        row = ttk.Frame(box)
-        row.pack(fill="x")
-        ttk.Label(row, text="Interface scale", style="SetText.TLabel").pack(side="left", padx=(0, 8))
-        saved = cfgmod.get_setting("ui_scale")
-        shown = f"{round(float(saved) * 100) if float(saved) < 10 else int(float(saved))} %" if saved else "Auto"
-        self.v_ui_scale = tk.StringVar(value=shown if shown in self.UI_SCALE_CHOICES else "Auto")
-        cb = ttk.Combobox(row, textvariable=self.v_ui_scale, values=self.UI_SCALE_CHOICES, state="readonly", width=8)
-        cb.pack(side="left")
-        cb.bind("<<ComboboxSelected>>", lambda e: self._ui_scale_pick())
-        Tooltip(cb, "Size of the PxC window, from 50 % to 300 %. Auto follows your system. Pick a value if the window is too big or too small. 100 % is the size your system gives; 120 % is a fifth bigger, 80 % a fifth smaller (on Windows). Counts from the next start.")
-        self.lbl_ui_scale = ttk.Label(row, text="", style=SET_STYLES["muted"])
-        self.lbl_ui_scale.pack(side="left", padx=(8, 0))
-
-    def _ui_scale_pick(self):
-        """Saves the choice ("Auto" forgets it) and says that the plugin has to be started again."""
-        v = self.v_ui_scale.get()
-        cfgmod.set_setting("ui_scale", None if v == "Auto" else int(v.split()[0]) / 100)
-        try:
-            self.lbl_ui_scale.configure(text="Applies the next time you start PxC.")
-        except (tk.TclError, AttributeError):
-            pass
-
-    # ---- the ComfyUI address (user 3.11.) ----
-
-    def _comfy_address_row(self, parent):
-        """"ComfyUI address": the field, Refresh and, beside them, what the check found (green tick, red cross, or a yellow hint)."""
-        box = ttk.Frame(parent)
-        box.pack(side="top", fill="x", padx=14, pady=(10, 0))
-        ttk.Label(box, text="ComfyUI address", style=SET_STYLES["head"]).pack(anchor="w")
-        row = ttk.Frame(box)
-        row.pack(fill="x", pady=(4, 0))
-        self.v_comfy_url = tk.StringVar(value=self.comfy.url)
-        # a field with a drop-down list of the addresses that worked before, so one click brings an old one back (user 6.11.)
-        ent = ttk.Combobox(row, textvariable=self.v_comfy_url, values=self._url_history(), width=30)
-        self.cb_comfy_url = ent
-        ent.pack(side="left")
-        ent.bind("<<ComboboxSelected>>", lambda e: self._comfy_address_check())
-        ent.bind("<Return>", lambda e: self._comfy_address_check())
-        # The settings window has no title bar (overrideredirect): Windows does not always make it the active window when the
-        # mouse goes into it, so the field got no keyboard (user 5.11.: "the cursor cannot be placed", also after Refresh). A click
-        # into the field takes the keyboard (focus -force), after Tk's own focus change.
-        ent.bind("<ButtonPress-1>", lambda e: idle(ent, self._force_focus, ent), add="+")
-        # Refresh and Reset to default side by side, equally high (window test F, 11.11.); the refresh arrow at 90 %
-        btns = ttk.Frame(row)
-        btns.pack(side="left", fill="y", padx=(8, 0))
-        b = ttk.Button(btns, text="Refresh", image=self._icon("refresh", px=round(SET_ICON_PX * 0.9)), compound="left",
-                       style="SetSmall.TButton", command=self._comfy_address_check)
-        b.pack(side="left", fill="y")
-        Tooltip(b, "Checks the address and, if it is ComfyUI, uses it from now on: PxC reads its models and nodes again.")
-        reset = ttk.Button(btns, text="Reset to default", style="SetSmall.TButton", command=self._comfy_address_reset)      # a button like the others (user 6.11.)
-        reset.pack(side="left", fill="y", padx=(8, 0))
-        Tooltip(reset, "Goes back to the standard address of ComfyUI on this PC.")
-        self.b_comfy_refresh, self.b_comfy_reset = b, reset
-        # what the check found ("✓ ComfyUI found …"), in its own line under the field (11.11.)
-        found = ttk.Frame(box)
-        found.pack(fill="x", pady=(4, 0))
-        self.lbl_comfy_mark = ttk.Label(found, text="", style=SET_STYLES["green"])
-        self.lbl_comfy_mark.pack(side="left")
-        self.lbl_comfy_msg = ttk.Label(found, text="", style=SET_STYLES["muted"])
-        self.lbl_comfy_msg.pack(side="left", padx=(4, 0))
-        self.lbl_comfy_note = ttk.Label(box, text="", style=SET_STYLES["muted"], justify="left", wraplength=self._px(520))
-        self._comfy_seq = 0      # the note below is packed only while it has text (no empty line, user 6.11.)
-        self._comfy_address_check(apply=False)          # shows at once whether the address in use answers
-
-    URL_HISTORY_MAX = 10
-
-    @staticmethod
-    def _url_history() -> list[str]:
-        """The addresses that worked before, the newest first (settings.json "comfyui_url_history")."""
-        v = cfgmod.get_setting("comfyui_url_history", [])
-        return [u for u in v if isinstance(u, str)] if isinstance(v, list) else []
-
-    def _url_remember(self, url: str):
-        """Puts an address that answered as ComfyUI at the top of the history (once, at most URL_HISTORY_MAX)."""
-        hist = [url] + [u for u in self._url_history() if u != url]
-        cfgmod.set_setting("comfyui_url_history", hist[:self.URL_HISTORY_MAX])
-        try:
-            self.cb_comfy_url.configure(values=self._url_history())
-        except (tk.TclError, AttributeError):
-            pass
-
-    @staticmethod
-    def _force_focus(widget):
-        try:
-            if widget.winfo_exists():
-                widget.focus_force()
-        except tk.TclError:
-            pass
-
-    def _comfy_address_show(self, mark: str, msg: str, style: str, note: str = ""):
-        try:
-            self.lbl_comfy_mark.configure(text=mark, style=SET_STYLES["green" if mark == "✓" else "red"])
-            self.lbl_comfy_msg.configure(text=msg, style=SET_STYLES[style])
-            self.lbl_comfy_note.configure(text=note, style=SET_STYLES["warn" if note.startswith("Unencrypted") else "muted"])
-            if note:
-                self.lbl_comfy_note.pack(anchor="w", pady=(4, 0))
-            else:
-                self.lbl_comfy_note.pack_forget()
-        except (tk.TclError, AttributeError):
-            pass
-
-    def _comfy_address_check(self, apply: bool = True):
-        """Refresh: check what is typed, ask the server in the background, and use the address when it is ComfyUI."""
-        url, err, warn = comfyaddr.check_format(self.v_comfy_url.get())
-        if url is None:
-            self._comfy_address_show("✗", err, "bad")
-            return
-        self._comfy_seq += 1
-        seq = self._comfy_seq
-        self._comfy_address_show("", "Checking…", "muted")
-        import threading
-
-        def work():
-            ok, msg = comfyaddr.probe(url)
-            self.events.put(("comfyaddr", (seq, url, ok, msg, warn, apply)))
-        threading.Thread(target=work, daemon=True).start()
-
-    def _comfy_address_done(self, data):
-        seq, url, ok, msg, warn, apply = data
-        if seq != self._comfy_seq:
-            return              # a newer check is on its way
-        note = (f"Unencrypted: {warn.split(': ', 1)[1]}. " if warn else "") + (comfyaddr.REMOTE_NOTE if not comfyaddr.is_local(url) else "")
-        if not ok:
-            self._comfy_address_show("✗", msg, "bad", note)
-            return
-        self._comfy_address_show("✓", msg, "muted", note)
-        if apply:
-            self._url_remember(url)
-        if apply and url != self.comfy.url:
-            cfgmod.set_setting("comfyui_url", None if url == comfyaddr.DEFAULT_URL else url)
-            self.comfy.set_url(url)
-            self._comfy_root_reset()
-            self.v_comfy_url.set(url)
-            self.refresh()
-            self._status(f"Using ComfyUI at {url}.")
-        elif apply:
-            self.refresh()
-
-    def _comfy_address_reset(self):
-        self.v_comfy_url.set(comfyaddr.DEFAULT_URL)
-        self._comfy_address_check()
 
     def _show_hidden_models(self):
         hidden = cfgmod.hidden_tabs()

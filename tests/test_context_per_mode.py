@@ -1,3 +1,4 @@
+# tags: fill, start
 """Context is remembered per mode; Generative fill starts at 0.2, the other modes keep the default.
 
     python tests/test_context_per_mode.py

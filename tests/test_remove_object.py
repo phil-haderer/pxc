@@ -1,3 +1,4 @@
+# tags: remove, fibo
 """Fill with an empty instruction (Fibo) = remove the object the selection outlines (red outline in the picture).
 
     python tests/test_remove_object.py

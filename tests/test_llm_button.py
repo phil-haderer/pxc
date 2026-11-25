@@ -1,3 +1,4 @@
+# tags: prompt
 """The "LLM" button left of the bin beside "Prompt" (user 30.10.): the text model of the chosen model describes the picture in
 PhotoCraft and the text goes in front of the prompt, followed by a line break (an empty prompt: just the text). The model's own
 writer first, then Qwen 3.5 9B int8 ConvRot; no file, no function or the Remove prompt switched off: grey. Stubbed Tk,
@@ -23,6 +24,9 @@ class Inv:
 
     def found(self, name):
         return name if name in self.have else None
+
+    def has(self, name):        # the scissors asks on every Generate/Stop change (no Cut out during a run, 23.11.)
+        return name in self.have
 
 
 def manifest_checks():

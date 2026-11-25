@@ -1,3 +1,4 @@
+# tags: models, workflows, start
 """Modes that need no extra file with their standard settings keep working without it (user 30.10.): Flux 3 Upscale runs
 without the SeedVR2 files because its SeedVR2 pre-cleaning starts off. The switch itself is greyed out while they are
 missing (its tooltip names them) and cannot be on; a setting loaded from history, a preset or a saved page that wants it on

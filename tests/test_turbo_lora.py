@@ -1,3 +1,4 @@
+# tags: workflows
 """Turbo LoRA off: the pc:lora loader leaves the graph and the sampler runs the workflow's full-step values.
 
     python tests/test_turbo_lora.py

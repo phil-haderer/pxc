@@ -1,3 +1,4 @@
+# tags: settings, models
 """Reading the .safetensors header (pccomfy/sthead.py) and the "looks like ..." hints in the chain list of the settings window.
 
     python tests/test_sthead.py

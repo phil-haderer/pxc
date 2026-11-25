@@ -1,3 +1,4 @@
+# tags: window
 """PhotoCraft checkbox: the square draws at 100 % and 150 %, empty = light grey border on a darker field, ticked = orange
 with a white tick, greyed out = grey; every TCheckbutton uses it (docs/design/photocraft-checkbox.png).
 

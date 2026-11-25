@@ -1,3 +1,4 @@
+# tags: moss, workflows
 """The MOSS-Image inpainting workflow: valid API graph; the mask reaches the model through ImageToMask.
 
     python tests/test_moss_workflow.py

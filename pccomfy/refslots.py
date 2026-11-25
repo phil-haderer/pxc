@@ -330,7 +330,7 @@ EDTAB_PADX = 2      # px left and right of the Edit tab list under the prompt; t
 
 
 MULTI_MODE = "multi_edit"     # the window mode that shows the slots (it runs as a whole-image edit)
-SKETCH_MODE = "sketch"        # the window mode of the tab Sketch to image (runs as a whole-image edit; docs/sketch-plan.md)
+SKETCH_MODE = "sketch"        # the window mode of the tab Sketch to image (runs as a whole-image edit; docs/archiv/sketch-plan.md)
 SCRIBBLE_MODE = "scribble"    # the window mode of the tab Scribble on photo (plan B, 10.11.: its own tab)
 SKETCH_MODES = (SKETCH_MODE, SCRIBBLE_MODE)
 TAB_MODE = {"edit": "edit", "sketch": SKETCH_MODE, "scribble": SCRIBBLE_MODE, "refscribble": SCRIBBLE_MODE, "fill": "inpaint"}     # tab -> window mode (the others: multi_edit)
@@ -360,7 +360,7 @@ class RefSlotsMixin:
         if self._ref_scribble():
             # Reference at scribble (user 15.11.): the object typed in, a picture in the slot; else no run, say what to do
             from . import models as _models
-            if _models.REF_MARK in self.t_prompt.get("1.0", "end"):
+            if any(k in self.t_prompt.get("1.0", "end") for k in (_models.REF_MARK,) + _models.OLD_REF_MARKS):
                 self._status(_models.REF_MARK_LEFT, error=True)
                 return
             if slots is None or not slots.active:
@@ -477,6 +477,10 @@ class RefSlotsMixin:
         Tooltip(self.cb_bbox, BBOX_CHECK_TIP)
         self._refs_dnd = self._refs_setup_dnd()
         self._show_refs_body()
+        # @ in the prompt: the list of the reference images and the picture under the cursor (user 23.11., atpick.py)
+        from .atpick import AtPicker
+        self.at_picker = AtPicker(self.root, self.t_prompt, self._at_rows, px=self._px,
+                                  monitor=lambda x, y: self._monitor_at(x, y, work=True))
         try:
             self.root.bind("<Control-v>", self._refs_ctrl_v, add="+")
             self.root.bind("<Control-V>", self._refs_ctrl_v, add="+")
@@ -528,6 +532,13 @@ class RefSlotsMixin:
         self._tag_style_seen = m.tag_style
         if not old or old == m.tag_style:
             return
+        # the texts waiting aside (Multi image edit, Sketch, Scribble: gui_modes) follow too, so they come back with the
+        # names this model understands (handoff 23.11.)
+        aside = getattr(self, "_sketch_away", None)
+        if isinstance(aside, dict):
+            for k, v in list(aside.items()):
+                if isinstance(v, str):
+                    aside[k] = retag(v, old, m.tag_style)
         t = getattr(self, "t_prompt", None)
         if t is None or str(t.cget("state")) == "disabled":
             return
@@ -652,6 +663,7 @@ class RefSlotsMixin:
         show = m is not None and (fill_group or (mode in ("edit", MULTI_MODE) + SKETCH_MODES
                                                  and any(k in m.modes for k in (MULTI_MODE,) + SKETCH_MODES)))
         if not show and getattr(self, "f_edtabs", None) is None:
+            self._edtab_gaps(False)      # the gap to the prompt box without the list (user 22.11.), from the first function on
             return
         self._edtabs_ensure()
         if not show:
@@ -681,18 +693,21 @@ class RefSlotsMixin:
         self._edtab_gaps(True)
         self.f_sketch.pack_forget()      # the two scribble chips are tabs now (user 15.11.): no chip row
 
-    # the gaps above the prompt with and without the Edit list: (pady of sep_prompt, pady of f_ptop)
-    PROMPT_GAPS = {False: ((6, 4), (0, 4)), True: ((0, 0), (0, 0))}
+    # the padding of f_ptop with and without the Edit list (sep_prompt gets its own below)
+    PROMPT_GAPS = {False: (0, 0), True: (0, 0)}
 
     def _edtab_gaps(self, shown: bool):
         """With the Edit list the gap above it (to the function and model chips) and the gap below it (to the prompt box) are
         both as wide as the gap between the two chips (user 21.11.): f_tabs keeps its 2 px below, the empty sep_prompt and
-        f_ptop (1 px each) lose their padding while the list is shown."""
+        f_ptop (1 px each) lose their padding while the list is shown. Without the list the gap from the chips to the prompt
+        box is that same width (user 22.11.: "the same gap like between edit canvas and prompt field"): sep_prompt takes what
+        is left above it."""
         from . import spacing
         from .gui_common import PICK_GAP
         g = int(self._px(PICK_GAP))
         across = spacing.scale(g - g // 2) + spacing.scale(g // 2)      # as the two chips are gridded (gui.py: padx of b_mode, b_model)
-        sep, ptop = self.PROMPT_GAPS[shown]
+        ptop = self.PROMPT_GAPS[shown]
+        sep = (0, 0) if shown else (spacing.Keep(max(0, across - spacing.scale(2) - 2)), 0)    # f_tabs' 2 px, the two 1 px frames
         try:
             if shown:          # in final pixels (Keep): above, f_tabs' scaled 2 px; below, the 1 px of sep_prompt and of f_ptop
                 self.f_edtabs.pack_configure(pady=(spacing.Keep(max(0, across - spacing.scale(2))), spacing.Keep(max(0, across - 2))))
@@ -751,7 +766,19 @@ class RefSlotsMixin:
         """True in the tab Scribble on photo (the bridge then finds the scribble and changes only its place)."""
         return self.v_mode.get() == SCRIBBLE_MODE
 
+    def _at_rows(self) -> list:
+        """The rows of the @ list: only in a tab with reference slots (Multi image edit, Insert reference, Scribble with
+        reference) and a usable prompt field; else typing @ opens nothing."""
+        from .atpick import entries
+        t = getattr(self, "t_prompt", None)
+        if not self._refs_wanted() or t is None or str(t.cget("state")) == "disabled":
+            return []
+        return entries(getattr(self, "refslots", None))
+
     def _refs_update(self):
+        p = getattr(self, "at_picker", None)
+        if p is not None:
+            p.close()                       # another tab or model: an open @ list goes
         self._refs_retag()
         self._edtabs_update()
         want = self._refs_wanted()
@@ -830,8 +857,9 @@ class RefSlotsMixin:
                        ("remove", "Remove", "Takes this image out of the slots.", lambda k=k: self._refs_remove(k), False),
                        ("cut", "Undo cut" if it.cut_out else "Cut out",
                         "Back to the original picture." if it.cut_out else "Removes the background (BiRefNet in ComfyUI).", lambda k=k: self._refs_cut(k), True,
-                        "" if (it.cut_out or self._cut_file_ok()) else CUT_NEEDS_FILE),
-                       ("describe", "Describe", "The text model of this model writes a short description of this picture (about 5 s).", lambda k=k: self._refs_describe(k), True)]
+                        self._cut_slot_off(it)),
+                       ("describe", "Describe", "The text model of this model writes a short description of this picture (about 5 s).", lambda k=k: self._refs_describe(k), True,
+                        self._describe_slot_off())]
                 if it.description:
                     bar.append(("copy", "Copy text", "Puts the description on the clipboard.", lambda k=k: self._refs_copy_text(k), False))
                 self._refs_bar(box, bar, busy)
@@ -845,10 +873,8 @@ class RefSlotsMixin:
                          ).place(relx=0.5, rely=1.0, anchor="s", y=-self._px(4))
         self._refs_xy()                 # the description in spot XY follows its slot (new tag, removed picture)
         over = len(rs.overflow)
-        pic = rs.picture_tag()          # the picture in PhotoCraft has a tag too (user 29.10.: keep saying so)
-        self.lbl_refnames.configure(text=("Dragging an image into the prompt box inserts its tag." +
-                                          (f" Your picture in PhotoCraft is {pic}." if pic else "") if rs.active else
-                                          "Add a picture, then name it in your text."))
+        from .atpick import TIP as AT_TIP
+        self.lbl_refnames.configure(text=AT_TIP)       # the one tip under the slots in every reference tab (user 23.11.)
         if over:
             self._refs_say(f"The last {over} image(s) are kept but not sent.")
         elif not self._refs_dnd and not getattr(self, "_ref_dnd_told", False):
@@ -1181,14 +1207,46 @@ class RefSlotsMixin:
         ok = getattr(self, "_cutout_ok", None)
         return True if ok is None else bool(ok("birefnet"))
 
+    def _cut_slot_off(self, it) -> str:
+        """Why the Cut out icon of a slot is grey ("" = it is not): no birefnet.safetensors, or a run or a queue job is
+        on (user 23.11.). "Undo cut" only puts the original picture back and stays clickable."""
+        if it.cut_out:
+            return ""
+        if not self._cut_file_ok():
+            return CUT_NEEDS_FILE
+        runs = getattr(self, "_something_runs", None)
+        if runs is not None and runs():
+            from .gui_common import CUT_NOT_IN_RUN
+            return CUT_NOT_IN_RUN
+        return ""
+
+    def _describe_slot_off(self) -> str:
+        """Why the Describe icon of a slot is grey ("" = it is not): a run or a queue job is on (user 24.11. evening: "bei
+        multi image slot: describe soll nicht während lauf möglich sein"); like Cut out, the slots are redrawn when it changes."""
+        runs = getattr(self, "_something_runs", None)
+        if runs is not None and runs():
+            from .gui_common import CUT_NOT_IN_RUN
+            return CUT_NOT_IN_RUN
+        return ""
+
+    def _refs_job_done(self):
+        """A slot job (Cut out, Describe) ended: the Generate row follows what is still on. A run or the queue: its row
+        ("Stop", "Add to queue"); nothing: blue Generate (_go_stop keeps "Stop" while a Describe or another slot job is on).
+        Before 23.11. a run that ended during a Cut out left Generate as "Stop" for good."""
+        try:
+            self._go_stop(bool(self._something_runs()))
+        except Exception:
+            self._go_stop(False)
+
     def _refs_cut(self, k: int):
         it = self.refslots.items[k]
         if it.cut_out:
             self.refslots.revert(k)
             self._refs_redraw()
             return
-        if not self._cut_file_ok():       # no job for ComfyUI that it must reject: a calm note instead of "Cut out failed: ..." (user 7.11.)
-            self._refs_say(CUT_NEEDS_FILE)
+        why = self._cut_slot_off(it)      # no file: a calm note instead of "Cut out failed: ..." (user 7.11.); a run is on (23.11.)
+        if why:
+            self._refs_say(why)
             return
         import threading
         self._ref_busy.add(k)
@@ -1210,6 +1268,9 @@ class RefSlotsMixin:
                 self.root.after(200, check)
                 return
             self._ref_busy.discard(k)
+            # a run that ended while this cut-out was on left Generate as "Stop" (_go_stop waits for every slot job, bug
+            # 23.11.): it turns back now, unless a run, a Describe or another slot job is still on
+            self._refs_job_done()
             if "error" in box:
                 self._refs_say("Cut out failed: " + box["error"])
             elif src in self.refslots.items:
@@ -1228,6 +1289,10 @@ class RefSlotsMixin:
         from .comfy import Cancelled
         src = self.refslots.items[k]
         if k in self._ref_busy:
+            return
+        why = self._describe_slot_off()
+        if why:
+            self._refs_say(why)
             return
         from . import manifest
         # the text model of the chosen model, like the LLM button (user 30.10.); Qwen 3.5 9B int8 ConvRot only as the fallback
@@ -1261,8 +1326,9 @@ class RefSlotsMixin:
                 self.root.after(200, check)
                 return
             self._ref_busy.discard(k)
-            if not self._ref_busy and not getattr(self, "_describing", False) and not (self.worker and self.worker.is_alive()):
-                self._go_stop(False)
+            # _go_stop keeps "Stop" while a run (_running), a Describe or another slot job is on; worker.is_alive() was not
+            # asked any more: the run's thread may still be ending after its "done" turned Generate back (bug 23.11.)
+            self._refs_job_done()
             if "error" in box:
                 self._refs_say(box["error"] if box["error"] == "Cancelled." else "Describe failed: " + box["error"])
             else:

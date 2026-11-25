@@ -1,3 +1,4 @@
+# tags: expand, photocraft
 """Outpaint finds the empty canvas the user opened (Crop tool) and selects it with an overlap.
 
     python tests/test_outpaint_area.py

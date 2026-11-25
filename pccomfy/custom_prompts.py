@@ -1,4 +1,4 @@
-"""Custom prompts (the Prompt-Saver, docs/prompt-saver-konzept.md): texts of the prompt field kept under a name. One list for
+"""Custom prompts (the Prompt-Saver, docs/archiv/prompt-saver-konzept.md): texts of the prompt field kept under a name. One list for
 every function and model; each entry also remembers the model and function it was saved for: shown in the menu, and "Use" goes back to them (model,
 function and tab, user 15.11.). No Tk.
 

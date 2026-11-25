@@ -27,7 +27,12 @@ class ModeMixin:
             self._scale_mode = mode
         self.v_fn.set(self._fn_key())
         self._sync_fac()
-        if mode in SCALE_MODES:      # the factor row (with None) for both
+        if mode == "upscale":        # Upscale: the factor row; Refine Image has one prompt per model and no row (user 24.11.)
+            up = True
+            for w in (self.lbl_fac, self.f_fac):
+                w.grid() if up else w.grid_remove()
+            for w in (self.lbl_refine, self.f_refine):
+                w.grid_remove() if up else w.grid()
             self.f_scale.pack(fill="x", padx=10, pady=4, after=self._below_prompt())   # under the LLM row, above the LoRA
         else:
             self.f_scale.pack_forget()
@@ -88,11 +93,9 @@ class ModeMixin:
             self.v_fac.set(want)
 
     def _fn_key(self) -> str:
-        """The function button that is lit: Upscale / Refine, Fill (also its tab Insert reference = Multi Image Edit with the
+        """The function button that is lit: Fill (also its tab Insert reference = Multi Image Edit with the
         BBOX tick, Flux 3; plan B step 4), Edit (its tabs) or none (the mode's own button, v_mode)."""
         mode = self.v_mode.get()
-        if mode in SCALE_MODES:
-            return "scale"
         m = self._model()
         if mode == "inpaint" or (mode == "multi_edit" and m is not None and m.bbox
                                  and getattr(self, "v_bbox", None) is not None and self.v_bbox.get()):
@@ -111,11 +114,6 @@ class ModeMixin:
         self.v_mode.set("edit")
         if getattr(self, "v_bbox", None) is not None:
             self.v_bbox.set(False)
-        self._on_mode()
-
-    def _on_scale_fn(self):
-        """The merged function button was clicked (standard mode): the last used of Upscale and Refine, at first Refine (= None)."""
-        self.v_mode.set(getattr(self, "_scale_mode", "refine"))
         self._on_mode()
 
     def _on_factor(self):
@@ -228,15 +226,8 @@ class ModeMixin:
             own = EDIT_MODES if key == "edit" else (key,)
             offered = self._custom_workflow() or any(any(k in x.modes for k in own) and x.key not in hidden for x in models.MODELS)
             item.state = "normal" if offered else "disabled"
-            if key in SCALE_MODES:      # Upscale and Refine are ONE entry (rb_scale_fn) at the place of Upscale
-                if key == "upscale":
-                    order.append("scale")
-                    self.rb_scale_fn.state = "normal" if self._custom_workflow() or any(
-                        ("upscale" in x.modes or "refine" in x.modes) and x.key not in hidden for x in models.MODELS) else "disabled"
-                continue
             item.shown = True
             order.append(key)
-        self.rb_scale_fn.shown = "scale" in order
         self._mode_order = order
         self._update_model_chips()
 
@@ -250,20 +241,20 @@ class ModeMixin:
             if item is None:
                 continue
             item.shown = m.key not in hidden
-            ok = mode in m.modes or self._custom_workflow() or (mode == "upscale" and "refine" in m.modes)
-            # grey but clickable (user 20.11., A): a click takes the model and its last function; Fibo in Upscale falls back to None
+            ok = mode in m.modes or self._custom_workflow()
+            # grey but clickable (user 20.11., A): a click takes the model and its last function
             item.state, item.dim = "normal", not ok
         self._show_picks()
 
     def _pick_mode_key(self) -> str:
-        """The function the function chip shows: Edit for its tabs, Fill also for Insert reference, "scale" for Upscale and
-        Refine, else the mode itself."""
+        """The function the function chip shows: Edit for its tabs, Fill also for Insert reference, else the mode itself
+        (Upscale and Refine are two functions again since 22.11.)."""
         mode = self.v_mode.get()
         try:
             key = self._fn_key()
         except (AttributeError, tk.TclError):      # the window is still being built
             key = ""
-        return key or ("scale" if mode in SCALE_MODES else mode)
+        return key or mode
 
     def _pick_measure(self, text: str) -> int:
         """Pixels of `text` in the chips' font (without a real Tk: its length)."""
@@ -297,11 +288,20 @@ class ModeMixin:
         """`text`, filled up with thin spaces to `width` pixels, then the arrow: so the arrow sits at the same place for every
         entry and the chip does not change its width."""
         fill = " " if self._pick_measure(" ") > 0 else " "
-        out, n = text, 0
-        while self._pick_measure(out + fill) <= width and n < 400:      # never past `width`: the chip must not grow
-            out += fill
+        return self._pick_fill(text, width, fill) + PICK_ARROW
+
+    def _pick_fill(self, text: str, width: int, fill: str) -> str:
+        """`text` plus as many `fill` characters as fit into `width` pixels (at most 400). The count is worked out from the
+        widths first and then checked with a measure or two each way, instead of one measure per character (tempo plan P3,
+        24.11.: up to 400 measures per chip). The result is the same as adding one character at a time."""
+        measure = self._pick_measure
+        one = measure(fill)
+        n = max(0, min(400, (width - measure(text)) // one)) if one > 0 else 0
+        while n > 0 and measure(text + fill * n) > width:              # never past `width`: the chip must not grow
+            n -= 1
+        while n < 400 and measure(text + fill * (n + 1)) <= width:
             n += 1
-        return out + PICK_ARROW
+        return text + fill * n
 
     def _show_picks(self):
         """The two chips in the head show the chosen function (with its symbol) and the chosen model."""
@@ -310,10 +310,9 @@ class ModeMixin:
             return
         try:
             key = self._pick_mode_key()
-            item = self.rb_scale_fn if key == "scale" else self.rb_modes.get(key)
-            texts = [self.rb_scale_fn.text] + [x.text for k, x in self.rb_modes.items() if k not in ("multi_edit", "sketch", "scribble")
-                                                and k not in SCALE_MODES]
-            pic = self._function_icon("refine" if key == "scale" else key)
+            item = self.rb_modes.get(key)
+            texts = [x.text for k, x in self.rb_modes.items() if k not in ("multi_edit", "sketch", "scribble")]
+            pic = self._function_icon(key)
             mode_text = self._pick_text(item.text if item else key, self._pick_room(b_mode, texts))
             if str(b_mode.cget("text")) != mode_text or str(b_mode.cget("image")) != str(pic[0]):
                 b_mode.configure(text=mode_text, image=pic)
@@ -329,19 +328,21 @@ class ModeMixin:
 
     # ---------- Advanced settings: whose values, what changed (user 20.11., A, B and C) ----------
 
-    ADV_FN = {"txt2img": "Text to image", "outpaint": "Expand", "inpaint": "Fill", "remove": "Remove", "edit": "Edit",
-              "multi_edit": "Multi edit", "sketch": "Sketch", "scribble": "Scribble", "upscale": "Upscale", "refine": "Refine",
-              "img2img": "Image to image"}
+    ADV_FN = FN_NAMES       # as the picker names them (user 25.11.)
 
     def _show_adv_context(self):
-        """The head row of the Advanced settings names the model and function its values belong to ("Qwen Image 2.1 · Fill",
-        only the function when the row is too narrow); the function's heading over its rows names the function."""
+        """The head row of the Advanced settings names the function and model its values belong to ("Fill · Qwen Image 2.1",
+        function first, user 22.11.; only the function when the row is too narrow); the function's heading over its rows
+        names the function."""
         lbl = getattr(self, "lbl_adv_ctx", None)
         if lbl is None:
             return
         m, mode = self._model(), self.v_mode.get()
         fn = self.ADV_FN.get(mode, mode)
-        texts = [f"{m.label} · {fn}", fn] if m is not None else [""]
+        # too narrow for the whole model name: it is cut with "…" ("Remove Selection · Fibo 2.0 Edit T…", user 25.11.); only
+        # the function when not even a few letters of it fit
+        texts = ([f"{fn} · {m.label}"] + [f"{fn} · {m.label[:k].rstrip()}…" for k in range(len(m.label) - 1, 2, -1)] + [fn]
+                 if m is not None else [""])
         try:
             from tkinter import font as tkfont
             fnt = tkfont.Font(root=self.root, font=ttk.Style().lookup("Muted.TLabel", "font") or None)
@@ -351,10 +352,10 @@ class ModeMixin:
             text = next((t for t in texts if room <= self._px(20) or fnt.measure(t) <= room), texts[-1])
             if str(lbl.cget("text")) != text:
                 lbl.configure(text=text)
-            head = {"upscale": "Upscale", "refine": "Refine"}.get(mode, dict(MODE_LABELS).get(mode, mode))
+            head = {"upscale": "Upscale", "refine": "Refine Image"}.get(mode, dict(MODE_LABELS).get(mode, mode))
             if str(self.lbl_grp_fn.cget("text")) != head.upper():
                 self.lbl_grp_fn.configure(text=head.upper())
-            self.tt_adv_reset.text = (f"Back to the startup settings of {m.label} · {fn} (only the Advanced settings)."
+            self.tt_adv_reset.text = (f"Back to the startup settings of {fn} · {m.label} (only the Advanced settings)."
                                       if m is not None else "")
         except (AttributeError, TypeError, ValueError, tk.TclError):
             pass
@@ -522,8 +523,8 @@ class ModeMixin:
         menu.delete(0, "end")
         self.v_pick_mode.set(self._pick_mode_key())
         for key in self._mode_order:
-            item = self.rb_scale_fn if key == "scale" else self.rb_modes[key]
-            pics = self._function_icon("refine" if key == "scale" else key, size=PICK_ICON, gap=False)   # (light, "selected", white, "disabled", grey)
+            item = self.rb_modes[key]
+            pics = self._function_icon(key, size=PICK_ICON, gap=False)   # (light, "selected", white, "disabled", grey)
             off = item.state == "disabled"
             dim = not off and self._fn_dim(key)      # the chosen model cannot do it: grey, a click switches the model (user 20.11.)
             menu.add_radiobutton(label=item.text, value=key, variable=self.v_pick_mode, state=item.state,
@@ -537,7 +538,7 @@ class ModeMixin:
         m = self._model()
         if m is None or self._custom_workflow():
             return False
-        own = ("upscale", "refine") if key == "scale" else EDIT_MODES if key == "edit" else (key,)
+        own = EDIT_MODES if key == "edit" else (key,)
         return not any(k in m.modes for k in own)
 
     def _pick_mode(self, key: str):
@@ -546,8 +547,6 @@ class ModeMixin:
             self._on_edit_fn()
         elif key == "inpaint":
             self._on_fill_fn()
-        elif key == "scale":
-            self._on_scale_fn()
         else:
             self.v_mode.set(key)
             self._on_mode()
@@ -652,12 +651,9 @@ class ModeMixin:
         if self.v_mode.get() in ("multi_edit", "sketch", "scribble") and self.v_mode.get() not in m.modes and "edit" in m.modes:
             self.v_mode.set("edit")              # this model has no reference images (or no Sketch): plain Edit canvas
         if self.v_mode.get() not in m.modes:
-            if self.v_mode.get() == "upscale" and "refine" in m.modes:
-                self.v_mode.set("refine")        # Fibo cannot enlarge: back to None
-                self._status(f"{m.label} cannot enlarge pictures, so the factor is None. Use Qwen Image 2.1, Flux 3 or Flux 2 for 1.5x and more.")
-            else:      # the function last used with this model (user 20.11.), else its first
-                last = self.__dict__.setdefault("_model_mode", dict(self.state.get("mode_by_model") or {})).get(m.key)
-                self.v_mode.set(last if last in m.modes else next(iter(m.modes)))
+            # the function last used with this model (user 20.11.), else its first
+            last = self.__dict__.setdefault("_model_mode", dict(self.state.get("mode_by_model") or {})).get(m.key)
+            self.v_mode.set(last if last in m.modes else next(iter(m.modes)))
         self._remember_model_for_mode()
         self._apply_model_mode(force=True)
         self._on_mode_ui()
@@ -743,8 +739,22 @@ class ModeMixin:
         # back with its tab (user 10.11., P6)
         aside = self.__dict__.setdefault("_sketch_away", {})
         away = getattr(self, "_away_prompt", "")
-        if own and prev in ("sketch", "scribble") and (stock or (blank and mode != "outpaint")
-                                                        or (prev_stock and away and mode != "outpaint")):
+        # the text of Multi image edit names the reference images: it waits aside too and comes back with Multi image edit
+        # (user 23.11.: "changing from multi image to another mode shouldn't keep the text"; choice A)
+        multi_back = changed and mode == "multi_edit" and bool(aside.get(mode))
+        # to Multi image edit: its own text of this session, else an empty field (user 24.11. evening, "Letzter
+        # Multi-Prompt"; the text of Scribble on photo had stayed); the text that was there waits aside as before
+        to_multi = changed and mode == "multi_edit" and str(t.cget("state")) != "disabled"
+        if to_multi:
+            if own and prev in ("sketch", "scribble"):
+                aside[prev] = cur
+            elif own and not (prev_stock and away):
+                self._away_prompt = cur
+            if cur:
+                self._replace_prompt("")
+            cur = ""
+        elif own and (prev == "multi_edit" or (prev in ("sketch", "scribble") and (stock or (blank and mode != "outpaint")
+                                                                                or (prev_stock and away and mode != "outpaint")))):
             aside[prev] = cur
             cur = ""
         elif own and (stock or blank):
@@ -764,7 +774,7 @@ class ModeMixin:
             # (a style from the Styles menu counts as stock text for a function change, but a model change inside the same
             # function keeps it like typed text; the field shows what is sent, user 13.11.)
             new = spec.prompt_hint
-            if not new and changed and not blank and not stock and getattr(self, "_away_prompt", ""):
+            if not new and changed and not blank and not stock and not to_multi and getattr(self, "_away_prompt", ""):
                 new, self._away_prompt = self._away_prompt, ""
             if t.get("1.0", "end").strip() != new:
                 self._replace_prompt(new)
@@ -780,7 +790,7 @@ class ModeMixin:
             from . import refslots
             back_text = t.get("1.0", "end") if str(t.cget("state")) != "disabled" else ""
             ref = (mode == "scribble" and models.offers_ref_scribble(m)
-                   and (models.REF_MARK in back_text or refslots.mentions_reference(back_text)))
+                   and (any(k in back_text for k in models.OLD_REF_MARKS) or refslots.mentions_reference(back_text)))   # SUBJECT is in both (22.11.)
             v.set(models.REF_SCRIBBLE_LABEL if ref else models.SCRIBBLE_PROMPTS[0][0])
         self._update_mode_radios()
         self._update_prompt_choices()
@@ -1153,18 +1163,9 @@ class ModeMixin:
         mm = self._model()
         spec = mm.modes.get("upscale") if mm else None
         mode = self.v_mode.get()
-        if spec is None or not spec.stage_row or mode not in SCALE_MODES or self._custom_workflow():
-            return [], False
-        if mode == "upscale":
-            return self._stages(), True
-        try:
-            for t in (load_template(w) for w in resolve(self.workflows_dir / spec.workflow)):
-                info = stage_info(t)
-                if info:
-                    return info[:3], False
-        except (OSError, ValueError, KeyError):
-            pass
-        return [], False
+        if spec is None or not spec.stage_row or mode != "upscale" or self._custom_workflow():
+            return [], False      # Refine is its own function again (22.11.): no grey copy of the Upscale stages
+        return self._stages(), True
 
     def _show_stage_row(self):
         """Fills the stage row of the Upscale / Refine box (see _stage_row) or hides it with its line."""

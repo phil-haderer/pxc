@@ -1,3 +1,4 @@
+# tags: queue, comfy
 """The local batch queue (docs/plan/speichern-queue-batch.md, steps 3 and 4; pccomfy/jobqueue.py): persistence, atomic
 writes, crash recovery, the retry policy, pause / resume / cancel / reorder, the dry run, the folder scan, output names that
 never overwrite, one job at a time at ComfyUI, jobs of others ahead (/queue), the ETA. Against a small fake ComfyUI over
@@ -25,7 +26,7 @@ from PIL import Image  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
-from pccomfy import config, jobqueue as JQ, savefile, workflows  # noqa: E402
+from pccomfy import comfy as COMFY, config, jobqueue as JQ, savefile, workflows  # noqa: E402
 from pccomfy.bridge import Bridge, BridgeError, Request  # noqa: E402
 from pccomfy.comfy import ComfyError, ComfyUI  # noqa: E402
 import test_reference_mode as T  # noqa: E402  (the PhotoCraft simulator)
@@ -36,6 +37,9 @@ JQ.RETRY_DELAY_S = 0.0
 JQ.OOM_RETRY_DELAY_S = 0.0
 JQ.PLACE_GAP_S = 0.0
 JQ.QUEUE_POLL_S = 0.1
+JQ.GATE_POLL_S = 0.05             # T4 (docs/plan/tempo-und-struktur.md): the plugin's values stay
+JQ.SNAPSHOT_POLL_S = 0.05
+COMFY.HISTORY_POLL_S = 0.05
 
 
 # ---------- a fake ComfyUI over HTTP ----------
@@ -143,7 +147,7 @@ def server():
     fake = Fake()
     srv = ThreadingHTTPServer(("127.0.0.1", 0), type("H", (Handler,), {"fake": fake}))
     assert srv.server_port != 8188
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()   # shutdown() waits one poll
     return srv, fake
 
 
@@ -425,6 +429,9 @@ def test_dry_run_discard():
         assert [j["status"] for j in r.jobs(bid)] == [JQ.DONE, JQ.CANCELLED, JQ.CANCELLED]
         assert r.batch(bid)["state"] == JQ.B_CANCELLED and len(fake.payloads) == 1 and not r.busy
         assert len(list((Path(tmp) / "queue").glob("*.png"))) == 2, "cancelled pictures keep their input for ↻ until the list is cleared"
+        assert r.clear_finished((JQ.DONE,)) == 1, "Clear finished: only the done one (user 24.11.)"
+        assert [j["status"] for j in r.jobs(bid)] == [JQ.CANCELLED, JQ.CANCELLED]
+        assert len(list((Path(tmp) / "queue").glob("*.png"))) == 2
         r.clear_finished()
         assert not list((Path(tmp) / "queue").glob("*.png"))
     finally:
@@ -574,7 +581,7 @@ def test_open_images_batch():
             pc.document = real_doc
         assert [j["placed"] for j in r.jobs(bid)][1:] == ["file", "file", "file"], r.jobs(bid)
         # bad settings are refused at once
-        for bad, text in ((Request(mode="inpaint"), "Refine, Upscale and Edit"),
+        for bad, text in ((Request(mode="inpaint"), "Refine Image, Upscale and Edit"),
                           (Request(mode="edit", workflow=str(WF / "fibo2-edit.json")), "Type an instruction"),
                           (Request(mode="edit", workflow=str(WF / "fibo2-edit.json"), enhance=False), "Describe the edit")):
             bad.params = workflows.GenParams(prompt="")

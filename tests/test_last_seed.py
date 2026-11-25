@@ -1,3 +1,4 @@
+# tags: window
 """The icon beside the seed field puts the seed of the last finished run back (user 1.11.). Stubbed Tk.
 
     python tests/test_last_seed.py

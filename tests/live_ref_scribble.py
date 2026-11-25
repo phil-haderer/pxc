@@ -1,4 +1,4 @@
-"""Live test (GPU, only on the user's word): "Reference at scribble" (plan B, docs/plan-edit-sketch-stile.md). A red scribble
+"""Live test (GPU, only on the user's word): "Reference at scribble" (plan B, docs/archiv/plan-edit-sketch-stile.md). A red scribble
 on a photo marks where an object goes, a reference picture shows which object. Generated the way Scribble on photo works
 (scribble.find, only the crop around it, scribble.put_back with colour match and fading edge), but with the model's
 Multi image edit workflow, so the reference goes in as <ref_image_1> / image 2 / <image2>.

@@ -1,3 +1,4 @@
+# tags: queue, window
 """Phase split of the progress display (prompt writing vs image generation). Run: python tests/test_phases.py"""
 import json, sys, tempfile
 from pathlib import Path
@@ -92,6 +93,27 @@ b2._wait("x", up, "wf/up.json", 0, 1, "", lambda f, m, **kw: msgs.append((kw["ph
 tiles = [m for p, m in msgs if p == "image" and m.startswith("tile")]
 assert tiles and tiles[0].startswith("tile 2 ") and tiles[-1].startswith("tile 3 "), msgs        # the first tile has no number
 assert not any(p == "stage" for p, _ in msgs)                                                    # nothing lasted 2 s
+# a node that reports in the middle of the only sampler pass is no new tile (Qwen Sketch after a stop, user 25.11.)
+class OnePassComfy(TileComfy):
+    def wait(self, pid, on_progress, cancelled):
+        for node, f in (("163", 0.25), ("164", -1), ("163", 0.5), (None, -1), ("163", 0.75), ("165", -1), ("163", 0.75), ("163", 1.0)):
+            on_progress(f, f"step {f}" if f >= 0 else "", node)
+        return {}
+
+
+b3 = Bridge.__new__(Bridge)
+b3.comfy, b3.exchange, b3._cancel = OnePassComfy(), Path(tempfile.mkdtemp()), __import__("threading").Event()
+msgs3 = []
+b3._wait("x", up, "wf/up.json", 0, 1, "", lambda f, m, **kw: msgs3.append((kw["phase"], m)))
+assert not [m for p, m in msgs3 if "tile" in m], msgs3
+
+# the node trail goes to comfy-net.log at the end of every wait (where a "tile 2" without tiles comes from, 25.11.)
+logged = []
+b2.comfy._log = lambda event, **kw: logged.append((event, kw))
+b2._wait("x", up, "wf/up.json", 0, 1, "", lambda f, m, **kw: None)
+assert logged and logged[-1][0] == "wait_nodes", logged
+assert logged[-1][1]["nodes"] == "8 163 164 163x2 165 163" and logged[-1][1]["tiles"] == 3 and logged[-1][1]["sampler"] == "163", logged
+del b2.comfy._log
 
 clock = iter([0.0, 0.5, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0])
 _real_mono = _bridge.time.monotonic

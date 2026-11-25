@@ -1,3 +1,4 @@
+# tags: settings, window
 """The header of the settings window in the real Tk window (hidden): as high as the plugin's header, the title "Settings"
 in the title size (H1: 12 pt, white, thin) at the plugin title's distance from the left edge, and a white line above the
 tabs Model Links / Other settings (user 6.11.). Skipped when Tk cannot open a window.

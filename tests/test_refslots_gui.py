@@ -1,3 +1,4 @@
+# tags: multiedit, window
 """Multi Image Edit in the window (stubbed Tk): the slots show only where the model has them, Ctrl+V / Paste / files fill them,
 the request carries the images.
 
@@ -66,7 +67,7 @@ def main():
         assert not app.refslots.items and ("no picture" in app.lbl_refmsg["text"] or "Windows" in app.lbl_refmsg["text"] or "wl-clipboard" in app.lbl_refmsg["text"])
         clipboard.read_image = lambda hwnd=0: img
         app._refs_paste()
-        assert len(app.refslots.items) == 1 and app.lbl_refnames["text"] == "Dragging an image into the prompt box inserts its tag. Your picture in PhotoCraft is <image1>."
+        assert len(app.refslots.items) == 1 and app.lbl_refnames["text"] == "Type @ in the prompt to pick a reference image, e.g. “Place the bag from @ on the table.”"   # user 23.11.
         assert app._refs_ctrl_v() == "break" and len(app.refslots.items) == 2
         for _ in range(6):
             app._refs_ctrl_v()
@@ -415,7 +416,7 @@ def main():
     # BBOX: a Flux 3 Multi Image Edit switch; the request carries it only while it is ticked and the function is the right one
     pick("flux3", "multi_edit")
     assert not app.cb_bbox.winfo_manager()           # the tick is the tab "Insert reference" now (user 7.11.)
-    assert app._request().bbox is False and app._hint_text.startswith("Example:")
+    assert app._request().bbox is False and app._hint_text == ""      # no tip under the prompt: the @ tip under the slots (user 23.11.)
     assert not hasattr(app, "lbl_refbbox")          # no tip under the slots any more (user 3.11.)
     assert app.refslots.max_refs == 3 and app.lbl_refs["text"] == "Reference images (max. 3)"      # Flux 3 with BBOX off: its usual three
     app.v_edtab.set("bbox")                         # a click on the tab (the stubbed Tk has no invoke): it sets the mode and the tick
@@ -435,7 +436,7 @@ def main():
     assert app._refs_max(gui.models.BY_KEY["flux3"]) == 3 and refslots.BBOX_LABEL == "Place ref. image in selection (BBOX)"     # unticked: three again
 
     # the tabs of the Edit function (user 7.11.): one function button "Edit", three tabs where "Reference images" was
-    assert gui.MODE_LABELS[4] == ("edit", "Edit") and ("multi_edit", "Multi Image Edit") in gui.MODE_LABELS
+    assert gui.MODE_LABELS[4] == ("edit", "Edit") and ("multi_edit", "Multi image edit") in gui.MODE_LABELS
     pick("flux3", "multi_edit")
     assert app.v_fn.get() == "edit" and app.v_edtab.get() == "multi"           # the Edit button stays lit on the reference tabs
     app.v_edtab.set("bbox")
@@ -465,7 +466,7 @@ def main():
     app._on_model()
     assert not app._ref_scribble() and app.v_edtab.get() == "scribble", app.v_edtab.get()
     assert app.v_sketch.get() == gui.models.SCRIBBLE_PROMPTS[0][0] and not app._refs_wanted()
-    assert gui.models.REF_MARK not in app.t_prompt.get("1.0", "end"), app.t_prompt.get("1.0", "end")
+    assert "looks like" not in app.t_prompt.get("1.0", "end"), app.t_prompt.get("1.0", "end")     # not the text with the reference
 
     assert not hasattr(refslots, "apply_strokes") and not hasattr(app, "_refs_pen")      # the pen is gone
     assert refslots.thumbnail_png(Image.new("RGBA", (300, 100), (0, 0, 0, 0)), 64)[:4] == b"\x89PNG"

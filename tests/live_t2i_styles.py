@@ -22,6 +22,7 @@ import sys
 import time
 from pathlib import Path
 
+from live_progress import Left         # what is left of the round
 import live_style_round as lsr          # sets its own PCCOMFY_HOME before the plugin is imported
 from PIL import Image
 
@@ -82,7 +83,7 @@ ANIME_SUBJECTS = ("a small railway station on a hill, a red train arriving, sunf
                   "a girl on a bicycle riding along a coastal road, a lighthouse and the sea below")
 
 
-# --redo (user 18.11.): the README pictures whose style text changed (docs/plan/stil-vorschlag-18-11.md) again, with the same
+# --redo (user 18.11.): the README pictures whose style text changed (docs/archiv/stil-vorschlag-18-11.md) again, with the same
 # model, subject, seed and canvas as in the run of 17.11.; only the style text is new
 REDO = [("flux2", 2), ("fibo", 3), ("minimax", 2)]     # Linocut print, Low-poly, Cyberpunk (the Oil painting blacksmith is out, 18.11.)
 
@@ -150,6 +151,7 @@ def cmd_run(a):
     app = lsr.live_sketch.make_app("http://127.0.0.1:1" if a.dry else (a.url or cfgmod.load()["comfyui"]["url"]))
     blank = Image.new("RGB", CANVAS, "white")
     failed, t_start = 0, time.time()
+    left = Left(len(js))
     for i, (mk, n, style, subject, text) in enumerate(js, 1):
         fid = f"{mk}-{n}"
         if fid in key:
@@ -171,7 +173,7 @@ def cmd_run(a):
         key[fid] = {"model": models.BY_KEY[mk].label, "model_key": mk, "style": style, "subject": subject, "text": text,
                     "seed": SEED, "secs": round(time.time() - t0, 1)}
         json.dump({"items": key, "canvas": CANVAS}, open(kf, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
-        print(f"{i}/{len(js)} {fid} {style}: {key[fid]['secs']} s", flush=True)
+        print(f"{i}/{len(js)} {fid} {style}: {key[fid]['secs']} s" + left(i), flush=True)
         if a.free:
             lsr.free_memory(comfy)
     app.root.destroy()

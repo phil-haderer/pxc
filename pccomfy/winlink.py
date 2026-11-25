@@ -215,6 +215,40 @@ class Win32Api:
         """Put `hwnd` directly below `above` in the z-order, without moving, resizing or activating it."""
         self.u.SetWindowPos(hwnd, above, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)   # NOSIZE | NOMOVE | NOACTIVATE
 
+    def above(self, hwnd: int, other: int) -> bool | None:
+        """Is `hwnd` above `other` in the z-order? None when `other` is not found below it nor above it."""
+        h = hwnd
+        for _ in range(5000):
+            h = int(self.u.GetWindow(h, 2) or 0)      # GW_HWNDNEXT: the next window below
+            if not h:
+                break
+            if h == other:
+                return True
+        h = hwnd
+        for _ in range(5000):
+            h = int(self.u.GetWindow(h, 3) or 0)      # GW_HWNDPREV: the next window above
+            if not h:
+                break
+            if h == other:
+                return False
+        return None
+
+    def window_above(self, hwnd: int) -> tuple[int, bool]:
+        """The window directly above `hwnd` in the z-order (0 = none) and whether it is a topmost one (WS_EX_TOPMOST)."""
+        h = int(self.u.GetWindow(hwnd, 3) or 0)       # GW_HWNDPREV
+        return h, bool(h and self.u.GetWindowLongW(h, GWL_EXSTYLE) & 0x8)
+
+    def bring_to_top(self, hwnd: int) -> None:
+        """Top of the normal (not topmost) windows, without activating it (HWND_TOP, NOSIZE | NOMOVE | NOACTIVATE)."""
+        self.u.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+
+    def state_of(self, hwnd: int) -> tuple[bool, bool]:
+        """(visible, minimised) of a window."""
+        return bool(self.u.IsWindowVisible(hwnd)), bool(self.u.IsIconic(hwnd))
+
+    def foreground(self) -> int:
+        return int(self.u.GetForegroundWindow() or 0)
+
     def wrapper_of(self, widget) -> int:
         """The real top-level window of a Tk Toplevel (GA_ROOT of its inner window), 0 when it does not exist yet."""
         return int(self.u.GetAncestor(widget.winfo_id(), 2) or 0)
@@ -237,6 +271,59 @@ def link(root, api=None) -> bool:
         return api.owner_of(top) == owner
     except Exception:
         return False
+
+
+def lift_above_owner(root, api=None) -> str:
+    """An owned window lies above its owner, but Windows sorts it there only when the owner's z-order changes next. Tied to
+    PhotoCraft while PhotoCraft has the focus, the window stayed under it until PhotoCraft was minimised and restored (user
+    22.11., start log: "own is BELOW it | linked=True | focus=PhotoCraft"). This puts it right above PhotoCraft without
+    activating it; no other window moves. Fallbacks: top of the normal windows, then PhotoCraft right under it.
+    "" = nothing to do (above already, not tied, not Windows); otherwise the step that was taken ("... failed" if none held)."""
+    if not available() and api is None:
+        return ""
+    try:
+        api = api or Win32Api()
+        top = api.toplevel(root)
+        owner = api.owner_of(top) if top else 0
+        if not owner or owner != _owner(api.windows()) or not api.state_of(top)[0] or api.above(top, owner) is not False:
+            return ""
+        prev, topmost = api.window_above(owner)
+        if prev and prev != top and not topmost:
+            api.place_below(top, prev)
+            if api.above(top, owner):
+                return "lifted above PhotoCraft"
+        api.bring_to_top(top)
+        if api.above(top, owner):
+            return "lifted above PhotoCraft (top)"
+        api.place_below(owner, top)
+        return "lifted above PhotoCraft (PhotoCraft moved under it)" if api.above(top, owner) else "lifting above PhotoCraft failed"
+    except Exception:
+        return ""
+
+
+def window_state(root, api=None) -> str:
+    """For the start log (startlog.py): where the window is, whether it is visible, tied to PhotoCraft's window and above it,
+    and which window has the focus. "" when nothing can be asked (not Windows, Tk's window not there yet)."""
+    if not available() and api is None:
+        return ""
+    try:
+        api = api or Win32Api()
+        top = api.toplevel(root)
+        if not top:
+            return "own window not created yet"
+        owner = _owner(api.windows())
+        vis, icon = api.state_of(top)
+        fg = api.foreground()
+        own = f"own rect={api.rect(top)} visible={vis} owner={api.owner_of(top)}"
+        if not owner:
+            return own + " | PhotoCraft window not found | focus=" + ("own" if fg == top else str(fg))
+        pvis, picon = api.state_of(owner)
+        rel = {True: "above", False: "BELOW", None: "?"}[api.above(top, owner)]
+        focus = "own" if fg == top else "PhotoCraft" if fg == owner else str(fg)
+        return (own + f" | PhotoCraft={owner} rect={api.rect(owner)} visible={pvis} minimised={picon} | own is {rel} it"
+                f" | linked={api.owner_of(top) == owner} | focus={focus}")
+    except Exception as e:      # a log must never stop the window
+        return f"state not readable: {e!r}"
 
 
 def own(win, root, api=None, others=()) -> bool:
@@ -499,7 +586,7 @@ def watch(seconds: int, api=None) -> None:
 def stack_text(infos: list[dict], exe: str, popup: int, plugin: int, foreground: int) -> str:
     """Pure: one log line about where the tip popup lies in the z-order (infos topmost first, EnumWindows order) against the
     plugin window and PhotoCraft's main window, and which window is in front (its process). For the popup that was built
-    but not seen (user 2.11., docs/plan/befunde-11-11.md section 4)."""
+    but not seen (user 2.11., docs/archiv/befunde-11-11.md section 4)."""
     owner = pick_window(infos, exe)
     order = [w.get("hwnd") for w in infos]
 

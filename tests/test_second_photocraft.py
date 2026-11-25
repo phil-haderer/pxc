@@ -1,3 +1,4 @@
+# tags: photocraft, window
 """A second PhotoCraft (a PSD opened by a double click, without the control channel): the plugin window sits only on the
 PhotoCraft that holds the control port, and Copy canvas, Save image and a run say so when another one is open (user 16.11.,
 bug: Ctrl+S saved the picture of the other PhotoCraft; choice 1: link to the right one and warn).

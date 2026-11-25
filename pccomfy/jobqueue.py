@@ -2,8 +2,11 @@
 
 Variant A: the queue lives on this PC only (``data/queue.json`` plus the input pictures as PNG in ``data/queue/``), ComfyUI
 stays as it is, and at most ONE job of this plugin is at ComfyUI at a time (one runner thread that waits for each job), so
-several PCs on one ComfyUI take turns. Only Batch uses the queue; Generate does not go through it and stays locked while
-the runner is ``busy`` (and the runner does not start a job while the window's own worker runs: ``gate``).
+several PCs on one ComfyUI take turns. Batch uses the queue, and Generate clicked while a run is on (kind K_GENERATE,
+docs/plan/generate-queue.md: Refine, Upscale, Edit and Text to image, only the function that runs (user 23.11., choice D);
+the picture of the document in front is taken at the click, for Text to image only its size); a
+Generate with nothing on runs directly, not through it. The runner does not start a job while the window's own worker
+runs (``gate``).
 
 One job per picture. A job runs ``Bridge.begin`` + ``Bridge.process_image`` on its own copy of the batch's
 ``bridge.Request`` (one result per picture, no variants), then delivers the result:
@@ -24,6 +27,8 @@ the window's own ``self.events``) and/or ``on_event(kind, data)``; every kind st
   ("batch-dry-over", {"batch"})         resume() / resume_batch() confirmed the waiting dry run: its dialog can go
   ("batch-done",     batch dict)        the batch is over (state "done" or "cancelled")
   ("batch-error",    {"batch", "job", "message"})   a job failed for good, or a step of the runner itself failed
+  ("batch-placed",   {"job", "batch", "doc", "layer", "name"})   a queued Generate put its result layer (or group) into
+                                                  the document: the window's Undo can hide it
 
 Job dicts and batch dicts are plain copies (``Job.to_dict``, ``Batch.to_dict``), safe to read in the Tk thread.
 """
@@ -62,6 +67,11 @@ B_PREPARING, B_RUNNING, B_CONFIRM, B_DONE, B_CANCELLED = "preparing", "running",
 
 BATCH_MODES = ("refine", "upscale", "edit")      # Fill, Remove, Expand need a selection: no batch (plan step 4)
 SOURCE_OPEN, SOURCE_FOLDER = "open", "folder"
+SOURCE_ACTIVE = "active"      # a queued Generate (docs/plan/generate-queue.md): the document in front when it was clicked
+K_BATCH, K_GENERATE = "batch", "generate"       # Batch.kind: a batch of the ⋯ menu, or Generate clicked while a run is on
+QUEUE_MODES = ("refine", "upscale", "edit", "txt2img")   # the run modes a Generate can queue (user 23.11., choice D;
+                                                         # Multi Edit, Sketch, Scribble run as "edit" but never queue)
+NO_PICTURE_MODES = ("txt2img",)   # a queued Generate that takes only the canvas size, no picture (nothing stored)
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 MAX_AUTO_RETRIES = 2          # network / server errors and GPU out-of-memory (is_oom) only; never another graph error
 OOM_RETRY_DELAY_S = 5.0       # after a GPU out-of-memory error: wait this long times the retry's number (VRAM must be free)
@@ -69,6 +79,8 @@ PLACE_GAP_S = 2.0             # after a result was handed over (layer / new docu
 OOM_MARKS = ("out of memory", "outofmemory", "allocation on device")   # lower case, in ComfyUI's node error text
 RETRY_DELAY_S = 3.0           # an automatic retry waits this long times the retry's number (ComfyUI may be starting up)
 QUEUE_POLL_S = 2.0            # GET /queue while our job is at ComfyUI (decisions 12.11.: "etwa alle 2 s")
+GATE_POLL_S = 0.3             # while the gate is shut (the window runs a job itself) the runner looks again this often
+SNAPSHOT_POLL_S = 0.2         # how often a wait for the pictures of a batch looks at Stop (tests make both shorter)
 KEEP_FINISHED = 200           # finished jobs kept in queue.json (the queue window's list)
 TIMING_SAMPLES = 8            # image-timings.json: the last N (megapixels, seconds) per workflow
 
@@ -169,6 +181,7 @@ def copy_request(req):
     p = req.params
     params = dataclasses.replace(p, extra=dict(p.extra))
     return dataclasses.replace(req, params=params, variants=1, bbox=False, scribble=False, fill_box=False,
+                               scribble_object=False,
                                stages_off=list(req.stages_off), stage_strengths=dict(req.stage_strengths),
                                sampler_override=dict(req.sampler_override), loras=list(req.loras), refs=list(req.refs))
 
@@ -180,6 +193,11 @@ def result_megapixels(mode: str, size, req) -> float:
     mp = w * h / 1e6
     if mode == "upscale":
         return mp * float(req.scale) ** 2
+    if mode == "txt2img":       # the canvas size, at most native_mp (MiniMax: gen_mp), like Bridge._plan
+        if float(getattr(req, "gen_mp", 0) or 0) > 0:
+            return float(req.gen_mp)
+        cap = float(getattr(req, "native_mp", 0) or 0)
+        return min(mp, cap) if cap > 0 else mp
     if mode == "edit":
         if float(getattr(req, "gen_mp", 0) or 0) > 0:
             return float(req.gen_mp)
@@ -199,12 +217,21 @@ def format_eta(seconds) -> str:
 
 # ---------- jobs and batches ----------
 
+def qlog(bridge, event: str, **fields) -> None:
+    """A time mark of the queue in comfy-net.log (window test 23.11. evening: ×2 with Text to image showed nothing in the
+    queue and started late; measured, not guessed). s = seconds within the minute, to 1/100. Never raises."""
+    try:
+        bridge.comfy._log(event, s=f"{time.time() % 60:05.2f}", **fields)
+    except Exception:
+        pass
+
+
 @dataclass
 class Job:
     """One picture of a batch. Times are seconds since the epoch (time.time()), 0 = not yet."""
     id: str
     batch_id: str
-    mode: str                                  # "refine", "upscale" or "edit"
+    mode: str                                  # "refine", "upscale", "edit" or "txt2img" (a queued Generate)
     order: int = 0                             # place in the queue (smaller first), shared by all batches
     status: str = WAITING
     owner: str = ""                            # the owner's name (setting owner_name) ...
@@ -227,6 +254,9 @@ class Job:
     detail: float = 1.0                        # the request's Detail mix (a result picked up after a restart gets it too)
     also_save: bool = False                    # open-images batch: write the file too
     seed: int | None = None
+    run_no: int = 0                            # queued Generate: the run number of this job (layer "<model> #<n>") ...
+    group: str = ""                            # ... and its group name ("Refine 7")
+    written: str = ""                          # the prompt the text model wrote for it ("" without one)
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
@@ -259,6 +289,9 @@ class Batch:
     owner: str = ""
     skipped: list = field(default_factory=list)   # "<name>: <why>" of pictures left out
     stopped: bool = False                      # cancelled by the user (cancel_batch / discard): ends as "cancelled"
+    kind: str = K_BATCH                        # K_GENERATE: Generate clicked while a run was on (no dry run, no undo point)
+    label: str = ""                            # "Refine · Qwen Image 2.1": the queue window's Function and the bar's model
+    model: str = ""                            # the model's label ("Qwen Image 2.1")
     created: float = 0.0
     finished: float = 0.0
 
@@ -287,6 +320,12 @@ class BatchSpec:
     dry_run: bool = True
     also_save_file: bool = False
     save_settings: object = None
+    kind: str = K_BATCH           # K_GENERATE with source SOURCE_ACTIVE: a queued Generate (copies = its ×n)
+    shared: dict | None = None    # the variants of a direct run: {"done": Event, "pic", "index", "name"} filled by that run
+                                  # when it has exported its picture; the snapshot waits for it instead of exporting again
+    copies: int = 1
+    label: str = ""
+    model: str = ""
 
 
 class JobStore:
@@ -419,8 +458,10 @@ class QueueRunner:
         self._requests: dict[str, object] = {}    # batch id -> its bridge.Request (only in memory: lost on a restart)
         self._settings: dict[str, object] = {}    # batch id -> savefile.SaveSettings or None
         self._snapshots: set = set()              # (batch id, document name): one undo point per document and batch
-        self._pc_lock = threading.RLock()         # one at a time talks to PhotoCraft's documents: the snapshot, a result's placing
+        # one at a time talks to PhotoCraft's documents: the snapshot, a result's placing, and the window's own run (bridge.pc_lock)
+        self._pc_lock = getattr(bridge, "pc_lock", None) or threading.RLock()
         self._shots: dict[str, dict] = {}         # batch id -> {"done": Event, "items": [...], "error": str}: the canvases at send time
+        self._shared: dict[str, dict] = {}        # batch id -> BatchSpec.shared (the picture of the direct run it belongs to)
         self._current: Job | None = None
         self._cancel_running = False
         self._stop = threading.Event()
@@ -439,6 +480,27 @@ class QueueRunner:
             if any(j.status in (WAITING, RUNNING) for j in self.store.jobs):
                 return True
             return any(b.state in (B_PREPARING, B_CONFIRM) for b in self.store.batches.values())
+
+    def open_modes(self) -> set:
+        """The run modes of the batches and queued Generate clicks that are not over (a job waits or runs, or the batch
+        collects its pictures or waits for its dry run): Generate may only queue the same function (user 23.11., choice D)."""
+        with self._lock:
+            modes = {j.mode for j in self.store.jobs if j.status in (WAITING, RUNNING)}
+            modes |= {b.mode for b in self.store.batches.values() if b.state in (B_PREPARING, B_CONFIRM)}
+            return modes
+
+    @property
+    def only_generate(self) -> bool:
+        """No batch of the ⋯ menu is on (what is on, if anything, are queued Generate clicks): Undo and Redo of a result
+        layer may run meanwhile (hiding a layer is safe, docs/plan/generate-queue.md)."""
+        with self._lock:
+            return not any(b.kind != K_GENERATE and b.state in (B_PREPARING, B_RUNNING, B_CONFIRM)
+                           for b in self.store.batches.values())
+
+    @property
+    def pc_lock(self):
+        """The lock around every talk with PhotoCraft's documents (shared with the bridge's own runs)."""
+        return self._pc_lock
 
     @property
     def running_job(self) -> dict | None:
@@ -498,31 +560,47 @@ class QueueRunner:
         them. Returns the batch id. The pictures appear as "queue-job" events."""
         from .bridge import Bridge
         req = spec.request
-        if req.mode not in BATCH_MODES:
-            raise ValueError(f"Batch works with Refine, Upscale and Edit, not with {req.mode}.")
-        if spec.source not in (SOURCE_OPEN, SOURCE_FOLDER):
+        gen = spec.kind == K_GENERATE
+        if gen and (req.mode not in QUEUE_MODES or req.refs or req.scribble or req.bbox):
+            # user 23.11. evening (choice D): Multi Edit, Sketch, Scribble, Insert reference never wait in the queue
+            raise ValueError(f"Only Refine Image, Upscale, Edit and Text to Image can wait in the queue, not {req.mode}.")
+        if not gen and req.mode not in BATCH_MODES:
+            raise ValueError(f"Batch works with Refine Image, Upscale and Edit, not with {req.mode}.")
+        if spec.source not in ((SOURCE_ACTIVE,) if gen else (SOURCE_OPEN, SOURCE_FOLDER)):
             raise ValueError(f"Unknown batch source {spec.source!r}.")
         if spec.source == SOURCE_FOLDER and not spec.files:
             if not spec.folder or not Path(spec.folder).is_dir():
                 raise ValueError("Choose a folder with pictures.")
+        qlog(self.bridge, "q_start_batch", mode=req.mode, copies=spec.copies)
         test = copy_request(req)
-        test, p, _tag = self.bridge.begin(test)          # the checks of a run (workflow, Upscale factor ...), no network
+        # the checks of a run (workflow, Upscale factor ...), no network; begin() also clears what the bridge keeps of the
+        # run that may be on meanwhile (a queued Generate): put that back
+        kept = (getattr(self.bridge, "last_vgl", ""), getattr(self.bridge, "_scribble_layer", None))
+        try:
+            test, p, _tag = self.bridge.begin(test)
+        finally:
+            self.bridge.last_vgl, self.bridge._scribble_layer = kept
         wfs = workflows.resolve(test.workflow) if test.workflow else [None]
         Bridge._check_mode(test, p, wfs)                  # Edit: an instruction editor and a prompt
         bid = uuid.uuid4().hex[:10]
         with self._lock:
-            b = Batch(id=bid, mode=req.mode, source=spec.source, folder=str(spec.folder or ""), dry_run=bool(spec.dry_run),
-                      dry_pending=bool(spec.dry_run), also_save=bool(spec.also_save_file), owner=self.owner,
-                      workflow=self._wf_stem(req), created=time.time())
+            b = Batch(id=bid, mode=req.mode, source=spec.source, folder=str(spec.folder or ""),
+                      dry_run=bool(spec.dry_run) and not gen, dry_pending=bool(spec.dry_run) and not gen,
+                      also_save=bool(spec.also_save_file) and not gen, owner=self.owner, workflow=self._wf_stem(req),
+                      kind=K_GENERATE if gen else K_BATCH, label=str(spec.label or ""), model=str(spec.model or ""),
+                      created=time.time())
             self.store.batches[bid] = b
             self._requests[bid] = copy_request(req)
             self._settings[bid] = spec.save_settings
+            if spec.shared is not None:
+                self._shared[bid] = spec.shared
             self.store.save()
-            if spec.source == SOURCE_OPEN:
+            if spec.source in (SOURCE_OPEN, SOURCE_ACTIVE):
                 self._snapshot_open(b)
             self._tasks.append(lambda: self._prepare(bid, spec))
             self._emit("batch-progress", self._batch_dict(b))
             self._kick()
+        qlog(self.bridge, "q_batch_added", batch=bid)
         return bid
 
     # ----- controls (own jobs only) -----
@@ -652,7 +730,8 @@ class QueueRunner:
             j = self._job(job_id)
             if j is None or j.status not in (ERROR, CANCELLED) or j.error.startswith(SKIPPED):
                 return False
-            if j.batch_id not in self._requests or not j.input_png or not Path(j.input_png).exists():
+            needs_pic = j.mode not in NO_PICTURE_MODES
+            if j.batch_id not in self._requests or (needs_pic and (not j.input_png or not Path(j.input_png).exists())):
                 return False
             b = self.store.batches.get(j.batch_id)
             if b is not None and b.state in (B_DONE, B_CANCELLED):
@@ -663,10 +742,12 @@ class QueueRunner:
             self._kick()
             return True
 
-    def clear_finished(self) -> int:
-        """Remove finished jobs (and their input pictures) from the list. Returns how many."""
+    def clear_finished(self, statuses: tuple = FINISHED) -> int:
+        """Remove finished jobs (and their input pictures) from the list; `statuses` (DONE,) only the done ones ("Clear
+        finished" since 24.11.; "Clear all" takes every finished one). Returns how many."""
+        statuses = tuple(s for s in statuses if s in FINISHED)
         with self._lock:
-            gone = [j for j in self.store.jobs if j.status in FINISHED]
+            gone = [j for j in self.store.jobs if j.status in statuses]
             for j in gone:
                 self.store.drop_input(j)
             ids = {j.id for j in gone}
@@ -763,7 +844,10 @@ class QueueRunner:
             if act:
                 vals = [self._remaining(j) for j in act]
                 eta = None if any(v is None for v in vals) else sum(vals)
-        hint = f"Batch {max(index, 1) if total else 0} of {total}" + (f" · {format_eta(eta)}" if eta else "")
+        if b.kind == K_GENERATE:        # a queued Generate: its ×n, nothing for a single picture
+            hint = (f"Queued {max(index, 1)} of {total}" + (f" · {format_eta(eta)}" if eta else "")) if total > 1 else ""
+        else:
+            hint = f"Batch {max(index, 1) if total else 0} of {total}" + (f" · {format_eta(eta)}" if eta else "")
         d["progress"] = {"index": index, "total": total, "eta": eta, "hint": hint,
                          "counts": {s: sum(1 for j in jobs if j.status == s) for s in STATUSES}}
         return d
@@ -827,13 +911,19 @@ class QueueRunner:
                     self._emit("batch-error", {"batch": "", "job": "", "message": f"{type(e).__name__}: {e}"})
                 continue
             if self.gate is not None and not self.gate():
+                if not getattr(self, "_gate_logged", False):
+                    self._gate_logged = True
+                    qlog(self.bridge, "q_gate_wait")
                 with self._lock:
                     if self._next_job() is None and not self._tasks:
                         if self._thread is me:
                             self._thread = None
                         return
-                time.sleep(0.3)
+                time.sleep(GATE_POLL_S)
                 continue
+            if getattr(self, "_gate_logged", False):
+                self._gate_logged = False
+                qlog(self.bridge, "q_gate_open")
             with self._lock:
                 job = self._next_job()
                 if job is None:
@@ -851,6 +941,7 @@ class QueueRunner:
                 b = self.store.batches.get(job.batch_id)
                 if b is not None:
                     self._emit("batch-progress", self._batch_dict(b))
+            qlog(self.bridge, "q_job_start", job=job.id)
             try:
                 self._execute(job)
             finally:
@@ -881,6 +972,7 @@ class QueueRunner:
             req = self._requests.get(batch_id)
         if b is None or req is None:
             return
+        qlog(self.bridge, "q_prepare_begin", batch=batch_id)
         with self._lock:                # "Collecting" from here on; until now the batch waited for the job before it
             b.collecting = True
             self._emit("batch-progress", self._batch_dict(b))
@@ -902,6 +994,8 @@ class QueueRunner:
                         break
         else:
             items = self._snapshot_items(b)
+            if b.kind == K_GENERATE:        # ×n of a queued Generate: n jobs on the same picture (decision 22.11.)
+                items = items[:1] * max(1, int(spec.copies or 1))
         with self._lock:
             if b.state == B_CANCELLED:
                 if not b.finished:
@@ -909,17 +1003,29 @@ class QueueRunner:
                 return
             from .bridge import MAX_SCALE_MP
             order = self._next_order()
-            for src, pic, err in items:
+            base_seed = getattr(req.params, "seed", None)
+            group = str(getattr(req, "group_name", "") or "")
+            run0 = int(getattr(req, "run_no", 0) or 0)
+            if run0 and group.endswith(f" {run0}"):
+                group = group[: -len(f" {run0}")]
+            blank = req.mode in NO_PICTURE_MODES          # Text to image: the canvas size only, nothing stored
+            for k, (src, pic, err) in enumerate(items):
                 jid = f"{time.strftime('%Y%m%d%H%M%S')}-{next(self._ids):03d}-{uuid.uuid4().hex[:6]}"
                 size = src.get("size") or [0, 0]
-                mp = result_megapixels(req.mode, size, req) if pic is not None else 0.0
+                mp = result_megapixels(req.mode, size, req) if (pic is not None or (blank and not err)) else 0.0
                 job = Job(id=jid, batch_id=batch_id, mode=req.mode, order=order, owner=self.owner,
                           client_id=getattr(self.bridge.comfy, "client_id", ""), workflow=b.workflow, source=src,
                           created=time.time(), mp=round(mp, 3), detail=float(getattr(req, "detail", 1.0)),
                           also_save=b.also_save)
+                if b.kind == K_GENERATE:
+                    if base_seed is not None and int(base_seed) >= 0:      # a fixed seed: each copy its own, as with variants
+                        job.seed = (int(base_seed) + 7919 * k) % (2**31)
+                    if run0:
+                        job.run_no = run0 + k
+                        job.group = f"{group} {run0 + k}" if group else ""
                 order += 1
                 too_big = req.mode in ("upscale", "refine") and mp > MAX_SCALE_MP + 1e-9
-                if err or pic is None:
+                if err or (pic is None and not blank):
                     job.status, job.error, job.finished = ERROR, err or "No picture.", time.time()
                 elif too_big:
                     w, h = size
@@ -927,7 +1033,8 @@ class QueueRunner:
                     job.error = (f"{SKIPPED}the result would be {mp:.1f} megapixels ({w}×{h}); the limit is {MAX_SCALE_MP:.0f}.")
                 else:
                     try:
-                        job.input_png = str(self.store.write_input(jid, pic))
+                        if pic is not None:
+                            job.input_png = str(self.store.write_input(jid, pic))
                     except OSError as e:
                         job.status, job.error, job.finished = ERROR, f"Cannot store the picture: {e}", time.time()
                     job.eta = self.timings.estimate(job.workflow, mp)
@@ -937,6 +1044,7 @@ class QueueRunner:
                 self._emit("queue-job", job.to_dict())
             b.total = len(items)
             b.state = B_RUNNING
+            qlog(self.bridge, "q_jobs_listed", batch=batch_id, jobs=len(items))
             self.store.save()
             self._emit("batch-progress", self._batch_dict(b))
             if not items:
@@ -948,14 +1056,29 @@ class QueueRunner:
         what was on screen then, not on the results of the batch that runs before it). A thread of its own does it, so the
         Tk thread never waits for PhotoCraft; _prepare picks the pictures up when it is the batch's turn (call with the lock held)."""
         shot = self._shots[b.id] = {"done": threading.Event(), "items": [], "error": ""}
+        shared = self._shared.pop(b.id, None)
 
         def work():
+            qlog(self.bridge, "q_snapshot_begin", batch=b.id)
             try:
+                if shared is not None:      # ×n of a direct run (window test 23.11. evening: a pause before both started)
+                    while not shared["done"].wait(SNAPSHOT_POLL_S):
+                        if self._stop.is_set():
+                            return
+                    pic = shared.get("pic")
+                    if pic is not None:
+                        shot["items"] = [({"kind": SOURCE_ACTIVE, "name": str(shared.get("name") or ""),
+                                           "index": shared.get("index"), "size": list(pic.size)}, pic, "")]
+                        return
                 with self._pc_lock:
-                    shot["items"] = self._collect_open(b)
+                    if b.source == SOURCE_ACTIVE:
+                        shot["items"] = self._collect_active(b.mode)
+                    else:
+                        shot["items"] = self._collect_open(b)
             except Exception as e:
                 shot["error"] = f"{type(e).__name__}: {e}"
             finally:
+                qlog(self.bridge, "q_snapshot_end", batch=b.id, error=bool(shot["error"]))
                 shot["done"].set()
         threading.Thread(target=work, name="pcc-snapshot", daemon=True).start()
 
@@ -965,12 +1088,39 @@ class QueueRunner:
         if shot is None:                 # no snapshot (a batch of an older kind): collect now
             with self._pc_lock:
                 return self._collect_open(b)
-        while not shot["done"].wait(0.2):
+        while not shot["done"].wait(SNAPSHOT_POLL_S):
             if self._stop.is_set():
                 return []
         if shot["error"]:
             raise RuntimeError(shot["error"])
         return shot["items"]
+
+    def _collect_active(self, mode: str = "") -> list:
+        """A queued Generate: the document in front, exported like a run does (what is visible, flattened). The temporary
+        files stay until the next run ends (Bridge.run cleans up): a run that is on may still need its own. Text to image
+        takes only the canvas size (no picture: None with no error)."""
+        try:
+            pc = self.bridge.pc.connect()
+            sess = pc.session()
+            idx = sess.get("active")
+            if idx is None:
+                return [({"kind": SOURCE_ACTIVE, "name": "", "index": None, "size": [0, 0]}, None,
+                         "Open a document in PhotoCraft first.")]
+            name = next((str(d.get("name") or "") for d in sess.get("documents") or [] if d.get("index") == idx), "")
+            if mode in NO_PICTURE_MODES:
+                info = pc.document()
+                size = [int(info.get("width") or 0), int(info.get("height") or 0)]
+                if not all(size):
+                    raise RuntimeError("PhotoCraft did not tell the size of the document.")
+                return [({"kind": SOURCE_ACTIVE, "name": name, "index": idx, "size": size}, None, "")]
+            tag = uuid.uuid4().hex[:8]
+            pic, _ = self.bridge._export(idx, tag, need_mask=False)
+            pic.load()
+            src = {"kind": SOURCE_ACTIVE, "name": name, "index": idx, "size": list(pic.size)}
+            return [(src, pic.copy(), "")]
+        except Exception as e:
+            return [({"kind": SOURCE_ACTIVE, "name": "", "index": None, "size": [0, 0]}, None,
+                     f"Could not take the picture from PhotoCraft: {e}")]
 
     def _collect_open(self, b: Batch) -> list:
         """Every document open in PhotoCraft: brought to the front one after the other and exported like a run does (what
@@ -1015,9 +1165,12 @@ class QueueRunner:
             self._fail(job, "The settings of this batch are gone (PxC was restarted).", transient=False)
             return
         try:
-            with Image.open(job.input_png) as im:
-                im.load()
-                pic = im.copy()
+            if job.mode in NO_PICTURE_MODES and not job.input_png:     # Text to image: only the canvas size counts
+                pic = Image.new("RGB", tuple(int(v) for v in job.source.get("size") or (0, 0)), "white")
+            else:
+                with Image.open(job.input_png) as im:
+                    im.load()
+                    pic = im.copy()
         except (OSError, ValueError) as e:
             self._fail(job, f"The stored picture is gone: {e}", transient=False)
             return
@@ -1043,12 +1196,20 @@ class QueueRunner:
                 marks["prompt"] = max(marks["prompt"], float(elapsed))
             self._emit("batch-step", (f, msg, phase, phase_fraction, elapsed))
 
+        gen = b is not None and b.kind == K_GENERATE
         try:
             req = copy_request(req0)
+            if gen:
+                if job.seed is not None:
+                    req.params.seed = int(job.seed)
+                if job.run_no:
+                    req.run_no, req.group_name = job.run_no, job.group or req.group_name
             req, p, tag = self.bridge.begin(req)
             job.seed = p.seed
-            with comfy.job_context(owner=self.owner, on_queued=on_queued, batch=job.batch_id):
+            # a queued Generate counts as Generate in every queue window, a batch as "Batch"
+            with comfy.job_context(owner=self.owner, on_queued=on_queued, batch=None if gen else job.batch_id):
                 out = self.bridge.process_image(req, p, pic, tag=tag, progress=progress)
+            job.written = str(getattr(self.bridge, "last_vgl", "") or "")
             marks["fetched"] = time.monotonic()
             watch_stop.set()
             with self._lock:
@@ -1229,6 +1390,22 @@ class QueueRunner:
                 self._open_file(shown, path.stem)
                 return "file", str(path)
             self.bridge.pc.connect().activate(idx)
+            b = self.store.batches.get(job.batch_id)
+            if b is not None and b.kind == K_GENERATE:
+                # a queued Generate takes no history snapshot: the window's Undo hides its layer (docs/plan/generate-queue.md)
+                kept = getattr(self.bridge, "_scribble_layer", None)
+                self.bridge._scribble_layer = None          # the scribble layer of a direct run is not this job's
+                try:
+                    res = self.bridge._place(req, p, out, idx, name, tag, progress) or {}
+                finally:
+                    self.bridge._scribble_layer = kept
+                layers = list(res.get("layers") or [])
+                top = res.get("group") or (layers[0] if layers else None)
+                if top is not None:
+                    ev = {"job": job.id, "batch": job.batch_id, "doc": name, "layer": top,
+                          "name": f"{req.preset} #{req.run_no}" if req.preset else ""}
+                    self._emit("batch-placed", ev)
+                return "layer", ""
             self._undo_point(job, name)
             self.bridge._place(req, p, out, idx, name, tag, progress)
             return "layer", ""

@@ -94,6 +94,7 @@ SHAPES.update({
     "seed-last": _mirror([_arc(12, 12, 9, 0, 315, 28) + [(21, 8)], [(21, 3), (21, 8), (16, 8)]]),   # a counter-clockwise circle arrow: use the last seed again
     "refresh":[_arc(12, 12, 9, 0, 315, 28) + [(21, 8)], [(21, 3), (21, 8), (16, 8)]],    # a circle arrow, clockwise
     "menu": [[(4, 6), (20, 6)], [(4, 12), (20, 12)], [(4, 18), (20, 18)]],     # the hamburger in the footer (save, copy canvas)
+    "dots": [_circle(5, 12, 1), _circle(12, 12, 1), _circle(19, 12, 1)],   # the ⋯ menu in the footer (user 24.11. evening)
     "minimize": [[(5, 12), (19, 12)]],              # the minimise button in the header
     "close": [[(6, 6), (18, 18)], [(18, 6), (6, 18)]],     # the close button in the header (no title bar)
     "chevron-up": [[(6, 15), (12, 9), (18, 15)]],

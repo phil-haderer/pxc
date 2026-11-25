@@ -1,3 +1,4 @@
+# tags: window
 """Small window wishes of 12.11. (PC A), measured in the real Tk window (hidden; skipped when Tk cannot open a window):
 the Advanced settings boxes and captions, the gap under the LLM row, the closed Advanced settings row, the spin box arrows.
 

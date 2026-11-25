@@ -1,3 +1,4 @@
+# tags: models
 """Model detection: manifest, inventory, resolve, tab and mode status, preflight, apply_names, comfy.inventory_raw, settings.
 
     python tests/test_detection.py
@@ -136,13 +137,14 @@ def test_status():
     assert i2.tab_status("flux3").state == "ready"
     assert i2.mode_status("flux3", "upscale").state == "ready"
     assert [f.name for f in i2.mode_status("flux3", "upscale").optional_missing] == ["seedvr2_3b_int8_convrot.safetensors"]
-    # the Restore LoRA is on at the start: without it Upscale is greyed
+    # the Restore LoRA is on at the start of Upscale and Refine (user 22.11.): without it both are greyed
     lists = full_lists()
     lists["lora"].remove("Flux 3\\flux-3-image-klein-restore.safetensors")
     i2 = inventory.Inventory(lists, nodes=inv.nodes)
     st = i2.tab_status("flux3")
-    assert st.state == "missing" and list(st.detail) == ["upscale"], st      # one function lacks its files: the model is locked
+    assert st.state == "missing" and list(st.detail) == ["upscale", "refine"], st   # functions lack their files: the model is locked
     assert i2.mode_status("flux3", "edit").state == "ready" and i2.mode_status("flux3", "upscale").state == "missing"
+    assert i2.mode_status("flux3", "refine").state == "missing"
     assert [f.name for f in i2.mode_status("flux3", "upscale").missing] == ["Flux 3\\flux-3-image-klein-restore.safetensors"]
 
     # the Flux 3 diffusion model missing: the whole tab is out
@@ -181,7 +183,7 @@ def test_rows_and_texts():
     lists["vae"].remove("qwen_image_vae.safetensors")
     inv = inventory.Inventory(lists)
     rows = {r["key"]: r for r in inv.rows()}
-    assert [r["key"] for r in inv.rows()] == [m.key for m in models.MODELS]
+    assert [r["key"] for r in inv.rows()] == [m.key for m in models.PICK_ORDER]      # order of the model chip (22.11.)
     assert rows["krea2"]["status"].state == "missing"
     krea = {f.name: (found, level) for f, found, level in rows["krea2"]["files"]}
     assert krea["qwen_image_vae.safetensors"] == (None, "required")

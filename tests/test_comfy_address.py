@@ -1,3 +1,4 @@
+# tags: comfy, settings
 """The ComfyUI address in Other settings (user 3.11.): the check of what is typed, the probe of a server (a small local one that
 answers like ComfyUI, like something else, or not at all), switching the client to another server, and the settings row.
 
@@ -133,6 +134,8 @@ def window_tests(u_comfy, u_other):
     row, found = rf.master.master, app.lbl_comfy_mark.master
     box = row.master
     assert found.master is box and box.pack_slaves().index(found) == box.pack_slaves().index(row) + 1
+    label = box.pack_slaves()[0]
+    assert label.cget("text") == "ComfyUI address" and str(label.cget("style")) == "SetText.TLabel"    # not bold (user 22.11.)
     assert app.comfy.url == u_comfy and cfgmod.get_setting("comfyui_url") == u_comfy and app.bridge.comfy is app.comfy
     assert comfyaddr.is_local(app.comfy.url) and app.lbl_comfy_note["text"] == ""
     # the address that answered is kept in a history (newest first, no doubles) and is the drop-down list of the field (user 6.11.)

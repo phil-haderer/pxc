@@ -1,3 +1,4 @@
+# tags: edit, workflows
 """Edit Canvas: the whole picture goes in, a selection is ignored, a prompt is required, the edit workflows are valid.
 
     python tests/test_edit_mode.py

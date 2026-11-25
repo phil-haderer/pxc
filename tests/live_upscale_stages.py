@@ -1,5 +1,5 @@
 r"""Manual check (not part of run_all.py): the upscale stages, cut to about one hour (user 9.11.; PLAN.md 2.3, point 1;
-docs/tests/upscale-stufen-testplan.md, "Zuschnitt 9.11."). GPU: remind the user first, start only on his word.
+docs/archiv/tests/upscale-stufen-testplan.md, "Zuschnitt 9.11."). GPU: remind the user first, start only on his word.
 
 Part F (Fibo, may 3x and 4x be freed?): 2 photos x 3x and 4x x {tiles, us_tiles} = 8 runs.
 Part Q (Flux 2 and Qwen Image 2.1 at 2x): Qwen 3 photos x {today, us, tiles, us_tiles}; Flux 2 only {today, us}
@@ -17,7 +17,7 @@ Fibo: its own workflow already has both stages (the plugin lets only one be on);
 plugin's workflows stay unchanged until the user decides. The sources are the 2 MP photos of the sketch rounds, shrunk to
 1 MP; prompt and seed (1234) as in the plugin. VRAM is freed before every run; finished files are skipped on a re-run.
 
-    python tests\live_upscale_stages.py run --images <folder> [--part F|Q] [--dry]
+    python tests\live_upscale_stages.py run --images <folder> [--part F|Q|N] [--out <old run>] [--dry]
     python tests\live_upscale_stages.py viewer [run folder]    (the blind A/B page; the key stays in key.json)
     python tests\live_upscale_stages.py viewer --serve         (the same page with buttons gut / mittel / schlecht per
                                                                 picture, keys G M S; saved into the run's bewertung.json;
@@ -52,6 +52,9 @@ Q_PHOTOS = ["03_father-with-little", "10_trees-growing-forest", "11_view-modern-
 VARIANTS = ["today", "us", "tiles", "us_tiles"]
 WF = {"fibo": "fibo2-upscale.json", "flux2": "flux2-klein-upscale.json", "qwen": "qwen-image-21-upscale.json"}
 PROMPT = {"fibo": models.QWEN_UPSCALE_DEFAULT, "flux2": models.FLUX2_DEFAULT, "qwen": models.QWEN_UPSCALE_DEFAULT}
+# Part N (user 22.11.: "versuch den alten test heranzuziehen und rechne nur die bilder ohne den promptzusatz neu"): Qwen 2x
+# "today" again with the prompt without "Image can be illustration or real photo", into the old run (--out), variant today-new
+QWEN_SHORT = models.QWEN_UPSCALE_DEFAULT.replace(" Image can be illustration or real photo, keep", " Keep")
 FIBO_US, FIBO_TILES = "12", "102"           # the stage nodes of workflows/fibo2-upscale.json
 
 
@@ -63,6 +66,8 @@ def jobs(part: str = "") -> list:
     if part in ("", "Q"):
         out += [(p, m, 2, v) for m in ("flux2", "qwen")
                 for v in (("today", "us") if m == "flux2" else VARIANTS) for p in Q_PHOTOS]
+    if part == "N":
+        out += [(p, "qwen", 2, "today-new") for p in Q_PHOTOS]
     return out
 
 
@@ -104,7 +109,7 @@ def build(model: str, variant: str, image_name: str, mp: float) -> tuple[dict, s
             raise ValueError("Fibo runs only tiles and us_tiles here")
         off = [] if us else [FIBO_US]          # the stored workflow has both stages; tiles alone = UltraSharp off
         tpl = workflows.bypass_stage(tpl, off) if off else tpl
-    p = workflows.GenParams(prompt=PROMPT[model], seed=SEED, width=64, height=64)
+    p = workflows.GenParams(prompt=QWEN_SHORT if variant == "today-new" else PROMPT[model], seed=SEED, width=64, height=64)
     p.extra["megapixels"] = mp
     g, out = workflows.apply_template(tpl, p, image_name, None)
     if model == "fibo":
@@ -223,7 +228,7 @@ def viewer_sets(run: Path, rng: random.Random) -> tuple[list, dict]:
             groups.setdefault((m, fac), []).append((v, f))
         for (m, fac), items in sorted(groups.items()):
             rng.shuffle(items)
-            letters = "ABCD"
+            letters = "ABCDE"
             title = f"{photo_dir.name[3:]}, {m}, {fac}"
             key[title] = {letters[i]: v for i, (v, _) in enumerate(items)}
             size = Image.open(items[0][1]).size
@@ -376,7 +381,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("--images", required=True, help="the folder with the 2 MP test photos")
-    r.add_argument("--part", choices=("F", "Q"), help="only part F (Fibo 3x/4x) or Q (Flux 2 and Qwen at 2x)")
+    r.add_argument("--part", choices=("F", "Q", "N"), help="only part F (Fibo 3x/4x), Q (Flux 2 and Qwen at 2x) or N (Qwen 2x today with the short prompt, 22.11.)")
     r.add_argument("--dry", action="store_true", help="only build the graphs and check their links")
     r.add_argument("--out", help="an earlier run folder to continue (finished files are skipped)")
     v = sub.add_parser("viewer")

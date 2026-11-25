@@ -1,3 +1,4 @@
+# tags: edit, start, window
 """Edit starts on the tab "Edit canvas" (user 7.11.): a saved Multi image edit comes back as Edit canvas, other functions as they were.
 Hidden Tk window.
 

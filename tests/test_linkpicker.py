@@ -1,3 +1,4 @@
+# tags: settings
 """The search window of the chain symbol (user 7.11.): filter by every typed word, alphabetical, copies of the expected file first with
 a line below them. The window itself needs a real Tk; this pins the ordering and that the settings code uses the window.
 

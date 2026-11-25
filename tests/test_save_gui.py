@@ -1,3 +1,4 @@
+# tags: save, window
 """Save image in the window (12.11.): the hamburger menu at the right end of the footer (Save image, Copy canvas; the copy button
 is gone from the row), Ctrl+S, the file name taken from PhotoCraft's active document, and the "Save image" section of the settings
 (folder, format, file name with a live example). Hidden real Tk window; PhotoCraft is faked, nothing is saved to the disk.
@@ -81,8 +82,9 @@ def main():
     # ---- the footer: clock, scissors, hamburger (far right); the copy button is gone from the row ----
     assert not hasattr(app, "b_copy_canvas")
     right = [w for w in app.f_foot.pack_slaves() if w.pack_info()["side"] == "right"]
-    assert right[:3] == [app.b_menu, app.b_cut, app.b_history], right      # packed first = the far right
-    assert app.b_menu.cget("image") and app.b_cut.cget("image") and app.b_history.cget("image")
+    # queue, scissors, ⋯ since 24.11. evening ("queue gegen history tauschen"; the last runs are in the menu)
+    assert right[:3] == [app.b_menu, app.b_cut, app.b_queue] and not hasattr(app, "b_history"), right   # packed first = the far right
+    assert app.b_menu.cget("image") and app.b_cut.cget("image") and app.b_queue.cget("image")
     assert app.b_menu.cget("command")
 
     # ---- the menu: Save and Copy first (the batch entries and the queue follow, test_batch_gui.py), each with an icon and
@@ -106,7 +108,8 @@ def main():
     assert menu.entries[0]["tip"] and "save" in menu.entries[0]["tip"].lower(), menu.entries[0]   # Save image has a hover hint (user 12.11.)
     assert all(e["tip"] for e in cmds[-2:]), cmds[-2:]       # the two resets keep the hint of the former "Reset page" button (16.11.)
     assert menu.entries[1]["tip"] == app.COPY_CANVAS_TIP == "Copies the visible image to the clipboard."   # user 21.11.
-    assert not any(e["tip"] for e in cmds[2:-2]), menu.entries                                     # the others have none
+    assert [e["label"] for e in cmds if e["tip"] == app.HISTORY_TIP] == ["History"]          # the clock's hint went along (24.11.)
+    assert not any(e["tip"] for e in cmds[2:-3]), menu.entries                                     # the batch entries have none
     menu.entries[0]["command"]()
     menu.entries[1]["command"]()
     assert calls == ["save", "copy"], calls

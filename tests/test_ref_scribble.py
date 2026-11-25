@@ -1,3 +1,4 @@
+# tags: sketch, multiedit
 """Reference at scribble (user 15.11., docs/plan/entscheidungen.md): the second chip of the tab Scribble on photo. The text with
 the placeholder and the model's tag, the one reference slot of the three sketch workflows (Fibo: fibo2-edit.json), the sentence
 with the tag past the prompt writer (StringConcatenate behind it, "It" -> "The <object>"), the stops (placeholder left, no
@@ -40,7 +41,7 @@ def test_texts():
         assert t.endswith("It fills the scribbled area and looks like " + tag + ".") and models.REF_MARK in t and "{tag}" not in t
         assert t in models.STOCK_PROMPTS
         assert models.BY_KEY[k].modes["scribble"].prompts == models.SCRIBBLE_PROMPTS
-    assert models.REF_MARK != models.SKETCH_MARK
+    assert models.REF_MARK == models.SKETCH_MARK == "SUBJECT"     # one placeholder in both scribble tabs (user 22.11.)
 
 
 def test_mentions_reference():
@@ -146,6 +147,14 @@ def test_stops():
     try:
         b.begin(req)
         raise AssertionError("ran with the placeholder")
+    except BridgeError as e:
+        assert str(e) == models.REF_MARK_LEFT
+    # a prompt saved before 22.11. with the old placeholder stops the same way
+    req.params = workflows.GenParams(prompt=models.ref_scribble_text(models.FLUX3.tag_style).replace(
+        models.REF_MARK, models.OLD_REF_MARKS[0]), seed=7)
+    try:
+        b.begin(req)
+        raise AssertionError("ran with the old placeholder")
     except BridgeError as e:
         assert str(e) == models.REF_MARK_LEFT
     # a full run through the simulator: the reference goes along, only the crop is generated

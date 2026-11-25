@@ -1,3 +1,4 @@
+# tags: fibo, comfy
 """Fibo: the GPU memory is freed (ComfyUI /free) before a run only after a model change AND for a large job (user 13.11.,
 choice C of 2a; docs/plan/entscheidungen.md, docs/tests/original-size-testlauf.md part H). A stub ComfyUI in Python, no server.
 

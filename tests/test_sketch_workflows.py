@@ -1,4 +1,5 @@
-"""The Sketch workflows (docs/sketch-plan.md, "Bauplan nach Runde 2", step 1 of the build, 9.11.): each is the model's
+# tags: sketch, workflows
+"""The Sketch workflows (docs/archiv/sketch-plan.md, "Bauplan nach Runde 2", step 1 of the build, 9.11.): each is the model's
 Edit workflow plus BFL's prompt upsampler, as the test rounds 2 to 7 ran it (tests/live_sketch.py, upsample_any), without
 reference slots. The Edit workflows themselves stay as they are (the user calls Flux 3 and Qwen Edit "perfect").
 Since 10.11. (writer round on PC A, option B) Flux 2 writes with qwen3vl 4B and an instruction prompt instead."""
