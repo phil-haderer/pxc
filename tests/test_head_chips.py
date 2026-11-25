@@ -149,13 +149,13 @@ def main():
         app._set_model_hidden(m.key, False)
     assert str(app.b_model["state"]) == "normal"
 
-    # right-click on the model chip: the menu of the chosen model (save settings, standard settings, hide)
+    # right-click on the model chip: only "Hide this model" (saving went to the Advanced settings, user 25.11.)
     app.v_model.set("qwen")
     app._on_model()
     app.b_model.event_generate("<Button-3>", x=2, y=2)
     app.root.update()
     labels = [e["label"] for e in app.m_chip.entries if e["type"] != "separator"]
-    assert labels[-1] == "Hide this model" and labels[0].startswith("Set current settings"), labels
+    assert labels == ["Hide this model"], labels
     app.m_chip.unpost()
 
     # the gap to the prompt box (user 22.11.): without the Edit list (Fill, Refine, Text to image) from the chips to the box

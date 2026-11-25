@@ -566,6 +566,13 @@ class RunMixin:
     def redo_edit(self):
         self._history_go("redo")
 
+    def _pack_history_head(self):
+        """Undo and Redo in the header (user 25.11.): left of the gear, a thin vertical line between them and the gear.
+        Packed from the right, so after the gear: the line, Redo, Undo."""
+        self.sep_history.pack(side="right", fill="y", padx=(10, 10), pady=4)     # more room on both sides (user 25.11.)
+        self.b_redo.pack(side="right")
+        self.b_undo.pack(side="right", padx=(0, 2))
+
     def _history_locked(self) -> bool:
         """A run or a batch is on: Undo and Redo are locked (user 24.11.)."""
         try:
@@ -935,12 +942,12 @@ class RunMixin:
             if on:
                 if not getattr(self, "_go_stopping", False):
                     self._stop_armed = time.monotonic()       # the double-click guard starts when Generate turns into Stop
-                self.b_go.configure(text=GO_STOP_RUN_TEXT if batch else GO_STOP_TEXT, style="GoStop.TButton",
+                self.b_go.configure(text=GO_STOP_RUN_TEXT if batch else GO_STOP_TEXT, width=GO_WIDTH_CH, style="GoStop.TButton",
                                     command=self._stop_click, state="normal")
                 if self.w_variants.winfo_manager():
                     self.w_variants.grid_remove()           # the variants piece is gone while a run is on (user 20.11.)
             else:
-                self.b_go.configure(text="Generate", style="Accent.TButton", command=self.generate, state="normal")
+                self.b_go.configure(text="Generate", width=GO_WIDTH_CH, style="Accent.TButton", command=self.generate, state="normal")
                 if not self.w_variants.winfo_manager():
                     self.w_variants.grid()
                 if not getattr(self, "_running", False):
@@ -963,15 +970,15 @@ class RunMixin:
 
     def _show_stop_all(self, on: bool):
         """"Stop batch" beside Generate (which says "Stop run" then); the row shares out its width anew, so it still fits
-        the window with Undo and Redo. While Generate is "Add to queue" it is shown anyway."""
+        the window with Undo and Redo. Only with a batch or variants, in the "Add to queue" row too (user 25.11.)."""
         self._stop_all_wanted = bool(on)
-        self._grid_stop_all(on or getattr(self, "_go_queueing", False))
+        self._grid_stop_all(on)          # with a batch or variants only, in the queue row too (user 25.11.)
         if getattr(self, "_go_stopping", False):
             self._go_stop(True)          # the text follows: "Stop run" with "Stop batch", "Stop" without
         self._fit_go_row()
 
-    def _grid_stop_all(self, on: bool, gap: int = 6):
-        """gap: px before it (before the display scaling); 4 in the queue row, where four buttons share the width."""
+    def _grid_stop_all(self, on: bool, gap: int = GO_ROW_GAP_PX):
+        """gap: px before it (before the display scaling); the same gap as every button of the row (user 25.11.)."""
         try:
             if on:
                 if self.b_stop_all.winfo_manager() != "grid":
@@ -988,7 +995,7 @@ class RunMixin:
             return
         try:
             if on and b.winfo_manager() != "grid":
-                b.grid(row=0, column=GO_COL_STOP_RUN, sticky="nsew", padx=(self._keep(QUEUE_ROW_GAP_PX), 0))
+                b.grid(row=0, column=GO_COL_STOP_RUN, sticky="nsew", padx=(self._keep(GO_ROW_GAP_PX), 0))
             elif not on and b.winfo_manager():
                 b.grid_forget()
         except (tk.TclError, AttributeError):
@@ -1006,18 +1013,20 @@ class RunMixin:
 
     def _go_queue_row(self, locked: bool = False):
         """Generate during a run (user 22.11., Variant 1): blue "Add to queue", the variants piece (×n = n jobs), then grey
-        "Stop run" and "Stop batch". locked: the function can't wait in the queue (user 23.11., choice A): the same row,
+        "Stop run", and "Stop batch" only while a batch or variants are sent (user 25.11.). locked: the function can't wait in the queue (user 23.11., choice A): the same row,
         "Add to queue" and ×n grey; the status line says why when the function is picked (_go_follow)."""
         try:
             if not getattr(self, "_go_stopping", False):
                 self._stop_armed = time.monotonic()       # a double click on Generate must not queue a second run
-            self.b_go.configure(text=ADD_QUEUE_TEXT, style="Accent.TButton", command=self.generate,
+            text = ADD_QUEUE_SHORT if str(self.b_go.cget("text")) == ADD_QUEUE_SHORT else ADD_QUEUE_TEXT   # keeps "Queue" (_queue_text_fits)
+            self.b_go.configure(text=text, width=0 if text == ADD_QUEUE_SHORT else GO_WIDTH_CH, style="Accent.TButton", command=self.generate,
                                 state="disabled" if locked else "normal")
             if not self.w_variants.winfo_manager():
                 self.w_variants.grid()
             self.w_variants.configure(state="disabled" if locked else "normal")
             self._grid_stop_run(True)
-            self._grid_stop_all(True, QUEUE_ROW_GAP_PX)
+            # "Stop batch" only while a batch or variants are sent (user 25.11.: "stop batch nur bei batch zeigen")
+            self._grid_stop_all(bool(getattr(self, "_stop_all_wanted", False)), GO_ROW_GAP_PX)
         except (tk.TclError, AttributeError):
             return
         tt = getattr(self, "tt_go", None)
@@ -1042,14 +1051,12 @@ class RunMixin:
                 self._go_follow_job = None
 
     def _fit_go_row(self):
-        """The Generate row over the full width (user 18.11., decisions 1a and 3): Generate and the variants piece together
-        are half the row less the tabs' padding (user 18.11.: as wide as the tab "Edit canvas"; since 20.11. the Edit tabs are
-        a list and never shown, so the half row is what counts), the
-        variants piece at VARIANTS_GROW_MAX of its natural width, Generate the rest; what is left goes to the empty column
-        before Undo. Undo and Redo are squares as high as Generate. Where the row is short ("Stop batch" shown, a large
-        scale), Generate, then the variants piece give room back, down to their natural width."""
+        """The Generate row over the full width (user 18.11., decision 1a; Undo and Redo went to the header 25.11.): the
+        variants piece at VARIANTS_GROW_MAX of its natural width, "Stop run" / "Stop batch" when shown, Generate the rest.
+        Where the row is short ("Stop batch" shown, a large scale), Generate, then the variants piece give room back, down
+        to their natural width."""
         bf = getattr(self, "f_go", None)
-        if bf is None or not hasattr(self, "b_redo"):
+        if bf is None:
             return
 
         def pad(w) -> int:
@@ -1066,37 +1073,67 @@ class RunMixin:
             p_go, p_var = (pad(w) for w in (self.b_go, self.w_variants))
             if not self.w_variants.winfo_manager():     # hidden during a run (user 20.11.): Generate takes its room
                 n_var = p_var = 0
-            tabs = getattr(self, "rb_edtabs", None)          # the tabs' padding (refslots.py), read back once they exist
-            p_tab = pad(tabs["edit"]) if tabs and tabs["edit"].winfo_manager() == "grid" else 2 * EDTAB_PADX
-            tab_w = 0           # the tab "Edit canvas" as it really is on screen (user 19.11.: the pair was a little narrower)
-            if tabs and tabs["edit"].winfo_ismapped() and tabs["edit"].winfo_width() > 1:
-                tab_w = int(tabs["edit"].winfo_width())
-                if not getattr(tabs["edit"], "_pcc_go_bound", False):        # the tab changes its width: the row follows
-                    tabs["edit"].bind("<Configure>", lambda e: self._fit_go_row(), add="+")
-                    tabs["edit"]._pcc_go_bound = True
-            pair = pad(self.b_redo)
-            fixed = self._px(GO_GAP_MIN_PX) + 2 * side + pair      # beside Generate and the variants piece
+            fixed = 0           # "Stop run" and "Stop batch" beside Generate and the variants piece, when shown
             for b in (self.b_stop_all, getattr(self, "b_stop_run", None)):
                 if b is not None and b.winfo_manager() == "grid":
                     fixed += pad(b) + int(b.winfo_reqwidth())
         except (tk.TclError, AttributeError, ValueError, KeyError, TypeError):      # TypeError: no real Tk (the test stubs)
             return
-        key = (total, side, n_go, n_var, p_tab, tab_w, fixed)
+        key = (total, side, n_go, n_var, fixed)
         if total <= 1 or key == getattr(self, "_go_row_key", None):
             return
         self._go_row_key = key
         var = n_var + int(n_var * (VARIANTS_GROW_MAX - 1)) + p_var       # the variants column (its padding included)
-        go = max(n_go + p_go, (tab_w or (total - 2 * p_tab) // 2) - var)  # Generate + variants = the tab "Edit canvas"
+        go = max(n_go + p_go, total - var - fixed)                         # Generate takes the rest of the row (user 25.11.)
         short = max(0, go + var + fixed - total)                           # the row is too short: Generate, then variants give back
         cut = min(short, max(0, go - n_go - p_go))
         go, short = go - cut, short - cut
-        var -= min(short, max(0, var - n_var - p_var))
+        give = min(short, max(0, var - n_var - p_var))
+        var, short = var - give, short - give              # short > 0: even at their natural widths the row is too short
+        if self._queue_text_fits(short):
+            return                  # the text of "Add to queue" changed: _fit_go_row runs again with the new width
         bf.grid_columnconfigure(0, minsize=go)
         bf.grid_columnconfigure(1, minsize=var)
-        bf.grid_columnconfigure(GO_COL_GAP, minsize=self._px(GO_GAP_MIN_PX))
-        bf.grid_columnconfigure(GO_COL_UNDO, minsize=side)
-        bf.grid_columnconfigure(GO_COL_UNDO + 1, minsize=side + pair)
+        bf.grid_columnconfigure(GO_COL_GAP, minsize=0)
         bf.grid_rowconfigure(0, minsize=side)
+
+    def _queue_text_fits(self, short: int) -> bool:
+        """"Add to queue" where the row has room for it, else "Queue" (user 25.11.: a batch on and an Interface scale under
+        100 %); back to the long text once it fits again. True when the text changed."""
+        if not getattr(self, "_go_queueing", False):
+            return False
+        try:
+            now = str(self.b_go.cget("text"))
+            if now not in (ADD_QUEUE_TEXT, ADD_QUEUE_SHORT):
+                return False
+            if now == ADD_QUEUE_TEXT and short > 0:
+                new = ADD_QUEUE_SHORT
+            elif now == ADD_QUEUE_SHORT:
+                from tkinter import font as tkfont
+                f = tkfont.Font(root=self.root, font=ttk.Style(self.root).lookup(str(self.b_go.cget("style")), "font"))
+                more = f.measure(ADD_QUEUE_TEXT) - f.measure(ADD_QUEUE_SHORT)
+                new = ADD_QUEUE_TEXT if self._go_room() >= more else ADD_QUEUE_SHORT
+            else:
+                return False
+            if new == now:
+                return False
+            self.b_go.configure(text=new, width=0 if new == ADD_QUEUE_SHORT else GO_WIDTH_CH)
+        except (tk.TclError, AttributeError, TypeError):
+            return False
+        self._go_row_key = None
+        self.root.after_idle(self._fit_go_row)      # Tk knows the new width of Generate only after an idle round
+        return True
+
+    def _go_room(self) -> int:
+        """The px Generate could still grow by in the row: the room after its last button, and what Generate is wider
+        than "Queue" needs (it takes the rest of the row since 25.11.)."""
+        try:
+            last = max((w for w in (self.b_go, self.w_variants, getattr(self, "b_stop_run", None), self.b_stop_all)
+                        if w is not None and w.winfo_manager() == "grid"), key=lambda w: w.winfo_x())
+            room = int(self.f_go.winfo_width()) - (int(last.winfo_x()) + int(last.winfo_width()))
+            return room + max(0, int(self.b_go.winfo_width()) - int(self.b_go.winfo_reqwidth()))
+        except (tk.TclError, AttributeError, ValueError):
+            return 0
 
     def _sync_history_buttons(self):
         """Undo and Redo (user 18.11., decision 2a): grey while a run, an Undo/Redo step or a batch is on; otherwise one of
@@ -1260,9 +1297,19 @@ class RunMixin:
                     self._batch_event(kind, data)       # the batch queue and the hint at the bar (gui_batch.py)
         except queue.Empty:
             pass
-        if frame is not None:
+        if frame is not None and self._preview_wanted():
             self._show_preview(frame)
         self.root.after(100, self._poll)
+
+    def _preview_wanted(self) -> bool:
+        """A live preview frame is shown only while a run is on (the window's own or a queued one): a frame that arrives
+        after the run ended or was stopped does not bring the preview back (user 25.11.: it stayed after a run)."""
+        if getattr(self, "_running", False):
+            return True
+        try:
+            return self.runner.running_job is not None
+        except Exception:
+            return False
 
     def _show_preview(self, im):
         """A live preview frame: as wide as the window and at most PREVIEW_MAX_H high (a tall picture stays narrower), above

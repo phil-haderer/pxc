@@ -63,14 +63,11 @@ def main():
     app._update_mode_radios()
     assert len(chips(app)) == len(models.MODELS), chips(app)
 
-    # the menu: save settings (chosen model only), hide (the favourite was removed 12.11.)
-    app._chip_menu("fibo", Ev())
-    assert [(kind, it.get("label")) for kind, it in app.m_chip.items] == [        # Fibo is not the chosen model: no "Set current settings ..." (user 1.11.)
-        ("command", "Hide this model")]
-    app._chip_menu(app.v_model.get(), Ev())                # the chosen model offers it
-    assert [(k, it.get("label")) for k, it in app.m_chip.items][1:] == [
-        ("command", "Reset to PxC standard settings (for this mode and model)"), ("sep", None), ("command", "Hide this model")]
-    assert app.m_chip.items[0] == ("command", app.m_chip.items[0][1]) and app.m_chip.items[0][1]["label"] == "Set current settings as startup settings (for this mode and model)"   # renamed 12.11.
+    # the menu: only "Hide this model" (the favourite was removed 12.11.; saving and the standard settings went to the
+    # bottom of the Advanced settings, user 25.11.), on every chip, the chosen one too
+    for key in ("fibo", app.v_model.get()):
+        app._chip_menu(key, Ev())
+        assert [(kind, it.get("label")) for kind, it in app.m_chip.items] == [("command", "Hide this model")], key
 
     # the function opens with the model last used for it (no favourite any more)
     app._mode_model["inpaint"] = "qwen"

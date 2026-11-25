@@ -63,8 +63,8 @@ def main():
     # MOSS' Turbo LoRA alone at the top of the Advanced settings (finishing box), UltraReal stays under the prompt (user 20.11.)
     assert app.f_turbo.winfo_manager() == "pack" and str(app.f_turbo.pack_info()["in"]) == str(app.f_samp), app.f_turbo.winfo_manager()
     assert shown(app.f_opts) and app.f_opts.winfo_manager() == "pack" and getattr(app, "_opts_place", "") == ""
-    assert shown(app.f_samp) and shown(app.lbl_grp_samp) and shown(app.lbl_grp_fn)      # the groups (20.11., B)
-    assert int(app.f_samp.grid_info()["row"]) == 4 and str(app.lbl_grp_fn.cget("text")) == "TEXT TO IMAGE"
+    assert shown(app.f_samp) and shown(app.lbl_grp_samp)      # the groups (20.11., B)
+    assert int(app.f_samp.grid_info()["row"]) == 4 and not hasattr(app, "lbl_grp_fn")   # no function heading (user 25.11.)
     for model, mode in (("qwen", "inpaint"), ("moss", "txt2img"), ("qwen", "txt2img")):   # back in the switch box for Qwen, and above it
         pick(app, model, mode)
         if model == "qwen":
@@ -105,9 +105,31 @@ def main():
         app._toggle_advanced()
     pick(app, "qwen", "inpaint")
     settle()
-    assert "Fill" in str(app.lbl_adv_ctx.cget("text")) and str(app.lbl_grp_fn.cget("text")) == "FILL SELECTION"
+    assert "Fill" in str(app.lbl_adv_ctx.cget("text"))
     ctx = str(app.lbl_adv_ctx.cget("text"))
     assert ctx == "Fill Selection" or ctx.startswith("Fill Selection · "), ctx     # the function first, then the model (user 22.11.); picker name (25.11.)
+    # the last row (user 25.11.): "Save settings" with the disk and "Load defaults", equal halves of the whole width
+    settle()
+    sv, ld = app.b_save_page, app.b_load_std
+    assert str(sv.cget("text")) == "Save settings" and sv.cget("image") and str(ld.cget("text")) == "Load defaults"
+    assert int(app.f_page_btns.grid_info()["row"]) == 10
+    assert abs(sv.winfo_width() - ld.winfo_width()) <= 1, (sv.winfo_width(), ld.winfo_width())
+    assert sv.winfo_rootx() == app.adv_body.winfo_rootx(), (sv.winfo_rootx(), app.adv_body.winfo_rootx())
+    assert ld.winfo_rootx() + ld.winfo_width() == app.adv_body.winfo_rootx() + app.adv_body.winfo_width()
+    assert sv.winfo_rooty() == ld.winfo_rooty() and sv.winfo_height() == ld.winfo_height() and sv.winfo_rooty() > app.f_xl.winfo_rooty(), (sv.winfo_rooty(), ld.winfo_rooty(), app.f_xl.winfo_rooty(), sv.winfo_ismapped(), app.f_xl.winfo_ismapped())
+    # Save keeps the window as it is (a real round trip through the standard settings, prompt and Ctrl+Z history included)
+    app.v_feather.set(7.0)
+    app.t_prompt.delete("1.0", "end")
+    app.t_prompt.insert("1.0", "a blue door")
+    before = app._collect()
+    sv.invoke()
+    settle()
+    assert app._collect() == before, [k for k in before if app._collect().get(k) != before[k]]
+    assert cfgmod.saved_page("qwen", "inpaint") == {"feather_pct": 7.0}, cfgmod.saved_page("qwen", "inpaint")
+    assert not [w for w, d in getattr(app, "_dot_w", {}).items() if d.winfo_manager()], "saved = start values: no blue dot"
+    ld.invoke()
+    settle()
+    assert cfgmod.saved_page("qwen", "inpaint") == {} and app.v_feather.get() != 7.0
     # a narrow row cuts the model name with "…" instead of dropping it (user 25.11.: "Remove Selection Fibo 2.0 Edit T.")
     app.v_model.set("fibo")
     app.v_mode.set("remove")
@@ -117,7 +139,7 @@ def main():
     fnt = tkfont.Font(root=app.root, font=gui.ttk.Style().lookup("Muted.TLabel", "font") or None)
     want = "Remove Selection · Fibo 2.0 Edit T…"
     room = fnt.measure(want) + 2
-    extra = int(app.btn_adv.winfo_reqwidth()) + app._px(16) + (int(app.b_adv_reset.winfo_reqwidth()) + app._px(10) if app.b_adv_reset.winfo_manager() else 0)
+    extra = int(app.btn_adv.winfo_reqwidth()) + app._px(16)
     app.f_adv_head.winfo_width = lambda: room + extra
     app._show_adv_context()
     got = str(app.lbl_adv_ctx.cget("text"))
@@ -127,28 +149,24 @@ def main():
     assert str(app.lbl_adv_ctx.cget("text")) == "Remove Selection", app.lbl_adv_ctx.cget("text")
     app.f_adv_head.winfo_width = real
     dots = lambda: [w for w, d in getattr(app, "_dot_w", {}).items() if d.winfo_manager()]     # noqa: E731
-    assert not dots() and not shown(app.b_adv_reset), "startup values: no dot, no Reset"
+    assert not dots(), "startup values: no dot"
+    assert not hasattr(app, "b_adv_reset") and not hasattr(app, "_reset_advanced"), "no Reset in the head row (user 25.11.)"
     app.t_prompt.delete("1.0", "end")
     app.t_prompt.insert("1.0", "a red flower")
     app.v_context.set(0.7)
     settle()
-    assert dots() == [app._adv_anchor["context"]] and shown(app.b_adv_reset), dots()
-    app._toggle_advanced()
+    assert dots() == [app._adv_anchor["context"]], dots()
+    app.v_context.set(0.4)
     settle()
-    assert shown(app.b_adv_reset), "Reset stays in the closed head row"
-    app._toggle_advanced()
-    app._reset_advanced()
-    settle()
-    assert abs(app.v_context.get() - 0.4) < 1e-6 and app.t_prompt.get("1.0", "end").strip() == "a red flower"
-    assert not dots() and not shown(app.b_adv_reset)
+    assert not dots()
     pick(app, "moss", "txt2img")       # UltraReal sits under the prompt: switching it is no change of the Advanced settings
     settle()
     app.v_stage.set(not app.v_stage.get())
     settle()
-    assert not shown(app.b_adv_reset) and not dots()
+    assert not dots()
     app.v_turbo.set(not app.v_turbo.get())       # MOSS' Turbo LoRA is in the Advanced settings
     settle()
-    assert app.cb_turbo in dots() and shown(app.b_adv_reset), dots()
+    assert app.cb_turbo in dots(), dots()
     print("ALL OK (stage in Advanced, Fibo stages, reference row, Advanced head row and changed dots)")
 
 

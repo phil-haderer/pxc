@@ -139,7 +139,7 @@ def minimax_advanced_checks(app):
             assert app.f_post.winfo_manager() == "grid" and app.f_post.winfo_height() > 1
             continue
         assert not app.f_post.pack_slaves() and not app.f_post.winfo_manager(), (mode, "empty box must leave the grid")
-        assert not app.lbl_grp_fn.winfo_manager(), (mode, "no function heading over an empty box (20.11.)")
+        assert not hasattr(app, "lbl_grp_fn"), "no function heading in the Advanced settings (user 25.11.)"
         top = min(w.winfo_y() for w in app.adv_body.grid_slaves() if w.winfo_ismapped())
         assert app.lbl_grp_samp.winfo_y() == top, (mode, "the heading Sampling starts the Advanced settings")
         steps = app.w_steps.winfo_y() + app.w_steps.master.winfo_y()

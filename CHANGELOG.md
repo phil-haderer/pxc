@@ -6,6 +6,24 @@ entry here.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-25
+
+### Added
+- **Save settings / Load defaults** in the Advanced settings: they save and load the settings of the current function
+  page (no reference images).
+- **Closing PxC during a run** asks whether to stop the run; when PhotoCraft closes, the run stops at ComfyUI too.
+
+### Changed
+- Undo and Redo sit in the head next to the gear; Generate takes the full width.
+- The style picker shows five styles per row.
+- Stop batch shows only while a batch runs; with a small Interface scale, "Add to queue" becomes "Queue" when it does
+  not fit.
+- Same gaps between all buttons of the Generate row; smaller Save settings and Add LoRA icons.
+- New README window picture and example pictures.
+
+### Fixed
+- The live preview disappears after queued runs and after Stop.
+
 ## [1.1.0] - 2026-11-25
 
 ### Added

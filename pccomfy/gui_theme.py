@@ -179,8 +179,6 @@ class ThemeMixin:
         s.configure("Adv.Link.TButton", padding=(0, 0))
         # Advanced settings in groups (user 20.11.): small grey headings, "Reset" in blue text in the head row
         s.configure("Group.TLabel", foreground=MUTED, font=font(8, bold=True))
-        s.configure("AdvReset.Link.TButton", foreground=ACCENT_TEXT, padding=(0, 0))
-        s.map("AdvReset.Link.TButton", foreground=[("active", FG)], background=[("active", BG)])
         s.configure("Copy.Link.TButton", padding=(0, 0))     # the copy icon beside "Enhance my Prompt with LLM": no 2 px above and below, or at 150 % it is taller than the checkbox and the row leaves a larger gap than two LoRA rows (user 13.11.)
         s.configure("Llm.TButton", padding=(4, 1), width=0, font=font(9))     # the "LLM" button at the prompt: short, not stretched
         s.configure("Narrow.TButton", padding=(3, 2), width=0, font=font(9))     # "Reset page": as narrow as its text (user 6.11.), the footer is tight

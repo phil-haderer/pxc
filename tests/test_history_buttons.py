@@ -46,21 +46,21 @@ def pump(app, until, timeout=5.0):
 
 
 def style_checks(app):
-    """Square.TButton: ACCENT and the hover blue of Generate, the disabled face of Stop (TButton), icon white / grey."""
-    s = gui.ttk.Style(app.root)
-    assert str(s.lookup("Square.TButton", "background")).lower() == gui.ACCENT.lower()
-    assert str(s.lookup("Square.TButton", "background", ["active"])).lower() == "#5ba3f5"
-    assert str(s.lookup("Square.TButton", "background", ["disabled"])).lower() == str(s.lookup("TButton", "background", ["disabled"])).lower()
-    assert str(s.lookup("Square.TButton", "background", ["disabled", "active"])).lower() == gui.PANEL.lower()   # no hover while grey
-    assert str(s.lookup("Accent.TButton", "background", ["active"])).lower() == "#5ba3f5"                       # the same blue as Generate
+    """Since 25.11. (user): Undo and Redo sit in the header left of the gear, flat icons like it (Link.TButton): light,
+    grey when disabled, a thin vertical line (Sep.TFrame) between them and the gear; the Generate row has no Undo/Redo."""
+    head = app.f_header
     for b in (app.b_undo, app.b_redo):
-        assert str(b.cget("style")) == "Square.TButton"
+        assert b.master is head and b.winfo_manager() == "pack", b
+        assert str(b.cget("style")) == "Link.TButton"
         spec = [str(x) for x in b.cget("image")]
-        assert len(spec) == 3 and spec[1] == "disabled" and spec[0] != spec[2], spec       # white icon, grey one when disabled
+        assert len(spec) == 5 and spec[1] == "disabled" and spec[0] != spec[2], spec       # light icon, grey one when disabled
+    assert app.sep_history.master is head and str(app.sep_history.cget("style")) == "Sep.TFrame"
+    app.root.update_idletasks()
+    order = sorted((app.b_undo, app.b_redo, app.sep_history, app.b_gear), key=lambda w: w.winfo_x())
+    assert order == [app.b_undo, app.b_redo, app.sep_history, app.b_gear], order
+    assert all(w.master is not app.f_go for w in (app.b_undo, app.b_redo))
     cache = app._icon_cache
-    white = {str(v) for (k, c, _), v in cache.items() if k in ("undo", "redo") and c == gui.ON_ACCENT}
     grey = {str(v) for (k, c, _), v in cache.items() if k in ("undo", "redo") and c == gui.DISABLED}
-    assert {str(app.b_undo.cget("image")[0]), str(app.b_redo.cget("image")[0])} <= white
     assert {str(app.b_undo.cget("image")[2]), str(app.b_redo.cget("image")[2])} <= grey
 
 

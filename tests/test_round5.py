@@ -218,7 +218,7 @@ def main():
     for wf, steps in (("flux3-klein-edit.json", 15), ("flux3-klein-t2i.json", 15), ("flux3-klein-upscale.json", 8)):
         assert workflows.sampler_values(workflows.load_template(t.ROOT / "workflows" / wf))["steps"] == steps, wf
     assert app.sep_prompt is not None and gui.scale_text(1.5) == "x 1.5" and gui.scale_text("2.0") == "x 2"
-    assert app.sep_status["style"] == "Sep.TFrame" and app.sep_status["height"] == 1   # a light line above the progress line
+    assert not hasattr(app, "sep_status")     # no line above the progress line (user 25.11.: less height)
     assert app.sep_prompt["style"] != "Sep.TFrame"      # no line between the head chips and the prompt (user 20.11.)
 
     # defaults: Flux 3 upscale starts without SeedVR2 and with the Restore LoRA at 50 %; Qwen text to image: no Turbo, enhancer off (user 30.10.)

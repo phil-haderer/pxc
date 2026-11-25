@@ -113,7 +113,7 @@ def closed_advanced_checks(app):
     par = app.f_adv.master
     rows = sorted([w for w in par.pack_slaves() if w.winfo_ismapped()], key=lambda w: w.winfo_rooty())
     below = rows[rows.index(app.f_adv) + 1]
-    assert below is app.sep_status, below           # the line above the progress line follows directly
+    assert app.pb.master is below, below            # the progress line follows directly, no line between (user 25.11.)
     if abs(spacing._factor - 0.5719) < 0.01:     # the scale of the user's PC A, where the picture was measured
         import tkinter.font as tkf
         from pccomfy.gui_common import font
@@ -122,7 +122,7 @@ def closed_advanced_checks(app):
         text_top = app.btn_adv.winfo_rooty() + (app.btn_adv.winfo_height() - th) / 2
         # free rows in the picture: line to text and text to line, both 10 before (user: 6, second round 12.11.)
         assert text_top - bottom(app.sep_adv) <= 6, text_top - bottom(app.sep_adv)
-        assert app.sep_status.winfo_rooty() - (text_top + th) <= 7, app.sep_status.winfo_rooty() - (text_top + th)
+        assert below.winfo_rooty() - (text_top + th) <= 7, below.winfo_rooty() - (text_top + th)
 
 
 def hold_still(app, seconds=1.0):

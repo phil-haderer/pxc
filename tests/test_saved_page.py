@@ -1,7 +1,9 @@
 # tags: start, window
-"""Right-click on a model chip: "Set current settings as startup settings (for this mode and model)" (user 30.10., renamed 31.10. and 8.11.; "Load default settings" was dropped).
-The saved settings (not the prompt, the seed or the page itself) are the starting settings of that model and function:
-they come back when the page opens and with "Reset page". Stubbed Tk.
+""""Save settings" and "Load defaults" at the bottom of the Advanced settings (user 25.11.; before: right-click on a model
+chip, "Set current settings as startup settings", user 30.10.). Saved is only what differs from the PxC standard settings
+of the page (model and function), never the prompt, the seed, the variants or the page itself; the window stays exactly as
+it was. The saved values are the start values of that page; "Load defaults" brings the standard ones and forgets them.
+Stubbed Tk.
 
     python tests/test_saved_page.py
 """
@@ -38,17 +40,32 @@ def main():
     app._on_model()
     factory = (app.v_feather.get(), app.v_context.get())
 
-    # change things, save: prompt, seed and the page are not part of it
+    # change things, save: only the changes; prompt, seed and the page are not part of it
     app.v_feather.set(9.5)
     app.v_context.set(0.7)
     app.t_prompt.delete("1.0", "end")
     app.t_prompt.insert("1.0", "a red flower")
     app.v_seed.set(77)
-    app._save_page("fibo")
+    before = app._collect()
+    app.save_settings()
     s = cfgmod.saved_page("fibo", "inpaint")
+    assert set(s) == {"feather_pct", "context"}, sorted(s)          # nothing else differs from the standard (user 25.11.)
     assert s["feather_pct"] == 9.5 and abs(s["context"] - 0.7) < 1e-9
-    assert not {"prompt", "negative", "seed", "mode", "workflow", "clip", "checkpoint"} & set(s), sorted(s)
-    assert "Saved startup settings" in app.v_status.get()
+    assert app._collect() == before, "the window stays as it was"
+    assert app.t_prompt.get("1.0", "end").strip() == "a red flower" and app.v_seed.get() == 77
+    assert "Saved 2 changed settings" in app.v_status.get(), app.v_status.get()
+    # a value set back to the standard one is no longer kept
+    app.v_context.set(factory[1])
+    app.save_settings()
+    assert cfgmod.saved_page("fibo", "inpaint") == {"feather_pct": 9.5}
+    app.v_context.set(0.7)
+    app.save_settings()
+    # nothing changed at all: nothing kept
+    app.v_feather.set(factory[0]); app.v_context.set(factory[1])
+    app.save_settings()
+    assert cfgmod.saved_page("fibo", "inpaint") == {} and "nothing saved" in app.v_status.get()
+    app.v_feather.set(9.5); app.v_context.set(0.7)
+    app.save_settings()
 
     # another function and back: the saved settings are the start values of the page
     app.v_mode.set("edit")
@@ -61,15 +78,15 @@ def main():
     app.v_feather.set(1.0)
     app.reset_settings()
     assert app.v_feather.get() == 9.5
-    # "Reset page to default" (hamburger menu, was Shift + click on Reset page): the plugin standard settings AND the startup
-    # settings of this page are forgotten (user 12.11., 16.11.)
+    # "Load defaults" (bottom of the Advanced settings, user 25.11.; was "Reset page to default" in the hamburger menu): the
+    # plugin standard settings AND the saved settings of this page are forgotten
     app.v_feather.set(1.0)
     app.reset_settings(factory=True)
     assert app.v_feather.get() == 10.0 and cfgmod.saved_page("fibo", "inpaint") == {}
     assert "standard settings" in app.v_status.get()
-    app.reset_settings()                                # "Reset page to my saved settings"
+    app.reset_settings()                                # a fresh page
     assert app.v_feather.get() == 10.0                  # nothing saved any more: the standard ones
-    # the right-click menu entry does the same; it only touches this model and function
+    # it only touches this model and function
     cfgmod.set_saved_page("fibo", "inpaint", {"feather_pct": 9.5})
     cfgmod.set_saved_page("fibo", "edit", {"steps": 7})
     app.v_feather.set(1.0)

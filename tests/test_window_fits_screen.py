@@ -162,9 +162,11 @@ def main():
             # font like the other Advanced settings (Muted, 9 pt), and the box only as wide as "x.x" (user 6.11.)
             assert str(app.cb_native.cget("style")) == "Muted.TCheckbutton" and str(app.lbl_canvas.cget("style")) == "Muted.TLabel"
             assert int(app.w_native_mp.cget("width")) == 3
-            # "Custom LoRAs" (no colon) is the last block of the Advanced settings (user 6.11.)
+            # "Custom LoRAs" (no colon) is the last block of the Advanced settings (user 6.11.), only the row "Save settings" /
+            # "Load defaults" comes after it (user 25.11.)
             last = int(app.f_xl.grid_info()["row"])
-            assert all(int(w.grid_info()["row"]) < last for w in app.adv_body.grid_slaves() if w is not app.f_xl)
+            assert int(app.f_page_btns.grid_info()["row"]) == last + 1
+            assert all(int(w.grid_info()["row"]) < last for w in app.adv_body.grid_slaves() if w not in (app.f_xl, app.f_page_btns))
             assert all(("canvas" in t.text) == (mode == "txt2img") for t in app.tt_native), (model, mode)
     # "Send reference images in original size, up to N MP" (Multi Image Edit): off at every start (user 13.11.), 2 MP for all models, the MP box follows the tick
     for model in ("flux3", "flux2", "qwen", "fibo"):

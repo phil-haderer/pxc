@@ -101,7 +101,7 @@ class StateMixin:
         elif getattr(self, "_pc_seen", False) and self.v_top.get():
             self._pc_gone = getattr(self, "_pc_gone", 0) + 1
             if self._pc_gone >= 2:
-                self._quit()
+                self._quit(ask=False)       # PhotoCraft is gone: no question, the window's runs stop (user 25.11.)
 
     def refresh(self):
         def work():

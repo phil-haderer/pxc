@@ -14,7 +14,7 @@ TIPS = (
     "Edge feather softens the seam, in % of the selection's shorter side. It shows up with the soft layer mask (Fill, Remove); 0 = hard edge.",
     "\"Show feather\" paints the blend area red in PhotoCraft (Quick Mask). Click it again, or Generate, to get your selection back.",
     "Qwen Image 2.1 fills small selections badly. Use a larger selection, or try Fibo 2.0 Edit Turbo.",
-    "Right-click the chosen model chip and pick \"Set current settings as startup settings (for this mode and model)\": the current sliders, sampler, steps and LoRAs become your start for this function and model, and \"Reset page to my saved settings\" in the menu with the three lines at the bottom right returns to them. \"Reset page to default\" in that menu (or \"Reset to PxC standard settings (for this mode and model)\" in the chip menu) gives the PxC standard settings; your startup settings for that page are forgotten.",
+    "\"Save settings\" at the bottom of the Advanced settings keeps what you changed on this page as its start settings for this function and model; \"Load defaults\" next to it brings back the PxC standard settings and forgets yours.",
     "MOSS does Text to Image only; Krea 2 is the fast Text to Image model.",
     "The gear window lists the files each model needs. Click a file's field to use a file ComfyUI already has under another name.",
     "\"Live preview\" shows the picture while it is made. It is greyed out until the model's preview decoder file is downloaded.",

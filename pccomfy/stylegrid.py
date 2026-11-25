@@ -1,6 +1,6 @@
 """The style picker under the Styles button (user 20.11., docs/plan/entscheidungen.md): a popup with the groups as chips on
 top ("Custom prompts" first: the saved prompts as a list in the box, user 21.11., choice 2A) and the styles of the chosen group
-as square thumbnails, four to a row in equal columns, the name under each (gaps of about 3 px, user 21.11., choice 5A). The mouse on
+as square thumbnails, five to a row (user 25.11.; four until then) in equal columns, the name under each (gaps of about 3 px, user 21.11., choice 5A). The mouse on
 a thumbnail or a saved prompt shows the whole text beside the popup; a click puts it in (the window's _apply_style / Use) and closes
 the popup; a right-click keeps it open (user 21.11.) and hands the item to on_menu (the window opens Append / Replace / Copy text / Save as custom
 prompt for a style, Use / Append / Edit / Delete for a saved prompt; user 21.11., choices 2A and 4A). A style without a picture yet
@@ -15,9 +15,10 @@ import tkinter as tk
 
 from .gui_common import ACCENT, BG, FG, MUTED, ON_ACCENT, PANEL, cancel_later, font, later, tip_window
 
-COLS = 4
+COLS = 5             # five to a row, the box wider (user 25.11.; four since 21.11.)
 TILE = 88             # px of a thumbnail at 100 % (was 84 with GAP 8: the box keeps its width, user 21.11., choice 5A)
 GAP = 3
+NOTE_GAP = 6          # px above the grey line under the tiles (user 25.11.: "eine spur weiter runter"; was GAP)
 CUSTOM = -1           # the "group" number of Custom prompts
 PAD = 10
 BORDER = "#5c5c5c"
@@ -259,7 +260,7 @@ class StyleGrid:
         if note is None:
             return
         if on and not note.winfo_manager():
-            note.pack(fill="x", pady=(self._px(GAP), 0))
+            note.pack(fill="x", pady=(self._px(NOTE_GAP), 0))
         elif not on and note.winfo_manager():
             note.pack_forget()
 

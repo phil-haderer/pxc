@@ -610,7 +610,7 @@ def main():
     assert app.lbl_dot.cget("style") == "ConnOk.TLabel"
     # without a window link (Linux) the window closes with PhotoCraft: seen once, then gone twice in a row (not before it was seen)
     quits = []
-    app._quit = lambda: quits.append(1)
+    app._quit = lambda ask=True: quits.append(1)
     app.v_top.set(True)
     app._pc_seen, app._pc_gone = False, 0
     app._photocraft_alive(False)

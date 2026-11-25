@@ -187,27 +187,26 @@ def main():
     finally:
         PopMenu.tk_popup = real_popup
     menu = shown[0]
-    # the two resets of the page come under a line (user 16.11.); "History" took the place of "Open queue", the queue has
-    # its own symbol in the footer (user 24.11. evening)
+    # "History" took the place of "Open queue", the queue has its own symbol in the footer (user 24.11. evening); the two
+    # resets of the page went to the Advanced settings as "Save settings" / "Load defaults" (user 25.11.)
     assert [e["label"] for e in menu.entries] == ["Save image (Ctrl+S)", "Copy canvas", "Batch: open images", "Batch: folder…",
-                                                  "History", "", "Reset page to my saved settings", "Reset page to default"]
-    assert menu.entries[5]["type"] == "separator"
+                                                  "History"]
     cmds = [e for e in menu.entries if e["type"] != "separator"]
     assert all(e["icon"] is not None and e["icon_hot"] is not None and e["icon_hot"] is not e["icon"] for e in cmds)
-    assert len({str(e["icon"]) for e in cmds}) == 7
+    assert len({str(e["icon"]) for e in cmds}) == 5
     assert all(e["state"] == "normal" for e in cmds)
     app.reset_settings = lambda factory=False: calls.append(("reset", factory))
     real_hist, app._history_menu = app._history_menu, lambda: calls.append("history")
     for e in cmds[2:]:
         e["command"]()
     app._history_menu = real_hist
-    assert calls == [("batch", "open"), ("batch", "folder"), "history", ("reset", False), ("reset", True)], calls
+    assert calls == [("batch", "open"), ("batch", "folder"), "history"], calls
     # the queue symbol in the footer opens the queue window, a second click closes it
     calls.clear()
     app.b_queue.invoke()
     assert calls == ["queue"], calls
     del app.open_batch, app.open_queue, app.reset_settings
-    # no model linked (the footer is hidden): the two resets are grey
+    # no model linked (the footer is hidden): the menu has nothing that needs one any more (the resets went, user 25.11.)
     app._foot_hidden, shown[:] = True, []
     PopMenu.tk_popup = lambda self, *a, **k: shown.append(self)
     try:
@@ -215,7 +214,7 @@ def main():
     finally:
         PopMenu.tk_popup = real_popup
         app._foot_hidden = False
-    assert [e["state"] for e in shown[0].entries[-2:]] == ["disabled", "disabled"]
+    assert all(e["state"] == "normal" for e in shown[0].entries), [e["state"] for e in shown[0].entries]
     for k in ("images", "folder", "list"):
         assert k in gui.icons.SHAPES
 
@@ -980,7 +979,7 @@ def main():
     runner.calls.clear()
     runner.busy = True
     app._batch_sync()
-    assert str(app.b_go.cget("text")) == gui.ADD_QUEUE_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    assert str(app.b_go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and app.b_stop_all.winfo_manager() == "grid"
     assert str(app.b_go.cget("state")) == "disabled" and str(app.w_variants.cget("state")) == "disabled"
     assert app.b_stop_run.winfo_manager() == "grid"
     app._batch_sync()                              # the periodic sync keeps it grey
@@ -1021,7 +1020,7 @@ def main():
     app.v_mode.set(mode_before)
     for _ in range(3):
         app.root.update()
-    assert str(app.b_go.cget("text")) == gui.ADD_QUEUE_TEXT and str(app.b_go.cget("style")) == "Accent.TButton"
+    assert str(app.b_go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and str(app.b_go.cget("style")) == "Accent.TButton"
     assert str(app.b_go.cget("state")) == "normal" and app.w_variants.winfo_manager() == "grid"
     assert str(app.w_variants.cget("state")) == "normal"
     assert app.b_stop_run.winfo_manager() == "grid" and app.b_stop_all.winfo_manager() == "grid"

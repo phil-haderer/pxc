@@ -10,7 +10,7 @@ from .gui_modes import ModeMixin
 from .gui_state import COMFY_WATCH_MS, WATCH_MS, StateMixin
 from .gui_run import RunMixin
 from .gui_tips import TipsMixin
-from .ui_settings import SettingsMixin, GEAR_PX, FOOT_REFRESH_PADX, FOOT_RESET_PADX
+from .ui_settings import SettingsMixin, GEAR_PX, GEAR_HEAD_PX, FOOT_REFRESH_PADX, FOOT_RESET_PADX
 from .refslots import RefSlotsMixin
 from .gui_batch import BatchMixin
 from .gui_queuewin import QueueWinMixin
@@ -286,10 +286,9 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.adv_body = ttk.Frame(self.f_adv)
         self.adv_body.columnconfigure(1, weight=1)
         # Advanced settings in groups (user 20.11., B): the function's rows, "Sampling", "Custom LoRAs"; adv_body rows:
-        # 0 function heading, 1 f_post, 2 "Sampling", 3 a stage marked advanced, 4 f_samp (Qwen's / MOSS' Turbo LoRA),
-        # 5 Steps/CFG/Seed, 6 Sampler/Scheduler, 7 the switch box (Flux upscale), 9 Custom LoRAs
-        self.lbl_grp_fn = ttk.Label(self.adv_body, text="", style="Group.TLabel")
-        self.lbl_grp_fn.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        # 1 f_post, 2 "Sampling", 3 a stage marked advanced, 4 f_samp (Qwen's / MOSS' Turbo LoRA), 5 Steps/CFG/Seed,
+        # 6 Sampler/Scheduler, 7 the switch box (Flux upscale), 9 Custom LoRAs, 10 Save settings / Load defaults. The function's
+        # heading over its rows ("EXPAND IMAGE") is gone (user 25.11.: "they are useless")
         self.lbl_grp_samp = ttk.Label(self.adv_body, text="SAMPLING", style="Group.TLabel")
         self.lbl_grp_samp.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.f_samp = ttk.Frame(self.adv_body)
@@ -501,12 +500,23 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         head.pack(fill="x")
         self._adv_anchor["loras"] = ttk.Label(head, text="CUSTOM LORAS", style="Group.TLabel")
         self._adv_anchor["loras"].pack(side="left")
-        self.b_addlora = ttk.Button(head, text="Add", image=self._icon("plus", MUTED, px=round(ICON_PX * 0.85)), compound="left", style="Link.TButton",   # 85 % of the usual icon (user 6.11.)
+        self.b_addlora = ttk.Button(head, text="Add", image=self._icon("plus", MUTED, px=round(ICON_PX * 0.85 * 0.85)), compound="left", style="Link.TButton",   # 85 % of the usual icon (user 6.11.), 85 % of that again (25.11.)
                                     command=self._add_lora_row)
         self.b_addlora.pack(side="right")
         Tooltip(self.b_addlora, "Adds an extra LoRA (strength 0 to 1.5).")
         self.f_xl_rows = ttk.Frame(self.f_xl)
         self.f_xl_rows.pack(fill="x")
+        # the last row (user 25.11.): "Save settings" with the disk and "Load defaults", together the whole width
+        f_page = self.f_page_btns = ttk.Frame(self.adv_body)
+        f_page.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(2, 0))     # 10, then 4 were too far from the LoRAs (user 25.11.)
+        f_page.columnconfigure((0, 1), weight=1, uniform="page")
+        self.b_save_page = ttk.Button(f_page, text="Save settings", image=self._icon("save", px=round(SMALL_ICON_PX * 0.85)), compound="left",   # 85 % (user 25.11.)
+                                      command=self.save_settings)
+        self.b_save_page.grid(row=0, column=0, sticky="nsew", padx=(0, self._keep(3)))     # nsew: both as high as the one with the disk
+        self.b_load_std = ttk.Button(f_page, text="Load defaults", command=lambda: self.reset_settings(factory=True))
+        self.b_load_std.grid(row=0, column=1, sticky="nsew", padx=(self._keep(3), 0))
+        Tooltip(self.b_save_page, SAVE_PAGE_TIP)
+        Tooltip(self.b_load_std, LOAD_STD_TIP)
         mf.pack(fill="x", padx=10, pady=(0, 4), after=self.f_enh)     # the LoRA / stage box: under the LLM row
         af = ttk.Frame(self.adv_body)
         af.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(2, 0))
@@ -556,18 +566,16 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         self.sep_adv = ttk.Frame(self.f_adv, style="Sep.TFrame", height=1)     # a light line above "Advanced settings"
         self.sep_adv.pack(fill="x", pady=(0, 2))
         # the head row (user 20.11., A and C): "Advanced settings" on the left, on the right the model and function these values
-        # belong to, and "Reset" while a value differs from their startup settings (_show_adv_context, _adv_dots)
+        # belong to (_show_adv_context); "Reset" there was removed 25.11. (user): "Load defaults" at the bottom does it
         self.f_adv_head = ttk.Frame(self.f_adv)
         self.f_adv_head.pack(fill="x")
         self.btn_adv = ttk.Button(self.f_adv_head, command=self._toggle_advanced, style="Adv.Link.TButton")     # no inner padding (gui_theme)
         self.btn_adv.pack(side="left")
-        self.b_adv_reset = ttk.Button(self.f_adv_head, text="Reset", style="AdvReset.Link.TButton", command=self._reset_advanced)
-        self.tt_adv_reset = Tooltip(self.b_adv_reset, "")
         self.lbl_adv_ctx = ttk.Label(self.f_adv_head, text="", style="Muted.TLabel")
         self.lbl_adv_ctx.pack(side="right")
         self.lbl_adv_ctx.bind("<Button-1>", lambda e: self._toggle_advanced(), add="+")
         # less room around the closed row (user 12.11., second round: 6 px free above and below the text, measured in the picture at
-        # PC A's scale, formerly 10): no inner padding in the button, 2 under the line, no gap under the row, 4 above sep_status
+        # PC A's scale, formerly 10): no inner padding in the button, 2 under the line, no gap under the row
         self.f_adv.pack(fill="x", padx=10, pady=(2, 0))
         self._show_advanced()
         self._show_negative()
@@ -724,13 +732,13 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         # one grid over the full width (user 18.11., decision 1a): Generate, the variants piece and (at times) "Stop batch"
         # on the left, an empty column that takes what is left, Undo and Redo as two squares at the right edge; the widths
         # come from _fit_go_row
-        self.b_go = ttk.Button(bf, text="Generate", width=9, style="Accent.TButton", command=self.generate)
+        self.b_go = ttk.Button(bf, text="Generate", width=GO_WIDTH_CH, style="Accent.TButton", command=self.generate)
         self.b_go.grid(row=0, column=0, sticky="nsew")
         self.tt_go = Tooltip(self.b_go, GO_TIP)
         # Variants are part of Generate (user 29.10.): a narrow piece on its right, like a split button, grey like the function
         # and model chips (user 20.11., was blue); a click opens the choice 1 to 8. It shows "×n ▾", also at 1
         self.w_variants = ttk.Button(bf, style="Split.Pick.TButton", width=0, command=self._variants_menu)
-        self.w_variants.grid(row=0, column=1, sticky="nsew", padx=(1, 0))
+        self.w_variants.grid(row=0, column=1, sticky="nsew", padx=(self._keep(GO_ROW_GAP_PX), 0))     # the gap of the whole row (user 25.11.)
         Tooltip(self.w_variants, "Variants: how many pictures one Generate makes (1 to 8).")
         self.m_variants = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
         for n in range(1, 9):
@@ -748,12 +756,12 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         for var in (self.v_mode, self.v_model):         # another function during a run: Add to queue or Stop (_go_follow)
             var.trace_add("write", lambda *a: self._go_follow())
         bf.grid_columnconfigure(GO_COL_GAP, weight=1)
-        # Undo and Redo (user 18.11., decision 2a): squares as high as Generate, blue like it with a white icon while they
-        # can be used, grey like the greyed-out Stop otherwise; one of them is blue at a time (_sync_history_buttons)
-        self.b_undo = ttk.Button(bf, image=self._icon_on_accent("undo"), style="Square.TButton", command=self.undo_edit)
-        self.b_redo = ttk.Button(bf, image=self._icon_on_accent("redo"), style="Square.TButton", command=self.redo_edit)
-        self.b_undo.grid(row=0, column=GO_COL_UNDO, sticky="nsew")
-        self.b_redo.grid(row=0, column=GO_COL_UNDO + 1, sticky="nsew", padx=(self._keep(GO_PAIR_GAP_PX), 0))
+        # Undo and Redo (user 18.11., decision 2a; since 25.11. in the header left of the gear, flat icons like it, a thin
+        # vertical line between them and the gear): light while they can be used, grey otherwise (_sync_history_buttons);
+        # packed by _pack_history_head once the gear is there
+        self.b_undo = ttk.Button(self.f_header, image=self._icon("undo", px=GEAR_HEAD_PX), style="Link.TButton", command=self.undo_edit, takefocus=False)
+        self.b_redo = ttk.Button(self.f_header, image=self._icon("redo", px=GEAR_HEAD_PX), style="Link.TButton", command=self.redo_edit, takefocus=False)
+        self.sep_history = ttk.Frame(self.f_header, style="Sep.TFrame", width=1)
         self.tt_redo = Tooltip(self.b_redo, HISTORY_REDO_TIP)
         self.tt_undo = Tooltip(self.b_undo, HISTORY_UNDO_TIP)
         # a grey ttk button calls no command: a click on it during a run says why there (user 25.11., "Klick + Tooltip")
@@ -766,10 +774,9 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
 
         # one bar for the whole run (prompt, then image) with the current step written next to it
         self.v_pl = tk.StringVar(value="")
-        self.sep_status = ttk.Frame(r, style="Sep.TFrame", height=1)     # a light line above the progress line
-        self.sep_status.pack(fill="x", padx=10, pady=(4, 0))     # 6 to 4: the closed Advanced settings row above it (user 12.11.)
-        row = ttk.Frame(r)
-        row.pack(fill="x", padx=10, pady=(6, 0))
+        # no line above the progress line any more (user 25.11.: "could be deleted, so the plugin has less height")
+        row = self.f_pl_row = ttk.Frame(r)
+        row.pack(fill="x", padx=10, pady=(PL_GAP_OPEN if self.v_adv_open.get() else PL_GAP_CLOSED, 0))     # under closed Advanced settings less (_show_advanced, user 25.11.)
         top = self.f_pl_top = ttk.Frame(row)                  # above the bar, text on the left: shown only while it has text
         self.lbl_pl = ttk.Label(top, textvariable=self.v_pl, style="Muted.TLabel", anchor="w", justify="left")    # the step, or the green word "Done"
         self.lbl_pl.pack(side="left")
@@ -802,7 +809,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
         foot.pack(fill="x", side="bottom", padx=10, pady=6)
         self.lbl_conn, self.lbl_dot = conn_status(foot, dot_first=True)        # "● ComfyUI": green = connected, red = not (the dot in front, user 6.11.)
         self.lbl_conn.pack(side="left")
-        # Refresh = a flat circle arrow beside the dot (user 30.10.); "Reset page" is in the hamburger menu since 16.11.
+        # Refresh = a flat circle arrow beside the dot (user 30.10.); the page resets are "Save settings" / "Load defaults" (25.11.)
         b_refresh = self.b_refresh = ttk.Button(foot, image=self._icon("refresh", px=GEAR_PX), style="Link.TButton",
                                                 command=self.refresh)
         b_refresh.pack(side="left", padx=FOOT_REFRESH_PADX)
@@ -904,31 +911,21 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
     SAVE_IMAGE_TIP = ("Saves the visible image to your save folder. Folder, file name and format are set in the settings "
                       "under Save image.")  # approved by the user 12.11.
     COPY_CANVAS_TIP = "Copies the visible image to the clipboard."      # the user's text, 21.11.
-    # the two resets of the page in the hamburger menu (user 16.11.; the texts of the former footer button "Reset page")
-    RESET_SAVED_TIP = ("Back to the starting settings of the chosen model and function: your saved settings (right-click on "
-                       "the model), else the standard ones. Other models and functions keep what they have.")
-    RESET_DEFAULT_TIP = ("Back to the PxC standard settings of the chosen model and function; your saved settings for this "
-                         "model and function are forgotten.")
-
     HISTORY_TIP = "Last runs: click one to load all its settings with a new seed. Nothing starts by itself."
 
     def _footer_menu(self):
         """The hamburger at the right end of the footer: a small menu above it (Save image, Copy canvas, the two batch sources,
-        the queue window, gui_batch.py and gui_queuewin.py; under a line the two resets of the page, user 16.11.: they were the footer button
-        "Reset page" and its Shift + click). The resets are grey while no model is linked (the button was hidden then)."""
+        the queue window, gui_batch.py and gui_queuewin.py, History). The two resets of the page are "Save settings" and "Load
+        defaults" at the bottom of the Advanced settings since 25.11. (user)."""
         px = SMALL_ICON_PX
         m = self._footer_popup = PopMenu(self.root, scale=getattr(self, "ui", 1.0))
-        no_page = bool(getattr(self, "_foot_hidden", False))
         rows = [("Save image (Ctrl+S)", "save", self.save_image, self.SAVE_IMAGE_TIP, False),
                 ("Copy canvas", "copy", self.copy_canvas, self.COPY_CANVAS_TIP, False),
                 ("Batch: open images", "images", lambda: self.open_batch(jobqueue.SOURCE_OPEN), None, False),
                 ("Batch: folder…", "folder", lambda: self.open_batch(jobqueue.SOURCE_FOLDER), None, False),
                 # the last runs (PLAN point 13, user 30.10.), in the menu since 24.11. evening (the queue took their place outside)
-                ("History", "clock", lambda: self._history_menu(), self.HISTORY_TIP, False),
-                None,
-                # "Reset page to default": the symbol of "Use the last seed" (user 20.11.), the circle arrow is Refresh's
-                ("Reset page to my saved settings", "undo", lambda: self.reset_settings(factory=False), self.RESET_SAVED_TIP, no_page),
-                ("Reset page to default", "seed-last", lambda: self.reset_settings(factory=True), self.RESET_DEFAULT_TIP, no_page)]
+                ("History", "clock", lambda: self._history_menu(), self.HISTORY_TIP, False)]
+        # the two page resets went to the bottom of the Advanced settings as "Save settings" / "Load defaults" (user 25.11.)
         for row in rows:
             if row is None:
                 m.add_separator()
@@ -1138,7 +1135,7 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             if getattr(self, "_pc_seen", False) and winlink.owner_present(api=x11) is False:
                 self._pc_gone = getattr(self, "_pc_gone", 0) + 1
                 if self._pc_gone >= 2:       # PhotoCraft was closed: this window closes with it
-                    self._quit()
+                    self._quit(ask=False)    # no question, the window's runs stop (user 25.11.)
                     return
             self._link_tries = getattr(self, "_link_tries", 0) + 1
             if self._link_tries == 20:
@@ -1167,15 +1164,29 @@ class App(SettingsMixin, RefSlotsMixin, ThemeMixin, PromptMixin, LoraMixin, Mode
             self._save_state(self._request())
         except Exception:
             pass
+        self._stop_own_runs()      # PhotoCraft is gone: the window's runs stop at ComfyUI too (user 25.11.)
         if not self._batch_shutdown():
             self.bridge.cancel()
 
-    def _quit(self):
+    def _quit(self, ask: bool = True):
+        """Closes PxC. With a run of the window on, closing it by hand asks first (user 25.11., choice "Ask when closing
+        PxC"): Yes stops it at ComfyUI, No lets ComfyUI finish it, Cancel keeps PxC open. ask=False (PhotoCraft is gone):
+        the window's runs stop without a question."""
+        if getattr(self, "_closing", False):
+            return
+        stop = not ask
+        if ask and self._own_runs_on():
+            answer = self._dialog(messagebox.askyesnocancel, title=WINDOW_TITLE, message=CLOSE_RUN_ASK, icon="warning")
+            if answer is None:
+                return
+            stop = bool(answer)
         self._closing = True
         try:
             self._save_state(self._request())
         except Exception:
             pass
+        if stop:
+            self._stop_own_runs()
         if not self._batch_shutdown():      # a batch job at ComfyUI is not stopped: the next start picks its result up
             self.bridge.cancel()
         if self.bridge.feather_shown and not (self.worker and self.worker.is_alive()):

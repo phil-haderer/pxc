@@ -231,7 +231,7 @@ def set_model_map(m: dict) -> None:
 # 12.11. by the user; an old "favorites" key in settings.json is simply ignored.)
 
 
-# Saved page settings: the right-click menu on a model chip ("Set current settings as my standard settings (for this mode and model)", renamed 8.11.).
+# Saved page settings: "Save settings" at the bottom of the Advanced settings (user 25.11.; before: the right-click menu on a model chip).
 
 def saved_page(model: str, mode: str) -> dict:
     """The settings the user saved for this model and function ({} = none); they replace the starting settings."""

@@ -130,6 +130,7 @@ def gui_checks():
     app.f_preview.pack_forget = lambda: packed.clear()
     gui_run = sys.modules["pccomfy.gui_run"]
     gui_run.icons.photo = lambda root, kind, color, px, image=None: ("photo", image.size)
+    app._running = True                                     # frames are shown only while a run is on (user 25.11.)
     app.events.put(("preview", Image.new("RGB", (512, 512))))
     app.events.put(("preview", Image.new("RGB", (512, 256))))   # two in one round: only the newest is drawn
     app._poll()
@@ -139,6 +140,23 @@ def gui_checks():
     app.events.put(("done", "Done · seed 1 · created 1 layer · 3 s"))
     app._poll()
     assert not packed and app._preview_photo is None        # gone with the result
+    app._running = False
+    app.events.put(("preview", Image.new("RGB", (64, 64))))  # a late frame after the run (or after Stop): stays gone
+    app._poll()
+    assert not packed and app._preview_photo is None
+    # a queued run (×n, Add to queue): its frames show while it runs, and go when it is over (user 25.11.)
+    from types import SimpleNamespace
+    real_runner = app.runner
+    app.runner = SimpleNamespace(running_job={"id": "j1"})
+    assert app._preview_wanted()
+    app._show_preview(Image.new("RGB", (64, 64)))
+    assert packed
+    app.runner = real_runner
+    for status in ("done", "cancelled", "error"):
+        packed.append({})
+        app._preview_photo = ("photo", (1, 1))
+        app._batch_job_event({"id": "j1", "batch_id": "b1", "status": status})
+        assert not packed and app._preview_photo is None, status
 
     app._minimized = True                                   # minimised: no preview
     app._show_preview(Image.new("RGB", (64, 64)))

@@ -137,6 +137,51 @@ class BatchMixin:
             pass
         return keep
 
+    def _own_generate_batches(self) -> list[str]:
+        """The queued Generate clicks of this window (×n, Add to queue) that are not over; batches of the ⋯ menu are not
+        among them."""
+        runner = getattr(self, "runner", None)
+        if runner is None:
+            return []
+        out = []
+        try:
+            for b in runner.batches():
+                if (b.get("id") in getattr(self, "_batch_mine", set()) and b.get("state") not in ("done", "cancelled")
+                        and self._batch_kind(b.get("id")) == jobqueue.K_GENERATE):
+                    out.append(str(b["id"]))
+        except Exception:
+            return []
+        return out
+
+    def _own_runs_on(self) -> bool:
+        """A run of this window is at ComfyUI or waits for it: its own Generate or a queued Generate click (user 25.11.:
+        closing PxC then asks)."""
+        return bool((self.worker and self.worker.is_alive()) or self._own_generate_batches())
+
+    def _stop_own_runs(self) -> None:
+        """The window closes and its runs stop (user 25.11., choice "Ask when closing PxC"; PhotoCraft gone: always): the
+        queued Generate clicks are cancelled, and the prompt at ComfyUI is stopped by its id at once, unless it belongs to
+        a batch of the ⋯ menu (that one goes on and the next start picks its result up)."""
+        runner = getattr(self, "runner", None)
+        keep = False
+        try:
+            job = runner.running_job if runner is not None else None
+            keep = bool(job) and job.get("batch_id") not in set(self._own_generate_batches()) and not (
+                self.worker and self.worker.is_alive())
+        except Exception:
+            pass
+        for bid in self._own_generate_batches():
+            try:
+                runner.cancel_batch(bid)
+            except Exception:
+                pass
+        if keep:
+            return
+        try:
+            self.bridge.stop_at_comfy()
+        except Exception:
+            pass
+
     # ---------- the events (RunMixin._poll) ----------
 
     def _batch_event(self, kind: str, data):
@@ -189,6 +234,8 @@ class BatchMixin:
             self._rescue_ids.discard(job["id"])
             self._rescued = getattr(self, "_rescued", 0) + 1
             self._status(f"Picked up {plural(self._rescued, 'batch result')} that finished while PxC was closed.")
+        if job.get("status") in (jobqueue.DONE, jobqueue.ERROR, jobqueue.CANCELLED) and not getattr(self, "_running", False):
+            self._hide_preview()            # a queued run is over (done or cancelled): its live preview goes (user 25.11.)
         if job.get("status") == jobqueue.DONE and job.get("batch_id") in getattr(self, "_batch_mine", set()):
             self._queued_done(job)          # a queued Generate: its run goes into the history (the clock)
         if job.get("status") == jobqueue.RUNNING and job.get("batch_id") in getattr(self, "_batch_mine", set()):

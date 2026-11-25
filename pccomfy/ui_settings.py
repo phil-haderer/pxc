@@ -196,6 +196,8 @@ class SettingsMixin(DownloadMixin, UpdateMixin, SettingsDataMixin, OtherSettings
         style.configure("Missing.Tab.Toolbutton", foreground=NA_RED)      # a tab that is not available: red text, the background of an inactive tab
         self.b_gear = ttk.Button(self.f_header, image=self._icon("gear", px=GEAR_HEAD_PX), style="Link.TButton", command=self.toggle_settings)
         self.b_gear.pack(side="right", padx=(0, 6))
+        if hasattr(self, "_pack_history_head"):
+            self._pack_history_head()      # Undo and Redo left of the gear, a line between (user 25.11.)
         Tooltip(self.b_gear, "Settings: model files and downloads, where Save image puts files, ComfyUI address, "
                                  "interface scale, Copy report.")
         style.configure("Empty.TLabel", foreground="#ffffff", font=font(10, bold=True))      # H2, white (user 6.11.)

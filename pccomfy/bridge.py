@@ -687,6 +687,7 @@ class Bridge(BridgeToolsMixin):
         self.pc_lock = threading.RLock()
         self._cancel_all = threading.Event()    # "Cancel all": stops the variants and comparison runs that would follow too
         self.on_preview = None                  # the window's callback for live preview frames (PIL images), see Request.preview
+        self.running_prompt: str | None = None  # the prompt id this bridge waits for at ComfyUI now (stop_at_comfy, user 25.11.)
         self.on_taken = None                    # called once with (picture, index, name) when a run has exported its picture
         self._tmp: list[Path] = []
         self._snap: dict | None = None          # history snapshot taken before the last generation (for "Undo AI edit")
@@ -715,6 +716,21 @@ class Bridge(BridgeToolsMixin):
         """Cancel the run that is on now and every one that follows it."""
         self._cancel_all.set()
         self._cancel.set()
+
+    def stop_at_comfy(self) -> bool:
+        """The window closes during a run (user 25.11.): stop the run now and the ones that would follow, and tell ComfyUI
+        at once (by its prompt id only, never a bare /interrupt), because the worker thread ends with the process before
+        it could. True when a prompt was stopped at ComfyUI."""
+        self._cancel.set()
+        self._cancel_all.set()
+        pid = self.running_prompt
+        if not pid:
+            return False
+        try:
+            self.comfy.interrupt(pid)
+        except Exception:
+            return False
+        return True
 
     def cancel_all_requested(self) -> bool:
         return self._cancel_all.is_set()
@@ -928,6 +944,14 @@ class Bridge(BridgeToolsMixin):
     def _wait(self, prompt_id, graph, wf, start, span, suffix, progress, on_preview=None, ws=None, on_output=None):
         """comfy.wait with the work split in "prompt" (text model) and "image" (the image model), each with its
         own fraction, elapsed time and, once a run has been timed, an estimate for the text phase."""
+        self.running_prompt = prompt_id         # what stop_at_comfy stops when the window closes during the run
+        try:
+            return self._wait_inner(prompt_id, graph, wf, start, span, suffix, progress, on_preview, ws, on_output)
+        finally:
+            if self.running_prompt == prompt_id:
+                self.running_prompt = None
+
+    def _wait_inner(self, prompt_id, graph, wf, start, span, suffix, progress, on_preview=None, ws=None, on_output=None):
         writer = prompt_phase_nodes(graph)
         after = after_prompt_nodes(graph)
         key = (Path(wf).stem if wf else "builtin") + ":prompt"

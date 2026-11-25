@@ -63,38 +63,30 @@ def bridge_tests():
     assert not b.cancel_all_requested()
 
 
+def equal_gaps(app):
+    """Every two buttons of the Generate row have the same gap (user 25.11.: "die abstände zwischen den buttons in dieser
+    zeile sollen immer gleich sein"), GO_ROW_GAP_PX after the display scaling."""
+    from pccomfy import gui
+    shown = sorted((w for w in (app.b_go, app.w_variants, app.b_stop_run, app.b_stop_all) if w.winfo_manager() == "grid"),
+                   key=lambda w: w.winfo_x())
+    gaps = [b.winfo_x() - (a.winfo_x() + a.winfo_width()) for a, b in zip(shown, shown[1:])]
+    assert all(g == app._keep(gui.GO_ROW_GAP_PX) for g in gaps), (gaps, app._keep(gui.GO_ROW_GAP_PX))
+
+
 def row_checks(app, gui, stop_all=False):
-    """The Generate row (user 18.11., decisions 1a, 2a and 3; no Stop button since 20.11.): over the full width with no
-    room left but the gap before Undo; Generate + the variants piece half the row (the Edit tabs are a list since 20.11.);
-    the variants piece within its cap (natural width up to 1.2x); Undo and Redo squares as high as Generate at the right
-    edge."""
+    """The Generate row (user 18.11., decision 1a; no Stop button since 20.11.; Undo and Redo went to the header 25.11.):
+    over the full width, Generate takes what the variants piece (natural width up to 1.2x) and "Stop batch" leave."""
     row = app.f_go.winfo_width()
-    go, var, undo, redo = app.b_go, app.w_variants, app.b_undo, app.b_redo
-    assert app.b_edtab.winfo_ismapped()
-    half = (row - 2 * 2 * gui.EDTAB_PADX) // 2
-    if not var.winfo_manager():     # during a run the variants piece is gone (user 20.11.): Generate takes its room
-        assert go.winfo_x() == 0 and redo.winfo_x() + redo.winfo_width() == row
-        assert half - app._px(40) <= go.winfo_width() <= half + 1, (go.winfo_width(), half)
-        last = app.b_stop_all if stop_all else go
-        assert undo.winfo_x() - (last.winfo_x() + last.winfo_width()) >= app._px(gui.GO_GAP_MIN_PX)
-        return
-    pair_w = var.winfo_x() + var.winfo_width() - go.winfo_x()
-    if stop_all:        # the row may be short then: Generate gives that back, never more than half the row
-        assert half - app._px(40) <= pair_w <= half + 1, (pair_w, half)
-    else:
-        assert abs(pair_w - half) <= 1, (go.winfo_width(), var.winfo_width(), half)
-    assert go.winfo_x() == 0 and redo.winfo_x() + redo.winfo_width() == row, (redo.winfo_x(), redo.winfo_width(), row)
-    assert var.winfo_reqwidth() <= var.winfo_width() <= var.winfo_reqwidth() * gui.VARIANTS_GROW_MAX + 1
+    go, var = app.b_go, app.w_variants
+    assert app.b_undo.master is not app.f_go and app.b_redo.master is not app.f_go
+    last = app.b_stop_all if stop_all else (var if var.winfo_manager() else go)
+    assert go.winfo_x() == 0
+    assert abs(last.winfo_x() + last.winfo_width() - row) <= 1, (last.winfo_x(), last.winfo_width(), row)   # no room left
     assert go.winfo_width() >= go.winfo_reqwidth()
-    assert var.winfo_x() == go.winfo_x() + go.winfo_width() + 1
-    side = go.winfo_height()
-    for b in (undo, redo):
-        assert b.winfo_width() == b.winfo_height() == side, (b.winfo_width(), b.winfo_height(), side)
-        assert str(b.cget("style")) == "Square.TButton" and b.cget("image")
-    assert 0 < redo.winfo_x() - (undo.winfo_x() + undo.winfo_width()) <= app._px(gui.GO_PAIR_GAP_PX) + 2
-    last = app.b_stop_all if stop_all else var
-    gap = undo.winfo_x() - (last.winfo_x() + last.winfo_width())
-    assert gap >= app._px(gui.GO_GAP_MIN_PX), gap                    # the only free room: before Undo
+    if not var.winfo_manager():     # during a run the variants piece is gone (user 20.11.): Generate takes its room
+        return
+    assert var.winfo_reqwidth() <= var.winfo_width() <= var.winfo_reqwidth() * gui.VARIANTS_GROW_MAX + 1
+    equal_gaps(app)
     if stop_all:
         assert app.b_stop_all.winfo_width() >= app.b_stop_all.winfo_reqwidth()
 
@@ -145,7 +137,7 @@ def window_tests():
     app.root.update()
     assert app.b_stop_all.winfo_manager() == "grid" and str(app.b_go.cget("text")) == gui.GO_STOP_RUN_TEXT
     assert str(app.b_stop_all.cget("text")) == gui.STOP_BATCH_TEXT == "Stop batch"
-    assert app.b_go.winfo_x() < app.b_stop_all.winfo_x() < app.b_undo.winfo_x()     # "Stop batch" between Generate and Undo
+    assert app.b_go.winfo_x() < app.b_stop_all.winfo_x()     # "Stop batch" right of Generate (Undo went to the header 25.11.)
     from tkinter import font as tkfont
     assert app.b_stop_all.winfo_width() >= tkfont.Font(root=app.root, font=gui.font(9)).measure("Stop batch") + 10   # the whole text shows
     row_checks(app, gui, stop_all=True)
@@ -198,10 +190,10 @@ def window_tests():
     real_runner, app.runner = app.runner, Runner()
     app._batch_sync()
     app.root.update()
-    assert str(app.b_go.cget("text")) == gui.ADD_QUEUE_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    assert str(app.b_go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and app.b_stop_all.winfo_manager() == "grid"
     assert str(app.b_go.cget("state")) == "disabled" and app.b_stop_run.winfo_manager() == "grid"
     app._go_stop(False)                     # a Describe ends while the batch is on: the row stays (review 21.11.)
-    assert str(app.b_go.cget("text")) == gui.ADD_QUEUE_TEXT and app.b_stop_all.winfo_manager() == "grid"
+    assert str(app.b_go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and app.b_stop_all.winfo_manager() == "grid"
     app._stop_armed -= gui.STOP_GUARD_S
     app.b_stop_run.invoke()
     app.b_stop_all.invoke()
@@ -224,24 +216,40 @@ def window_tests():
 
 def queue_row_checks(app, gui, Runner, done):
     """Generate while something runs, for a function that can wait in the queue (user 22.11., Variant 1): blue "Add to
-    queue", the variants piece, grey "Stop run" and "Stop batch", all in the row with Undo and Redo, every text whole."""
+    queue", the variants piece, grey "Stop run" and "Stop batch", all in the row (Undo and Redo in the header since 25.11.),
+    every text whole."""
     from tkinter import font as tkfont
+    # a run of the window alone, no batch, no variants: "Add to queue" without "Stop batch" (user 25.11.: "stop batch nur
+    # bei batch zeigen"), and the row fits at the smallest scales too (it did not at 60, 80 and 90 %)
+    wanted = app._stop_all_wanted
+    app._stop_all_wanted = False
+    app._go_queue_row()
+    for _ in range(5):
+        app.root.update()
+    assert str(app.b_go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and app.b_stop_run.winfo_manager() == "grid"
+    assert not app.b_stop_all.winfo_manager(), "Stop batch only with a batch or variants (user 25.11.)"
+    assert app.b_stop_run.winfo_x() + app.b_stop_run.winfo_width() <= app.f_go.winfo_width()
+    assert app.b_go.winfo_width() >= app.b_go.winfo_reqwidth(), (app.b_go.winfo_width(), app.b_go.winfo_reqwidth())
+    app._stop_all_wanted = wanted
     Runner.busy, Runner.running_job = True, {"id": "j1", "batch_id": "b2"}
     app._batch_sync()
     for _ in range(5):
         app.root.update()
-    go, var, run, stop_all, undo, redo = app.b_go, app.w_variants, app.b_stop_run, app.b_stop_all, app.b_undo, app.b_redo
-    assert str(go.cget("text")) == gui.ADD_QUEUE_TEXT and str(go.cget("style")) == "Accent.TButton"
+    go, var, run, stop_all = app.b_go, app.w_variants, app.b_stop_run, app.b_stop_all
+    assert str(go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and str(go.cget("style")) == "Accent.TButton"
     assert app.tt_go.text == gui.ADD_QUEUE_TIP and str(go.cget("state")) == "normal"
     assert var.winfo_manager() == run.winfo_manager() == stop_all.winfo_manager() == "grid"
     assert str(run.cget("text")) == gui.GO_STOP_RUN_TEXT and str(stop_all.cget("text")) == gui.STOP_BATCH_TEXT
     row = app.f_go.winfo_width()
-    order = [go, var, run, stop_all, undo, redo]
+    order = [go, var, run, stop_all]
+    equal_gaps(app)
     for a, b in zip(order, order[1:]):
         assert a.winfo_x() + a.winfo_width() <= b.winfo_x(), [(w.winfo_x(), w.winfo_width()) for w in order]
-    assert redo.winfo_x() + redo.winfo_width() <= row, (row, [(w.winfo_x(), w.winfo_width(), w.winfo_reqwidth()) for w in order])
+    assert stop_all.winfo_x() + stop_all.winfo_width() <= row, (row, [(w.winfo_x(), w.winfo_width(), w.winfo_reqwidth()) for w in order])
     f = tkfont.Font(root=app.root, font=gui.font(9))
-    for b, text in ((run, "Stop run"), (stop_all, "Stop batch"), (go, gui.ADD_QUEUE_TEXT)):
+    # "Queue" only where "Add to queue" does not fit (user 25.11.); at 100 % and more it always fits
+    assert app._px(100) < 100 or str(go.cget("text")) == gui.ADD_QUEUE_TEXT, (app._px(100), go.cget("text"))
+    for b, text in ((run, "Stop run"), (stop_all, "Stop batch"), (go, str(go.cget("text")))):
         assert b.winfo_width() >= f.measure(text) + 8, (text, b.winfo_width(), f.measure(text))
     # Stop run: the picture at ComfyUI; Stop batch: its batch only
     done.clear()
@@ -258,7 +266,7 @@ def queue_row_checks(app, gui, Runner, done):
                                           and app.v_status.get() == why):
         app.root.update()
         time.sleep(0.02)
-    assert str(go.cget("text")) == gui.ADD_QUEUE_TEXT and str(go.cget("state")) == "disabled", go.cget("state")
+    assert str(go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and str(go.cget("state")) == "disabled", go.cget("state")
     assert str(var.cget("state")) == "disabled" and run.winfo_manager() == stop_all.winfo_manager() == "grid"
     assert why.startswith("Fill") and app.v_status.get() == why and app.tt_go.text == why, (why, app.v_status.get())
     app.v_mode.set("edit")
@@ -266,7 +274,7 @@ def queue_row_checks(app, gui, Runner, done):
     while time.monotonic() < end and str(go.cget("state")) != "normal":
         app.root.update()
         time.sleep(0.02)
-    assert str(go.cget("text")) == gui.ADD_QUEUE_TEXT and run.winfo_manager() == "grid"
+    assert str(go.cget("text")) in (gui.ADD_QUEUE_TEXT, gui.ADD_QUEUE_SHORT) and run.winfo_manager() == "grid"
     assert str(go.cget("state")) == "normal" and str(var.cget("state")) == "normal"
     app.v_mode.set("inpaint")                   # the run ends while Fill is picked: Generate and ×n can be clicked again
     for _ in range(5):

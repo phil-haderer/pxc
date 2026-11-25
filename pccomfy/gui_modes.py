@@ -332,8 +332,7 @@ class ModeMixin:
 
     def _show_adv_context(self):
         """The head row of the Advanced settings names the function and model its values belong to ("Fill · Qwen Image 2.1",
-        function first, user 22.11.; only the function when the row is too narrow); the function's heading over its rows
-        names the function."""
+        function first, user 22.11.; only the function when the row is too narrow)."""
         lbl = getattr(self, "lbl_adv_ctx", None)
         if lbl is None:
             return
@@ -347,16 +346,9 @@ class ModeMixin:
             from tkinter import font as tkfont
             fnt = tkfont.Font(root=self.root, font=ttk.Style().lookup("Muted.TLabel", "font") or None)
             room = int(self.f_adv_head.winfo_width()) - int(self.btn_adv.winfo_reqwidth()) - self._px(16)
-            if self.b_adv_reset.winfo_manager():
-                room -= int(self.b_adv_reset.winfo_reqwidth()) + self._px(10)
             text = next((t for t in texts if room <= self._px(20) or fnt.measure(t) <= room), texts[-1])
             if str(lbl.cget("text")) != text:
                 lbl.configure(text=text)
-            head = {"upscale": "Upscale", "refine": "Refine Image"}.get(mode, dict(MODE_LABELS).get(mode, mode))
-            if str(self.lbl_grp_fn.cget("text")) != head.upper():
-                self.lbl_grp_fn.configure(text=head.upper())
-            self.tt_adv_reset.text = (f"Back to the startup settings of {fn} · {m.label} (only the Advanced settings)."
-                                      if m is not None else "")
         except (AttributeError, TypeError, ValueError, tk.TclError):
             pass
 
@@ -402,7 +394,7 @@ class ModeMixin:
 
     def _adv_dots(self, later: bool = False):
         """A small blue dot left of every caption in the Advanced settings whose value differs from the startup value of this
-        model and function, and "Reset" in the head row while there is one (open or closed)."""
+        model and function (the "Reset" beside them in the head row was removed 25.11., user)."""
         if later:
             if getattr(self, "_adv_dot_job", None) is None:
                 self._adv_dot_job = self.root.after_idle(self._adv_dots)
@@ -458,40 +450,8 @@ class ModeMixin:
             for w, d in dots.items():
                 if w not in want and d.winfo_manager():
                     d.place_forget()
-            shown = bool(self.b_adv_reset.winfo_manager())
-            if want and not shown:
-                self.b_adv_reset.pack(side="right", padx=(self._px(10), 0), before=self.lbl_adv_ctx)
-            elif not want and shown:
-                self.b_adv_reset.pack_forget()
-            if bool(want) != shown:
-                self._show_adv_context()
         except tk.TclError:
             pass
-
-    def _reset_advanced(self):
-        """"Reset" in the head row: the Advanced settings back to the startup settings of this model and function. The prompt,
-        the number of variants, "Enhance my Prompt with LLM", the factor, Live preview and the switches under the prompt stay."""
-        t = self.t_prompt
-        text = t.get("1.0", "end").strip() if str(t.cget("state")) != "disabled" else None
-        keep = [(v, v.get()) for v in (self.v_variants, self.v_enhance, self.v_scale, self.v_live)]
-        if self.f_opts.winfo_manager() == "pack" and getattr(self, "_opts_place", "") != "post":
-            # the switch box under the prompt (MOSS' UltraReal ...) is not part of the Advanced settings
-            keep += [(v, v.get()) for v in list(self.stage_vars) + list(self.v_sstr)]
-            if self.f_turbo.winfo_manager() == "grid":
-                keep += [(self.v_turbo, self.v_turbo.get()), (self.v_lora_str, self.v_lora_str.get())]
-        self._reset_settings()
-        if text and str(t.cget("state")) != "disabled":
-            t.delete("1.0", "end")
-            t.insert("1.0", text)
-        for v, x in keep:
-            if v.get() != x:
-                v.set(x)
-        if any(v is self.v_turbo for v, _ in keep):
-            self._on_turbo()
-        self._update_stage_scales()
-        m = self._model()
-        self._status(f"Advanced settings back to the startup settings of {m.label if m else 'this model'} · "
-                     f"{self.ADV_FN.get(self.v_mode.get(), self.v_mode.get())}.")
 
     def _menu_below(self, menu, widget):
         """The list under its chip, as wide as the chip at least (rows filled edge to edge), its entries starting where the
@@ -565,34 +525,81 @@ class ModeMixin:
         self._menu_below(menu, self.b_model)
 
     def _chip_menu(self, key: str, event):
-        """Right-click on a model chip (L3, user 29.10.): save the settings of the chosen model, or hide the model (it comes
-        back in the gear window, tab "Models"). The favourite was removed 12.11."""
+        """Right-click on a model chip (L3, user 29.10.): hide the model (it comes back in the gear window, tab "Models").
+        The favourite was removed 12.11.; saving and loading the settings went to the bottom of the Advanced settings
+        ("Save settings", "Load defaults", user 25.11.)."""
         m = models.BY_KEY.get(key)
         if m is None:
             return
-        mode = self.v_mode.get()
         menu = self.m_chip
         menu.delete(0, "end")
-        here = self.v_model.get() == key and mode in m.modes          # saving takes the window as it is: only for the chosen model
-        if here:                      # not offered on any other chip (user 1.11.)
-            menu.add_command(label="Set current settings as startup settings (for this mode and model)", command=lambda: self._save_page(key))
-            menu.add_command(label="Reset to PxC standard settings (for this mode and model)",
-                             command=lambda: self.reset_settings(factory=True))
-            menu.add_separator()
         menu.add_command(label="Hide this model", command=lambda: self._set_model_hidden(key, True))
         menu.tk_popup(event.x_root, event.y_root)
 
-    def _save_page(self, key: str):
-        """The window's settings (not the prompt, the seed or the page itself) become the starting settings of this model and
-        function: every time the page opens, and with "Reset page", they come back (user 30.10., renamed 31.10.)."""
-        mode = self.v_mode.get()
+    def save_settings(self):
+        """"Save settings" (bottom of the Advanced settings, user 25.11.): what differs from the PxC standard settings of this
+        model and function becomes their start settings; every time the page opens they come back. Only what was changed is
+        kept (a later PxC standard value reaches every value you left alone); never the prompt, the seed, the variants or the
+        reference images (PAGE_NOT_SAVED; the slots are not settings). Nothing changed: the saved settings are forgotten."""
+        key, mode = self.v_model.get(), self.v_mode.get()
+        m = models.BY_KEY.get(key)
+        if m is None or mode not in m.modes:
+            self._status("Choose a model for this function first.", error=True)
+            return
         try:
-            s = {k: v for k, v in self._collect().items() if k not in PAGE_NOT_SAVED}
+            now = {k: v for k, v in self._collect().items() if k not in PAGE_NOT_SAVED}
+            std = self._page_standard()
         except (tk.TclError, ValueError, TypeError) as e:
             self._status(f"Could not save the settings: {e}", error=True)
             return
-        cfgmod.set_saved_page(key, mode, s)
-        self._status(f"Saved startup settings for {dict(MODE_LABELS).get(mode, mode)} with {models.BY_KEY[key].label}.")
+        changed = {k: v for k, v in now.items() if std.get(k) != v}
+        cfgmod.set_saved_page(key, mode, changed or None)
+        self._adv_baseline()               # the saved values are the start values now: no blue dots
+        page = f"{FN_NAMES.get(mode, mode)} · {m.label}"
+        self._status(f"Saved {len(changed)} changed setting{'s' if len(changed) != 1 else ''} for {page}." if changed
+                     else f"Nothing differs from the PxC standard settings of {page}: nothing saved.")
+
+    def _page_standard(self) -> dict:
+        """The PxC standard settings of this page as _collect has them: loaded for a moment without the saved ones, then the
+        window is put back exactly as it was (values, prompt, negative, BBOX, the Refine pick, the status line)."""
+        cur = self._collect()
+        t = self.t_prompt
+        keep = {"prompt": t.get("1.0", "end-1c"), "kept": getattr(self, "_prompt_kept", ""), "neg": self.t_neg.get("1.0", "end-1c"),
+                "status": self.v_status.get(), "written": getattr(self, "_written_for", ""), "rpick": getattr(self, "_rpick", ""),
+                "fac": self.v_fac.get(), "cmp": (self.v_cmp_res.get(), self.v_cmp_ctx.get()),
+                "sketch": self.v_sketch.get() if getattr(self, "v_sketch", None) is not None else None,
+                "bbox": bool(self.v_bbox.get()) if getattr(self, "v_bbox", None) is not None else None}
+        undo = t.cget("undo")
+        t.configure(undo=False)            # the prompt's Ctrl+Z history does not see the round trip
+        self._factory = True
+        try:
+            self._reset_settings()
+            return self._collect()
+        finally:
+            self._factory = False
+            try:
+                self._apply_settings({k: v for k, v in cur.items() if k not in ("prompt", "negative")})
+                if keep["sketch"] is not None:
+                    self.v_sketch.set(keep["sketch"])
+                state = str(t.cget("state"))
+                t.configure(state="normal")
+                t.delete("1.0", "end")
+                t.insert("1.0", keep["prompt"])
+                t.configure(state=state)
+                self._prompt_kept = keep["kept"]
+                self.t_neg.delete("1.0", "end")
+                self.t_neg.insert("1.0", keep["neg"])
+                self._written_for, self._rpick = keep["written"], keep["rpick"]
+                self.v_fac.set(keep["fac"])
+                self.v_cmp_res.set(keep["cmp"][0])
+                self.v_cmp_ctx.set(keep["cmp"][1])
+                if keep["bbox"] is not None and bool(self.v_bbox.get()) != keep["bbox"]:
+                    self.v_bbox.set(keep["bbox"])
+                    self._refs_bbox_changed()
+                self._update_prompt_hint()
+                self.v_status.set(keep["status"])
+            finally:
+                t.configure(undo=undo)
 
     def _set_model_hidden(self, key: str, hidden: bool):
         """Hide or show a model chip. Hiding the chosen model chooses another one for the function (_model_for_mode), else
@@ -850,6 +857,9 @@ class ModeMixin:
             self.adv_body.pack(fill="x", pady=(4, 0))
         else:
             self.adv_body.pack_forget()
+        pl = getattr(self, "f_pl_row", None)     # the progress row follows directly: a smaller gap under the closed row (user 25.11.)
+        if pl is not None:
+            pl.pack_configure(pady=(PL_GAP_OPEN if opened else PL_GAP_CLOSED, 0))
 
     def _toggle_advanced(self):
         self.v_adv_open.set(not self.v_adv_open.get())
@@ -922,7 +932,7 @@ class ModeMixin:
         finally:
             self._factory = False
         if factory:
-            self._status("Reset to the PxC standard settings; your startup settings for this mode and model are forgotten.")
+            self._status("Loaded the PxC standard settings; your saved settings for this function and model are forgotten.")
 
     def _start_fresh(self):
         """At every start the sliders, sampler, steps, LoRAs and the other starting settings are the standard ones of the
@@ -1349,14 +1359,6 @@ class ModeMixin:
                     f.grid_remove()
             except (AttributeError, tk.TclError):
                 pass
-        head = getattr(self, "lbl_grp_fn", None)       # the function's heading only over its own rows (user 20.11., B)
-        try:
-            if bool(self.f_post.pack_slaves()):
-                head.grid()
-            else:
-                head.grid_remove()
-        except (AttributeError, tk.TclError):
-            pass
 
     def _update_negative_box(self):
         """No model shows a "Negative prompt" row (user 2.11.; a workflow keeps its own negative text). The frame stays packed,

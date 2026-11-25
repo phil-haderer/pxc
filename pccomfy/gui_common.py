@@ -826,20 +826,21 @@ def sign_font() -> tuple:
 HEADER_GAP = 3           # px between the letters and the sign (5, then 4, now 3: 20 % less again; user 12.11.)
 # the Generate row fills the window's width (user 18.11., decisions 1a and 3): Generate and the variants piece together are as
 # wide as the tab "Edit canvas" (user 18.11., replaces Generate's cap of 1.5), the variants piece grows from its natural width
-# to this factor; what is left stays as a gap before Undo and Redo, two squares at the right edge. No Stop button since
+# to this factor; Generate takes the rest (Undo and Redo are in the header since 25.11.). No Stop button since
 # 20.11. (user): Generate itself turns into "Stop" during a run (_go_stop)
 VARIANTS_GROW_MAX = 1.2
-# the grid columns of the row: 0 Generate, 1 variants, then these (Redo: GO_COL_UNDO + 1); "Stop run" only while Generate
+# the grid columns of the row: 0 Generate, 1 variants, then these; "Stop run" only while Generate
 # is "Add to queue" (docs/plan/generate-queue.md, Variant 1)
-GO_COL_STOP_RUN, GO_COL_STOP_ALL, GO_COL_GAP, GO_COL_UNDO = 2, 3, 4, 5
-GO_GAP_MIN_PX = 6        # px at least between the variants piece (or "Stop batch") and Undo, before the display scaling
+GO_COL_STOP_RUN, GO_COL_STOP_ALL, GO_COL_GAP = 2, 3, 4
 GO_STOP_TEXT, GO_STOP_RUN_TEXT, STOP_BATCH_TEXT = "Stop", "Stop run", "Stop batch"   # Generate during a run (user 20.11.)
 GO_TIP = "Generate (Ctrl+Enter)"
 GO_STOP_TIP = "Stop the run (Ctrl+Alt+Enter)."
 GO_STOP_RUN_TIP = ("Stop the run that is on (Ctrl+Alt+Enter); the variants still to come go on. "
                    "\"Stop batch\" stops them too.")
-QUEUE_ROW_GAP_PX = 4     # px before "Stop run" and "Stop batch" while Generate is "Add to queue" (6 did not fit at 100 %)
+GO_ROW_GAP_PX = 4        # px between every two buttons of the Generate row: Generate, ×n, Stop run, Stop batch (user 25.11.: always the same)
 ADD_QUEUE_TEXT = "Add to queue"     # Generate while a run is on, for a function that can wait in the queue (user 22.11.)
+GO_WIDTH_CH = 9      # Generate's least width in characters (ttk width); 0 with ADD_QUEUE_SHORT, else it would not get narrower
+ADD_QUEUE_SHORT = "Queue"     # the same where the row is too short for it (a batch on, a small Interface scale; user 25.11.)
 ADD_QUEUE_TIP = ("Add this run to the queue (Ctrl+Enter): the picture in front and the settings are taken now; "
                  "it starts when the runs before it are through.")
 STOP_RUN_TIP = "Stop the run that is on (Ctrl+Alt+Enter); what waits in the queue goes on."
@@ -856,14 +857,19 @@ QUEUE_FN_NAMES = FN_NAMES      # the names in QUEUE_OTHER_FN and the queue windo
 VARIANTS_QUEUED = "The first picture runs now; {n} more in the queue."   # ×n (user 23.11. evening: shorter)
 UNDO_HIDE_MODES = ("inpaint", "remove")   # Undo hides their result layer (user 23.11. late), like the queue modes
 STOP_GUARD_S = 0.5       # s after Generate turned into Stop in which a click on Stop is ignored (a double click, user 20.11.)
-GO_PAIR_GAP_PX = 3       # px between the Undo and Redo squares, before the display scaling
+PL_GAP_OPEN = 6          # px above the progress row under open Advanced settings, before the display scaling
+PL_GAP_CLOSED = 3        # under the closed row: less (user 25.11.)
 from .refslots import EDTAB_PADX  # noqa: E402  (the tabs under the prompt; Generate and the variants piece are as wide as one)
 ERR_BADGE_PX = 16        # the red error circle in the status line before the display scaling (90 % of the old 18 px badge; user 12.11.)
 CLIP_DEFAULT = "(workflow default)"
 
 
 
-PAGE_NOT_SAVED = ("mode", "workflow", "clip", "checkpoint", "seed", "prompt", "negative", "variants")   # what "Set current settings as my standard settings" leaves out: the page itself, the text, the seed and the number of variants
+PAGE_NOT_SAVED = ("mode", "workflow", "clip", "checkpoint", "seed", "prompt", "negative", "variants", "edit_tabs", "writer_seed")   # what "Save settings" never keeps: the page itself, the text, the seeds, the number of variants
+# the two buttons at the bottom of the Advanced settings (user 25.11.)
+SAVE_PAGE_TIP = ("Saves what you changed on this page (this function with this model) as its start settings: the Advanced "
+                 "settings and the values above them. Not saved: prompt, seed, variants, reference images.")
+LOAD_STD_TIP = ("Loads the PxC standard settings of this function and model; your saved settings for it are forgotten.")
 ON_ACCENT = "#ffffff"       # text and icons on the blue fill (chosen function, Generate): white, bold (user 3.11.)
 BG, PANEL, FG, MUTED, ACCENT = "#535353", "#282828", "#eeeeee", "#cfcfcf", "#378ef0"   # PhotoCraft grey and blue (both measured from a screenshot); PANEL = inactive tab, fields, buttons, slots
 SLOT_BG = "#e6e6e6"     # the reference-image slots: light grey, the same grey as the slider fill (user 12.11., was light blue); keep refslots.thumbnail_png's default in step
@@ -882,6 +888,10 @@ CUTOUT_BOTH_LABEL = "Both"
 CUT_NOT_IN_RUN = "Not while a run is on."     # Cut out (scissors and slots) is grey during a run or a queue job (user 23.11.)
 HISTORY_UNDO_TIP = "Back to the state before the last generation."
 HISTORY_REDO_TIP = "Brings the AI edit back after an Undo."
+# closing PxC by hand while a run of the window is on (user 25.11., choice "Ask when closing PxC"); Yes / No / Cancel
+CLOSE_RUN_ASK = ("A run is still going in ComfyUI.\n\n"
+                 "Yes: stop it and close PxC.\nNo: let ComfyUI finish it and close PxC (the result is not placed).\n"
+                 "Cancel: keep PxC open.")
 NO_LLM_MODES = ("outpaint", "remove", "sketch", "scribble") + SCALE_MODES   # no "Enhance my Prompt with LLM" row: fixed or ready-made prompts (user 30.10.);
 # Sketch: the upsampler always runs with Flux 3, Flux 2 and Qwen, Fibo never has one (user 10.11.)
 EDIT_MODES = ("edit", "multi_edit", "sketch", "scribble")     # the window modes behind the one function button Edit (its tabs)
@@ -998,6 +1008,12 @@ __all__ = [
     "HEADER_GAP",
     "sign_font",
     "VARIANTS_GROW_MAX",
+    "PL_GAP_OPEN",
+    "PL_GAP_CLOSED",
+    "ADD_QUEUE_SHORT",
+    "GO_WIDTH_CH",
+    "SAVE_PAGE_TIP",
+    "LOAD_STD_TIP",
     "GO_STOP_TEXT",
     "GO_STOP_RUN_TEXT",
     "STOP_BATCH_TEXT",
@@ -1006,7 +1022,7 @@ __all__ = [
     "GO_STOP_RUN_TIP",
     "GO_COL_STOP_RUN",
     "GO_COL_STOP_ALL",
-    "QUEUE_ROW_GAP_PX",
+    "GO_ROW_GAP_PX",
     "ADD_QUEUE_TEXT",
     "ADD_QUEUE_TIP",
     "VARIANTS_QUEUED",
@@ -1018,9 +1034,6 @@ __all__ = [
     "FN_NAMES",
     "QUEUE_NO_BBOX",
     "GO_COL_GAP",
-    "GO_COL_UNDO",
-    "GO_GAP_MIN_PX",
-    "GO_PAIR_GAP_PX",
     "STOP_GUARD_S",
     "EDTAB_PADX",
     "ERR_BADGE_PX",
@@ -1144,6 +1157,7 @@ __all__ = [
     "CUT_NOT_IN_RUN",
     "HISTORY_UNDO_TIP",
     "HISTORY_REDO_TIP",
+    "CLOSE_RUN_ASK",
     "UNDO_HIDE_MODES",
     "LIVE_TIP",
     "LLM_TIP",

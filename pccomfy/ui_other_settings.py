@@ -50,7 +50,7 @@ class OtherSettingsMixin:
     MAINTENANCE = (
         ("Show all hidden models", "Brings back every model chip that was hidden (right-click menu of a chip or the tick in the model tab).",
          "_show_hidden_models"),
-        ("Reset all modes to default settings", "Forgets every page you saved with “Set current settings as startup settings (for this mode and model)” (right-click on a model chip): "
+        ("Reset all modes to default settings", "Forgets every page you saved with “Save settings” (bottom of the Advanced settings): "
          "all models and functions start with the PxC standard settings again. Asks first.", "_reset_all_modes"),
         ("Copy report", "Copies a report to the clipboard for a bug report: PxC version, where it is installed, Python, "
          "which config files it reads and what they change, the ComfyUI address, which model files are missing. No prompts, "

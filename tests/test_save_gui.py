@@ -102,14 +102,14 @@ def main():
     menu, kw = shown[0]
     assert kw.get("above_w") is app.b_menu
     assert [e["label"] for e in menu.entries][:2] == ["Save image (Ctrl+S)", "Copy canvas"], menu.entries
-    cmds = [e for e in menu.entries if e["type"] != "separator"]      # one line above the two resets of the page (16.11.)
+    cmds = [e for e in menu.entries if e["type"] != "separator"]      # the two resets of the page are gone (user 25.11.)
     assert all(e["icon"] is not None for e in cmds) and all(e["type"] == "command" for e in cmds)
     assert all(e["icon_hot"] is not None and e["icon_hot"] is not e["icon"] for e in cmds)   # white on hover (user 12.11.)
     assert menu.entries[0]["tip"] and "save" in menu.entries[0]["tip"].lower(), menu.entries[0]   # Save image has a hover hint (user 12.11.)
-    assert all(e["tip"] for e in cmds[-2:]), cmds[-2:]       # the two resets keep the hint of the former "Reset page" button (16.11.)
+    assert not any("Reset" in e["label"] for e in cmds) and len(cmds) == 5, [e["label"] for e in cmds]
     assert menu.entries[1]["tip"] == app.COPY_CANVAS_TIP == "Copies the visible image to the clipboard."   # user 21.11.
     assert [e["label"] for e in cmds if e["tip"] == app.HISTORY_TIP] == ["History"]          # the clock's hint went along (24.11.)
-    assert not any(e["tip"] for e in cmds[2:-3]), menu.entries                                     # the batch entries have none
+    assert not any(e["tip"] for e in cmds[2:-1]), menu.entries                                     # the batch entries have none
     menu.entries[0]["command"]()
     menu.entries[1]["command"]()
     assert calls == ["save", "copy"], calls
