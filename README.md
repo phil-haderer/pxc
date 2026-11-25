@@ -2,7 +2,6 @@
 
 <h1><img src="readme-images/logo.png" alt="PxC" width="418"></h1>
 
-[![Install matrix](../../actions/workflows/install-matrix.yml/badge.svg)](../../actions/workflows/install-matrix.yml)
 [![License: MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue)](#license)
 [![Platform: Windows and Linux](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)](#install-on-windows)
 [![Python 3.11 or newer, on Linux 3.10 or newer](https://img.shields.io/badge/python-3.11%2B%20%C2%B7%20Linux%203.10%2B-blue)](#install-on-windows)
