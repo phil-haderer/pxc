@@ -19,11 +19,6 @@ Tested: Windows 11 · Linux Mint (X11, Cinnamon Wayland) · PhotoCraft 0.23.1 ·
 
 Many test rounds went into PxC, and every line of it was written with Claude Code (Opus and Sonnet 5.5). Coming from graphic design, I built it for real work, and it's already in professional use, where it can stand in for Photoshop's generative functions, running on local AI. I would love to hear your feedback. I use PxC every day and keep developing it, so bug reports and ideas go straight into the next versions.
 
-## Coming in the next version
-
-- **SAM 3 selection:** click an object in your picture (or type what it is) and PxC selects it in PhotoCraft, ready for Fill or Remove.
-- Minor adjustments.
-
 <!-- examples:start -->
 <a id="examples"></a>
 
@@ -94,6 +89,11 @@ The Style prompts button beside the prompt adds a ready-made style text. A few o
 - **Retro & vintage:** Pixel art · Technicolor, 1950s print · Synthwave, neon retro
 
 </details>
+
+## Coming in the next version
+
+- **SAM 3 selection:** click an object in your picture (or type what it is) and PxC selects it in PhotoCraft, ready for Fill or Remove.
+- Minor adjustments.
 
 ## How it fits together
 
