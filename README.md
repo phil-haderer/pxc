@@ -97,6 +97,8 @@ The Style prompts button beside the prompt adds a ready-made style text. A few o
 
 - **SAM 3 selection:** click an object in your picture (or type what it is) and PxC selects it in PhotoCraft, ready for Fill or Remove.
 - **Portable version:** a ZIP with its own Python inside: unpack it and start PxC, no setup script needed.
+- **Denoise in Text to Image:** a slider that starts from the picture open in PhotoCraft (image to image) for every model; 1.0 still makes a new picture.
+- **Custom LoRAs per model:** each model keeps its own LoRA list, so switching models no longer means switching LoRAs by hand.
 - Minor adjustments.
 
 ## How it fits together
