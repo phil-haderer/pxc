@@ -415,7 +415,7 @@ The shortcuts work only while the PxC window is active: click into it first.
 **Update.**
 - Once a day at the start PxC asks GitHub for a newer version (GitHub sees your IP address and the PxC version, nothing else). Untick **Check for updates** in gear ▸ **Other settings** to stop it; **Check now** asks at once.
 - A newer version shows as a blue dot on the gear, with **What's new** and **Skip this version** at the top of **Other settings**.
-- To install it, unpack the new ZIP over the old folder, or press **Update now** if you used `git clone`. Run the setup script again only if PxC says so, then restart PxC. Your settings in `data\` (Linux: `~/.config/pccomfy/`) stay as they are.
+- To install it, download **Source code (zip)** on the release page and copy what is in its folder `pxc-<version>` over your PxC folder (replace the files), or press **Update now** if you used `git clone`. Run the setup script again only if PxC says so, then restart PxC. Your settings in `data\` (Linux: `~/.config/pccomfy/`) stay as they are.
 
 **Report a problem.** Open an issue on this repository's **Issues** page and tell us:
 - what you did, what you expected and what happened (the status line at the bottom of the window is useful);
