@@ -19,7 +19,7 @@ Tested: Windows 11 · Linux Mint (X11, Cinnamon Wayland) · PhotoCraft 0.23.1 ·
 
 </div>
 
-Many test rounds went into PxC, and it was written with the help of Claude Code (Opus and Sonnet 5.5). Coming from graphic design, I built it for real work, and it's already in professional use, where it can stand in for Photoshop's generative functions, running on local AI. I would love to hear your feedback. I use PxC every day and keep developing it, so bug reports and ideas go straight into the next versions.
+Many test rounds went into PxC, written with the help of Claude Code. Coming from graphic design, I built it for real work: it is already in professional use as a local stand-in for Photoshop's generative functions. I use PxC every day and keep developing it, so bug reports and ideas go straight into the next versions.
 
 <!-- examples:start -->
 <a id="examples"></a>
@@ -92,6 +92,8 @@ The Style prompts button beside the prompt adds a ready-made style text. A few o
 - **Graphic & poster:** Flat vector, sunny · Mid-century travel poster · Risograph, blue and yellow
 - **Retro & vintage:** Pixel art · Technicolor, 1950s print · Synthwave, neon retro
 
+**Sketch to image** (38 styles in 8 groups): the same looks for your drawings, e.g. Realistic photo · Animated film · Watercolor storybook · Clear-line comic
+
 </details>
 
 ## Coming in the next version
@@ -101,16 +103,6 @@ The Style prompts button beside the prompt adds a ready-made style text. A few o
 - **Denoise in Text to Image:** a slider that starts from the picture open in PhotoCraft (image to image) for every model; 1.0 still makes a new picture.
 - **Custom LoRAs per model:** each model keeps its own LoRA list, so switching models no longer means switching LoRAs by hand.
 - Minor adjustments.
-
-## How it fits together
-
-```
-PhotoCraft  <-->  PxC  <-->  ComfyUI
-```
-
-- **PhotoCraft** is the image editor where you work and where the results land as layers.
-- **ComfyUI** runs the AI models on your graphics card.
-- **PxC** (this companion app, a small window of its own next to PhotoCraft) sits between them: it sends your picture or selection to ComfyUI and puts the result back as a layer.
 
 ## Before you start
 
@@ -158,11 +150,7 @@ Window too small or too big? Gear window ▸ **Other settings** ▸ **Interface 
 
 ## Model downloads
 
-**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder, then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works. The same lists as a page of their own: [docs/model-downloads.md](docs/model-downloads.md).
-
-**Custom nodes** (small add-ons for ComfyUI; install them from the ComfyUI Manager or the link, then restart ComfyUI):
-- [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes): needed for Flux 2, for Upscale with Flux 3 and for the tiles option of Upscale with Fibo.
-- [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF): only for smaller GGUF model files (gear window, the file's field).
+**You do not have to sort anything yourself.** Each model is one pack: the **Download missing files** button (gear window ▸ the model) downloads all missing files of that model and puts each one into the right ComfyUI folder automatically, sub-folders included; then restart ComfyUI. The list below is the same pack for downloading by hand: put each file into the folder named below it, inside your ComfyUI folder, then restart ComfyUI. You only need the files of the models you want. "Optional" files switch extra features on; without them the model still works.
 
 <!-- model-downloads:start -->
 
@@ -329,8 +317,6 @@ RMBG-2.0 is a community copy of the official file, which needs a Hugging Face lo
 You pick a **function** at the top, type a prompt and press **Generate**. PxC sends the picture (or the selection)
 to ComfyUI and puts the result back into PhotoCraft as a new layer in a group, with a soft layer mask where that makes sense.
 
-MiniMax H3 Image draws in a size you pick in megapixels (4 to 20 MP, best at about 16 MP); **Downsize to canvas** scales the result down to your canvas and adds it as a layer, otherwise it opens as a new document in the chosen size.
-
 | Function | What it does |
 |---|---|
 | **Text to Image** | A new picture from text only, as a new layer. |
@@ -369,6 +355,7 @@ MiniMax H3 Image draws in a size you pick in megapixels (4 to 20 MP, best at abo
 
 **Results**
 - **Variants:** several results as layers in one group; a **live preview** shows the picture while it is made.
+- **MiniMax size:** MiniMax draws at 4 to 20 MP (best at about 16 MP). With **Downsize to canvas** the result lands on your canvas as a layer, otherwise it opens as a new document.
 - **Undo / Redo** in the header take back or bring back the last AI result.
 - **History** (⋯ menu, bottom right) brings back earlier settings.
 
@@ -413,7 +400,7 @@ The shortcuts work only while the PxC window is active: click into it first.
 | "You need to download …" | Open the gear window and download the missing file, then restart ComfyUI (it reads its model folders only at start). |
 | A Flux 3 download is refused | Log in to Hugging Face and accept the licence on the model page first. |
 | On Linux nothing appears | Run `./pxc.sh` in a terminal; the message tells you what is missing. |
-| **Enhance my Prompt with LLM** is slow, especially with 8 GB of VRAM | Start ComfyUI with `--use-ck-attention` (add it at the end of the `main.py` line in your start file). On 8 GB the prompt writers ran 2 to 5 times faster and Qwen Image 2.1 about 25 % faster, with the same quality. On 16 GB it is not needed. |
+| **Enhance my Prompt with LLM** is slow, especially with 8 GB of VRAM | Start ComfyUI with `--use-ck-attention` (at the end of the `main.py` line in your start file). On 8 GB the prompt writers ran 2 to 5 times faster, with the same quality. |
 
 **Update.**
 - Once a day at the start PxC asks GitHub for a newer version (GitHub sees your IP address and the PxC version, nothing else). Untick **Check for updates** in gear ▸ **Other settings** to stop it; **Check now** asks at once.
@@ -450,7 +437,6 @@ py -3.13 -m venv .venv
 .venv\Scripts\python.exe pxc.pyw --photocraft "C:\path\to\photocraft.exe"
 ```
 
-If `setup-windows.bat` said it uses Python directly, use the path in `data\python.txt` instead of `.venv\Scripts\python.exe`.
 The shortcut starts PhotoCraft with a control channel for PxC (local only, protected by a token, file access limited to `data\exchange`) and then PxC, without a console window.
 
 **Linux, by hand** (what `setup-linux.sh` does):
@@ -471,7 +457,7 @@ Settings and the PhotoCraft token live in `~/.config/pccomfy/`. A different Comf
 **Model files.** All files with sizes, folders and links are listed under [Model downloads](#model-downloads). The gear window lists the same files with a download button; PxC enables a model when it finds all the files for its standard settings. To keep the memory use low, PxC uses int8 ConvRot files for most models; the exceptions are the text encoders of MiniMax (nvfp4) and Flux 2 (fp8mixed) and the prompt writers (w4a8). Some files are gated: log in to Hugging Face and accept the licence on the model page first. Flux 3 is one of them.
 
 **Known limitations.**
-- Developed and tested on Windows 11 with an NVIDIA card. On Linux it was run on Linux Mint (X11 and Cinnamon Wayland); the setup scripts are also checked automatically on Ubuntu, Debian, Fedora and Arch, but daily use there is not tested yet.
+- Tested with NVIDIA cards only. On Linux it was run on Linux Mint (X11 and Cinnamon Wayland); the setup scripts are also checked automatically on Ubuntu, Debian, Fedora and Arch, but daily use there is not tested yet.
 - Linux: under X11 the window stays above PhotoCraft and minimises with it; under Wayland it is a normal window that stays on top.
 - During a run, PhotoCraft briefly opens a temporary document. Please don't switch documents or change the selection while a run is going.
 - A run consists of several PhotoCraft steps (history entries).
