@@ -19,7 +19,7 @@ Tested: Windows 11 · Linux Mint (X11, Cinnamon Wayland) · PhotoCraft 0.23.1 ·
 
 </div>
 
-Many test rounds went into PxC, and every line of it was written with Claude Code (Opus and Sonnet 5.5). Coming from graphic design, I built it for real work, and it's already in professional use, where it can stand in for Photoshop's generative functions, running on local AI. I would love to hear your feedback. I use PxC every day and keep developing it, so bug reports and ideas go straight into the next versions.
+Many test rounds went into PxC, and it was written with the help of Claude Code (Opus and Sonnet 5.5). Coming from graphic design, I built it for real work, and it's already in professional use, where it can stand in for Photoshop's generative functions, running on local AI. I would love to hear your feedback. I use PxC every day and keep developing it, so bug reports and ideas go straight into the next versions.
 
 <!-- examples:start -->
 <a id="examples"></a>
@@ -484,3 +484,9 @@ Settings and the PhotoCraft token live in `~/.config/pccomfy/`. A different Comf
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The models are not part of this
 repository and have their own licences (on each model's page).
+
+## Credits
+
+PxC started as a fork of [photocraft-comfyui-bridge](https://github.com/Peszemeszek/photocraft-comfyui-bridge) by Przemysław Kudaka (Peszemeszek), MIT or Apache-2.0. Parts of its code for the PhotoCraft and ComfyUI connection are still in PxC.
+
+Photos: Magnific, Freepik, Pexels
